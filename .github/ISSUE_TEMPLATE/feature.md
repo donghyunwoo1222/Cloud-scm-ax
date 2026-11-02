@@ -22,3 +22,7 @@ labels: feature
 - [ ] 조건 1
 - [ ] 조건 2
 - [ ] 조건 3
+
+## 관련 문서 링크
+<!-- 이 기능과 관련된 docs/ 폴더 문서나 다른 이슈/PR 링크를 적어주세요. 예: docs/03-planning/service-planning.md#f1 -->
+
