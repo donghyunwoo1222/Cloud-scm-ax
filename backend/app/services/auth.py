@@ -26,14 +26,19 @@ def create_company(db: Session, data: CompanySignup) -> User:
         role="ADMIN",  # 첫 계정은 관리자
     )
     db.add(admin)  # 세션에 올림
+    commit_new_user(db)  # 회사 + 관리자를 함께 확정 (이메일 중복이면 둘 다 취소 후 409)
+    return admin  # 만든 관리자
+
+
+def commit_new_user(db: Session) -> None:
+    """새 사용자를 확정한다. 이메일 중복이면 되돌리고 409 EMAIL_TAKEN. 회사 가입(#22)·직원 생성(#24)이 함께 쓴다."""
     try:
-        db.commit()  # 회사 + 관리자를 함께 확정
+        db.commit()  # 확정
     except IntegrityError as e:  # 제약 위반이면
-        db.rollback()  # 회사 INSERT 까지 함께 취소
+        db.rollback()  # 이번 트랜잭션의 INSERT 를 모두 취소
         if getattr(e.orig.diag, "constraint_name", None) == "users_email_key":  # 이메일 유일 제약이면
             raise AppError(409, "EMAIL_TAKEN", "이미 사용 중인 이메일입니다.") from None
         raise  # 그 밖의 위반은 예상 밖이라 그대로 올린다 (500)
-    return admin  # 만든 관리자
 
 
 def authenticate(db: Session, email: str, password: str) -> User:
