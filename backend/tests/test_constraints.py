@@ -84,6 +84,7 @@ def test_valid_rows_are_accepted(session, base):
         pytest.param({"purchase_order_item_id": "ITEM"}, id="5-sale-with-po-item"),  # 5) 판매에 발주 품목 연결
         pytest.param({"direction": "IN"}, id="sale-direction-in"),  # 판매인데 늘림
         pytest.param({"reverses_movement_id": "SELF_SALE"}, id="non-correction-with-target"),  # 정정이 아닌데 원래 이력을 가리킴
+        pytest.param({"movement_type": "DISPOSAL"}, id="disposal-with-channel"),  # 폐기인데 판매 채널이 있음 (기본값 SMARTSTORE)
     ],
 )
 def test_chk_movement_rejects_invalid_rows(session, base, fields):

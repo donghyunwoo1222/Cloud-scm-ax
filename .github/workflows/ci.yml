@@ -12,8 +12,21 @@ jobs:
     defaults:
       run:
         working-directory: backend   # 모든 명령을 backend/ 폴더에서 실행 (README와 같은 위치)
-    # DB 없이 도는 테스트만 있어 PostgreSQL은 아직 없다.
-    # #21(DB 표)에서 여기에 services: postgres 를 추가하고 DATABASE_URL 을 넘긴다.
+    services:
+      postgres:                              # DB 제약 테스트용 PostgreSQL (로컬 Docker와 같은 버전)
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: scm                 # CI 전용 일회용 DB라 비밀값이 아니다
+          POSTGRES_PASSWORD: scm_local_pw
+          POSTGRES_DB: scm_test              # 테스트 전용 DB 이름 (로컬과 같다)
+        ports:
+          - "5433:5432"                      # 로컬과 같은 포트로 열어 테스트 기본 주소를 그대로 쓴다
+        options: >-
+          --health-cmd "pg_isready -U scm -d scm_test"
+          --health-interval 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://scm:scm_local_pw@localhost:5433/scm_test  # 테스트가 쓸 DB 주소
     steps:
       - uses: actions/checkout@v4            # 저장소 코드를 내려받는다
       - uses: actions/setup-python@v5        # Python 설치

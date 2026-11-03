@@ -155,7 +155,7 @@ def upgrade() -> None:
     sa.CheckConstraint("direction IN ('IN', 'OUT')", name='ck_movements_direction'),
     sa.CheckConstraint("movement_type IN ('RECEIPT', 'SALE', 'DISPOSAL', 'OTHER_OUT', 'ADJUSTMENT', 'CORRECTION')", name='ck_movements_type'),
     # chk_movement: 이력 한 행의 표현 규칙 (erd.md, app/models/inventory_movement.py 에 줄별 설명)
-    sa.CheckConstraint("quantity > 0 AND (movement_type <> 'RECEIPT' OR direction = 'IN') AND (movement_type NOT IN ('SALE', 'DISPOSAL', 'OTHER_OUT') OR direction = 'OUT') AND (movement_type <> 'SALE' OR sales_channel IS NOT NULL) AND (movement_type NOT IN ('ADJUSTMENT', 'CORRECTION') OR reason IS NOT NULL) AND ((movement_type = 'CORRECTION') = (reverses_movement_id IS NOT NULL)) AND (movement_type IN ('RECEIPT', 'CORRECTION') OR purchase_order_item_id IS NULL)", name='chk_movement'),
+    sa.CheckConstraint("quantity > 0 AND (movement_type <> 'RECEIPT' OR direction = 'IN') AND (movement_type NOT IN ('SALE', 'DISPOSAL', 'OTHER_OUT') OR direction = 'OUT') AND (movement_type <> 'SALE' OR sales_channel IS NOT NULL) AND (movement_type = 'SALE' OR sales_channel IS NULL) AND (movement_type NOT IN ('ADJUSTMENT', 'CORRECTION') OR reason IS NOT NULL) AND ((movement_type = 'CORRECTION') = (reverses_movement_id IS NOT NULL)) AND (movement_type IN ('RECEIPT', 'CORRECTION') OR purchase_order_item_id IS NULL)", name='chk_movement'),
     sa.CheckConstraint("sales_channel IN ('SMARTSTORE', 'OWN_MALL', 'OTHER')", name='ck_movements_sales_channel'),
     sa.ForeignKeyConstraint(['company_id'], ['companies.id'], ),
     sa.ForeignKeyConstraint(['created_by'], ['users.id'], ),

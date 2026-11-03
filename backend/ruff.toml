@@ -1,2 +1,4 @@
 # ruff(린트) 설정: 기본 규칙을 그대로 쓰고, 한글 줄 끝 주석 때문에 줄 길이만 100자로 늘린다
 line-length = 100
+# Alembic이 자동 생성한 마이그레이션 파일은 검사하지 않는다 (사람이 고쳐 쓰는 코드가 아님)
+extend-exclude = ["migrations/versions"]

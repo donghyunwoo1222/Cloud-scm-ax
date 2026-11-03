@@ -284,6 +284,7 @@ ALTER TABLE inventory_movements ADD CONSTRAINT chk_movement CHECK (
     AND (movement_type <> 'RECEIPT' OR direction = 'IN')                      -- 입고는 항상 늘림
     AND (movement_type NOT IN ('SALE', 'DISPOSAL', 'OTHER_OUT') OR direction = 'OUT')  -- 출고 3종은 항상 줄임
     AND (movement_type <> 'SALE' OR sales_channel IS NOT NULL)                -- 판매에는 채널 필수 (R7)
+    AND (movement_type = 'SALE' OR sales_channel IS NULL)                     -- 판매가 아니면 채널은 비움
     AND (movement_type NOT IN ('ADJUSTMENT', 'CORRECTION') OR reason IS NOT NULL)  -- 조정·정정에는 사유 필수 (R10)
     AND ((movement_type = 'CORRECTION') = (reverses_movement_id IS NOT NULL))  -- 정정만 원래 이력을 가리키고, 정정은 반드시 가리킨다
     AND (movement_type IN ('RECEIPT', 'CORRECTION') OR purchase_order_item_id IS NULL)  -- 발주 연결은 입고와 그 정정에만

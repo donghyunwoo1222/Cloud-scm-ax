@@ -6,13 +6,14 @@ from sqlalchemy.orm import Mapped, mapped_column  # 칸 정의 도구
 from app.models.base import Base, CompanyMixin  # 공통 부모와 회사 칸
 
 # 입출고 이력 한 행 안에서 지켜야 할 규칙 (erd.md 의 chk_movement 그대로). 줄별 뜻:
-# 수량 양수 / 입고는 IN / 출고 3종은 OUT / 판매엔 채널 필수 / 조정·정정엔 사유 필수
+# 수량 양수 / 입고는 IN / 출고 3종은 OUT / 판매엔 채널 필수 / 판매가 아니면 채널 비움 / 조정·정정엔 사유 필수
 # / 정정만 원래 이력을 가리키고 정정은 반드시 가리킴 / 발주 연결은 입고와 그 정정에만
 CHK_MOVEMENT = (
     "quantity > 0"
     " AND (movement_type <> 'RECEIPT' OR direction = 'IN')"
     " AND (movement_type NOT IN ('SALE', 'DISPOSAL', 'OTHER_OUT') OR direction = 'OUT')"
     " AND (movement_type <> 'SALE' OR sales_channel IS NOT NULL)"
+    " AND (movement_type = 'SALE' OR sales_channel IS NULL)"
     " AND (movement_type NOT IN ('ADJUSTMENT', 'CORRECTION') OR reason IS NOT NULL)"
     " AND ((movement_type = 'CORRECTION') = (reverses_movement_id IS NOT NULL))"
     " AND (movement_type IN ('RECEIPT', 'CORRECTION') OR purchase_order_item_id IS NULL)"
