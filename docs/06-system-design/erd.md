@@ -127,7 +127,7 @@ erDiagram
 | received\_at | 시각 | 선택 | RECEIVED로 바뀐 시각. 약속 납기와 비교하는 실제 입고 시각 |
 | cancelled\_at | 시각 | 선택 | CANCELLED로 바뀐 시각 |
 
-규칙은 세 가지다. 첫째, 회사마다 공급업체 하나에 DRAFT 발주서는 1장만 둘 수 있다(S10). 둘째, 상태는 DRAFT → APPROVED → ORDERED → RECEIVED 순서로만 바뀌고, 입고가 한 번도 없는 발주서만 CANCELLED가 될 수 있다. 셋째, 품목·수량은 DRAFT일 때만 고칠 수 있다(임시 확정).
+규칙은 세 가지다. 첫째, 회사마다 공급업체 하나에 DRAFT 발주서는 1장만 둘 수 있다(S10). 둘째, 상태는 DRAFT → APPROVED → ORDERED → RECEIVED 순서로만 바뀌고, 입고가 한 번도 없는 발주서만 CANCELLED가 될 수 있다. 입고 후 전부 정정해서 누적 입고량이 0이어도, 입고(RECEIPT) 기록이 있으면 취소할 수 없다(임시 확정). 셋째, 품목·수량은 DRAFT일 때만 고칠 수 있다(임시 확정).
 
 ### purchase\_order\_items (발주 품목)
 

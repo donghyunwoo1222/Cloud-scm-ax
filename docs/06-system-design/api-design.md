@@ -124,7 +124,7 @@
 
 ### 4) 발주 상태 변경: approve · order · cancel
 
-세 경로 모두 요청 본문이 없다. 서버가 현재 상태를 보고 허용되는 한 단계만 바꾼다(DRAFT→APPROVED→ORDERED). 그 밖의 요청은 409 `INVALID_STATUS`, 담당자가 approve를 부르면 403 `FORBIDDEN_ROLE`(S11), 입고 이력이 있는 발주의 cancel은 409 `CANNOT_CANCEL_RECEIVED`이다. 비활성 공급업체나 비활성 품목이 든 DRAFT를 approve하면 409 `INACTIVE_REFERENCE`이다. 마지막 상태 변경은 모두 한 번에 하나씩만 되도록 서버가 현재 상태를 읽고 갱신하는 조건을 한 구문에서 검사한다(두 명이 동시에 눌러도 한 번만 반영).
+세 경로 모두 요청 본문이 없다. 서버가 현재 상태를 보고 허용되는 한 단계만 바꾼다(DRAFT→APPROVED→ORDERED). 그 밖의 요청은 409 `INVALID_STATUS`, 담당자가 approve를 부르면 403 `FORBIDDEN_ROLE`(S11), 입고 이력이 있는 발주의 cancel은 409 `CANNOT_CANCEL_RECEIVED`이다(입고 후 전부 정정해 누적 입고량이 0이어도 RECEIPT 기록이 있으면 마찬가지, 임시 확정). 비활성 공급업체나 비활성 품목이 든 DRAFT를 approve하면 409 `INACTIVE_REFERENCE`이다. 마지막 상태 변경은 모두 한 번에 하나씩만 되도록 서버가 현재 상태를 읽고 갱신하는 조건을 한 구문에서 검사한다(두 명이 동시에 눌러도 한 번만 반영).
 
 ### 5) 발주 추천 조회: GET /recommendations
 
