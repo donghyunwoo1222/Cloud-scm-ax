@@ -2,34 +2,9 @@
 
 import pytest  # 테스트 도구
 
-from app.auth.security import hash_password  # 테스트 사용자 비밀번호
-from app.models import Company, Supplier, User  # 표
+from tests.helpers import login_as  # 공통 로그인 (준비 데이터 world 는 conftest)
 
-PASSWORD = "test-password"  # 테스트 사용자 공통 비밀번호
 URL = "/api/v1/suppliers"  # 공급업체 경로
-
-
-@pytest.fixture
-def world(session):
-    """회사 A(관리자·담당자·업체 'A업체'), 회사 B(담당자·업체 'B업체')."""
-    out = {}
-    for key, roles in (("a", ("ADMIN", "STAFF")), ("b", ("STAFF",))):
-        company = Company(name=f"회사{key.upper()}")
-        session.add(company)
-        session.flush()  # company.id 생성
-        for role in roles:
-            session.add(User(company_id=company.id, name=f"{key}-{role}", email=f"{role.lower()}@{key}.test",
-                             password_hash=hash_password(PASSWORD), role=role))
-        supplier = Supplier(company_id=company.id, name=f"{key.upper()}업체", lead_time_days=5)
-        session.add(supplier)
-        session.flush()  # supplier.id 생성
-        out[f"{key}_supplier"] = supplier  # 예) out["a_supplier"]
-    session.commit()  # 준비 데이터 확정: 앱이 409 뒤 rollback 해도 남는다 (테스트 끝에는 바깥 트랜잭션째 되돌림)
-    return out
-
-
-def login_as(client, email: str = "staff@a.test") -> None:
-    assert client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD}).status_code == 200
 
 
 def new_supplier(**override) -> dict:

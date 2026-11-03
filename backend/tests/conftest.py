@@ -8,8 +8,11 @@ from fastapi.testclient import TestClient  # 서버를 띄우지 않고 앱에 �
 from sqlalchemy import create_engine, make_url, text  # DB 연결, 주소 해석, SQL 문장
 from sqlalchemy.orm import Session  # ORM 세션
 
+from app.auth.security import hash_password  # 테스트 사용자 비밀번호 해시
 from app.db import get_db  # 앱이 쓰는 DB 세션 의존성
 from app.main import app  # 테스트할 앱
+from app.models import Company, Supplier, User  # 준비 데이터 표
+from tests.helpers import PASSWORD  # 테스트 사용자 공통 비밀번호
 
 # 테스트 전용 DB. 개발용 DB(scm)와 이름을 나눠, 테스트가 개발 데이터를 지우지 않게 한다
 TEST_DATABASE_URL = os.environ.get(
@@ -67,3 +70,29 @@ def client(session):
     with TestClient(app) as c:  # 쿠키를 기억하는 가짜 브라우저
         yield c
     app.dependency_overrides.clear()  # 다음 테스트에 영향 없게 원래대로
+
+
+@pytest.fixture
+def world(session):
+    """공통 준비 데이터: 회사 A·B, 각 회사에 관리자·담당자·공급업체 1개.
+
+    키: a_company, a_admin(admin@a.test), a_staff(staff@a.test), a_supplier('A업체', 리드타임 5), b_ 도 같은 모양.
+    """
+    out = {}
+    for key in ("a", "b"):  # 회사 A, B
+        company = Company(name=f"회사{key.upper()}")  # 회사A, 회사B
+        session.add(company)
+        session.flush()  # company.id 생성
+        out[f"{key}_company"] = company
+        for role in ("ADMIN", "STAFF"):  # 관리자, 담당자
+            user = User(
+                company_id=company.id, name=f"{key}-{role}", email=f"{role.lower()}@{key}.test",  # 예) admin@a.test
+                password_hash=hash_password(PASSWORD), role=role,
+            )
+            session.add(user)
+            out[f"{key}_{role.lower()}"] = user  # 예) out["a_admin"]
+        supplier = Supplier(company_id=company.id, name=f"{key.upper()}업체", lead_time_days=5)  # A업체, B업체
+        session.add(supplier)
+        out[f"{key}_supplier"] = supplier
+    session.commit()  # 준비 데이터 확정 (앱이 오류 뒤 rollback 해도 남는다, 테스트 끝에는 함께 되돌림)
+    return out

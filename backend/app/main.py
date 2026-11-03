@@ -1,6 +1,6 @@
 from fastapi import FastAPI  # FastAPI 앱 클래스
 
-from app.api import auth, health, suppliers, users  # 경로가 든 모듈들
+from app.api import auth, health, products, suppliers, users  # 경로가 든 모듈들
 from app.errors import register_error_handlers  # 공통 오류 응답 처리기
 
 app = FastAPI(title="Cloud SCM + AX")  # 앱 시작점, 제목은 /docs API 문서에 표시된다
@@ -9,3 +9,4 @@ app.include_router(health.router, prefix="/api/v1")  # 모든 경로 앞에 /api
 app.include_router(auth.router, prefix="/api/v1")  # 가입·로그인·로그아웃·내 정보
 app.include_router(users.router, prefix="/api/v1")  # 직원 계정 관리 (관리자 전용)
 app.include_router(suppliers.router, prefix="/api/v1")  # 공급업체
+app.include_router(products.router, prefix="/api/v1")  # 품목
