@@ -46,7 +46,11 @@ def engine():
 
 @pytest.fixture
 def session(engine):
-    """테스트 하나마다: 트랜잭션 안에서 실행하고 끝나면 되돌려, 테스트끼리 데이터가 섞이지 않게 한다."""
+    """테스트 하나마다: 트랜잭션 안에서 실행하고 끝나면 되돌려, 테스트끼리 데이터가 섞이지 않게 한다.
+
+    준비 데이터를 넣는 fixture 는 끝에 session.commit() 을 부른다. 그래야 앱이 오류(409 등) 뒤 rollback 해도
+    준비 데이터는 남는다. 이 commit 은 세이브포인트만 확정하므로 테스트가 끝나면 함께 되돌려진다.
+    """
     conn = engine.connect()  # 연결 하나
     trans = conn.begin()  # 바깥 트랜잭션 시작
     sess = Session(bind=conn, join_transaction_mode="create_savepoint")  # 이 연결을 쓰는 세션. 코드가 commit 해도 세이브포인트만 확정돼 바깥 트랜잭션은 그대로
