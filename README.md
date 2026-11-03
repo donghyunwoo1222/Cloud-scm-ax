@@ -71,6 +71,10 @@ cd backend
 
 Alembic(표 변경 이력)도 `backend/`에서 `.venv\Scripts\alembic <명령>`으로 실행하며, `.env`의 `localhost:5433` 주소를 쓴다(Docker DB가 떠 있어야 한다).
 
+### 5. 린트 실행
+
+린트는 코드 규칙 위반을 찾는 검사다. PR을 올리면 CI(GitHub Actions)가 4번 테스트와 함께 자동으로 돌린다. 백엔드는 `cd backend; .venv\Scripts\python -m ruff check .`, 프론트는 `cd frontend; npm run lint`로 실행한다.
+
 ## 문서
 - [docs/](docs/) 기획·설계·검증 문서
 
