@@ -1,6 +1,140 @@
-import ComingSoon from "../coming-soon"; // "준비 중" 자리
+"use client"; // 목록·폼을 다루는 화면이라 브라우저에서 실행
 
-// 공급업체 화면 (주소 /suppliers)
-export default function Page() {
-  return <ComingSoon title="공급업체" issue="#28" />;
+import { FormEvent, useState } from "react"; // 폼 제출, 상태
+
+import { api } from "../../lib/api"; // 공통 API 호출 함수
+import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
+
+// GET /api/v1/suppliers 의 한 행
+type Supplier = {
+  id: number; // 번호
+  name: string; // 업체명
+  lead_time_days: number; // 리드타임(일)
+  contact_name: string | null; // 담당자
+  phone: string | null; // 연락처
+  email: string | null; // 이메일
+  memo: string | null; // 메모
+  is_active: boolean; // 활성 여부
+};
+
+// 폼 입력값 (입력칸은 모두 글자로 다루고 보낼 때 바꾼다)
+const EMPTY = { name: "", lead_time_days: "", contact_name: "", phone: "", email: "", memo: "" };
+type Form = typeof EMPTY;
+
+// 오류 details 의 칸 이름 → 화면 이름
+const LABELS = { name: "업체명", lead_time_days: "리드타임", contact_name: "담당자", phone: "연락처", email: "이메일", memo: "메모" };
+
+// 폼 값 → 서버로 보낼 본문. 빈 선택 칸은 null(비우기), 리드타임은 숫자로 (검사는 서버가 한다: 음수·소수는 422)
+function toBody(form: Form) {
+  return {
+    name: form.name, // 업체명 (앞뒤 공백은 서버가 지운다)
+    lead_time_days: form.lead_time_days === "" ? null : Number(form.lead_time_days), // "5" → 5, 비우면 null(→ 서버가 422)
+    contact_name: form.contact_name || null,
+    phone: form.phone || null,
+    email: form.email || null,
+    memo: form.memo || null,
+  };
+}
+
+// 공급업체 화면 (주소 /suppliers): 목록 + 등록·수정 폼 + 비활성·다시 활성
+export default function SuppliersPage() {
+  const list = useList<Supplier>("/suppliers"); // 목록 상태 (20개씩, 최신순, 검색, 비활성 포함)
+  const [form, setForm] = useState<Form>(EMPTY); // 폼 입력값
+  const [editingId, setEditingId] = useState<number | null>(null); // 수정 중인 업체 번호 (null 이면 새 등록)
+  const [error, setError] = useState<unknown>(null); // 저장·버튼 오류
+
+  function set(field: keyof Form, value: string) {
+    setForm({ ...form, [field]: value }); // 한 칸만 바꾼다
+  }
+
+  function startEdit(s: Supplier) {
+    setEditingId(s.id); // 수정 모드
+    setForm({
+      name: s.name, lead_time_days: String(s.lead_time_days), contact_name: s.contact_name ?? "",
+      phone: s.phone ?? "", email: s.email ?? "", memo: s.memo ?? "",
+    }); // 그 업체 값으로 폼 채우기
+    setError(null);
+  }
+
+  function reset() {
+    setEditingId(null); // 새 등록 모드로
+    setForm(EMPTY); // 폼 비우기
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault(); // 새로고침 막기
+    try {
+      if (editingId === null) await api("/suppliers", { method: "POST", body: toBody(form) }); // 등록
+      else await api(`/suppliers/${editingId}`, { method: "PATCH", body: toBody(form) }); // 수정
+      reset(); // 성공하면 폼 비우기
+      setError(null);
+      await list.reload(); // 목록 다시 불러오기
+    } catch (e) {
+      setError(e); // 서버 message 그대로 보여준다 (예: 업체명 중복)
+    }
+  }
+
+  async function setActive(s: Supplier, active: boolean) {
+    try {
+      await api(`/suppliers/${s.id}`, { method: "PATCH", body: { is_active: active } }); // 비활성·다시 활성 (삭제는 없다)
+      setError(null);
+      await list.reload();
+    } catch (e) {
+      setError(e);
+    }
+  }
+
+  return (
+    <section>
+      <h1>공급업체</h1>
+
+      <form onSubmit={save} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "0.5rem", alignItems: "end", margin: "1rem 0" }}>
+        {/* 등록·수정 폼: 칸을 가로로 나열 */}
+        <label>업체명* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
+        <label>리드타임(일)* <input type="number" value={form.lead_time_days} onChange={(e) => set("lead_time_days", e.target.value)} /></label>
+        {/* 음수·소수 검사는 서버가 한다 (화면은 서버 message 를 보여준다) */}
+        <label>담당자 <input value={form.contact_name} onChange={(e) => set("contact_name", e.target.value)} /></label>
+        <label>연락처 <input value={form.phone} onChange={(e) => set("phone", e.target.value)} /></label>
+        <label>이메일 <input value={form.email} onChange={(e) => set("email", e.target.value)} /></label>
+        <label>메모 <input value={form.memo} onChange={(e) => set("memo", e.target.value)} /></label>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button type="submit">{editingId === null ? "등록" : "수정 저장"}</button>
+          {editingId !== null && <button type="button" onClick={reset}>취소</button>}
+          {/* 수정 중일 때만 취소 */}
+        </div>
+      </form>
+      <ErrorText error={error} labels={LABELS} />
+
+      <ListControls placeholder="업체명 검색" includeInactive={list.includeInactive} onSearch={list.search} onToggleInactive={list.toggleInactive} />
+      <ErrorText error={list.error} />
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr style={{ textAlign: "left" }}>
+            <th>업체명</th><th>리드타임</th><th>담당자</th><th>연락처</th><th>상태</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.rows.map((s) => (
+            <tr key={s.id} style={{ borderTop: "1px solid #ccc", opacity: s.is_active ? 1 : 0.5 }}>
+              {/* 비활성 행은 흐리게 */}
+              <td>{s.name}</td>
+              <td>{s.lead_time_days}일</td>
+              <td>{s.contact_name ?? "-"}</td>
+              <td>{s.phone ?? "-"}</td>
+              <td>{s.is_active ? "활성" : "비활성"}</td>
+              <td>
+                <button type="button" onClick={() => startEdit(s)}>수정</button>{" "}
+                {s.is_active
+                  ? <button type="button" onClick={() => setActive(s, false)}>비활성</button>
+                  : <button type="button" onClick={() => setActive(s, true)}>다시 활성</button>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {list.meta?.total === 0 && <p>{list.includeInactive ? "공급업체가 없습니다." : "활성 공급업체가 없습니다."}</p>}
+      {/* 빈 목록 안내 */}
+      <Pager meta={list.meta} onPage={list.setPage} />
+    </section>
+  );
 }

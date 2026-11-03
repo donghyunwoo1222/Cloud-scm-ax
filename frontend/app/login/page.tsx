@@ -1,7 +1,7 @@
 "use client"; // 입력·클릭을 다루는 화면이라 브라우저에서 실행
 
 import { useRouter } from "next/navigation"; // 화면 이동 도구
-import { FormEvent, useState } from "react"; // 폼 제출 이벤트, 화면 상태
+import { FormEvent, useEffect, useState } from "react"; // 폼 제출 이벤트, 처음 한 번 실행, 화면 상태
 
 import { api, ApiError } from "../lib/api"; // 공통 API 호출 함수
 
@@ -12,6 +12,11 @@ export default function LoginPage() {
   const [password, setPassword] = useState(""); // 입력한 비밀번호
   const [error, setError] = useState(""); // 화면에 보일 오류 문장
   const [busy, setBusy] = useState(false); // 요청 중이면 버튼을 잠근다 (두 번 누르기 방지)
+
+  useEffect(() => {
+    // 이미 로그인한 상태로 /login 을 열면 대시보드로 보낸다 (로그인 안 했으면 401 이지만 여기서는 이동하지 않고 그대로 둔다)
+    api("/me", { redirectOn401: false }).then(() => router.replace("/dashboard")).catch(() => {});
+  }, [router]);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault(); // 브라우저 기본 동작(페이지 새로고침)을 막는다

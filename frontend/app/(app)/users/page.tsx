@@ -9,5 +9,5 @@ export default function UsersPage() {
   if (!me) return null; // 로그인 확인 전 (레이아웃이 숨겨 둔 상태)
   // 담당자가 주소를 직접 쳐서 들어온 경우 안내만 한다. 실제 차단은 서버(/api/v1/users 가 403)가 한다
   if (me.role !== "ADMIN") return <p role="alert">관리자만 볼 수 있는 화면입니다.</p>;
-  return <ComingSoon title="사용자 관리" issue="API는 #24 완료, 화면 이슈는 아직 없음" />;
+  return <ComingSoon title="사용자 관리" issue="#59" />;
 }
