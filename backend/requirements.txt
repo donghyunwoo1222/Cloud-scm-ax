@@ -1,0 +1,9 @@
+# 백엔드가 쓰는 라이브러리 목록 (버전 고정: 누가 설치해도 같은 버전이 깔리게)
+fastapi==0.162.0            # API 서버 프레임워크
+uvicorn[standard]==0.54.0   # FastAPI 앱을 실제로 띄우는 서버 (--reload 감시 기능 포함)
+sqlalchemy==2.1.6           # 파이썬 코드로 DB 표를 다루는 도구 (ORM)
+alembic==1.20.1             # 표 변경 이력(마이그레이션) 관리
+psycopg[binary]==3.3.7      # PostgreSQL 접속 드라이버 (binary: 따로 컴파일 불필요)
+pydantic-settings==2.16.2   # .env·환경 변수 읽기
+pytest==9.2.0               # 자동 테스트 실행기
+httpx2==2.16.0              # 테스트에서 가짜 HTTP 요청을 보낼 때 필요 (httpx 후속판, starlette 권장)

@@ -1,0 +1,4 @@
+# 이미지에 넣지 않을 것: 로컬 가상환경, 캐시
+.venv/
+__pycache__/
+.pytest_cache/

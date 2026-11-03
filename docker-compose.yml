@@ -1,0 +1,40 @@
+# 로컬 개발용 구성: PostgreSQL(db) + FastAPI 백엔드(backend)
+# 배포용 설정(--reload 없음, 코드 연결 없음, 실제 비밀값)은 7주차에 따로 만든다.
+# 실행: docker compose up --build   /   종료: docker compose down
+
+services:
+  db:
+    image: postgres:17-alpine            # PostgreSQL 17 (alpine: 용량이 작은 이미지)
+    environment:
+      POSTGRES_USER: scm                 # 로컬 개발용 DB 사용자 (배포에서는 쓰지 않는다)
+      POSTGRES_PASSWORD: scm_local_pw    # 로컬 개발용 비밀번호 (배포에서는 쓰지 않는다)
+      POSTGRES_DB: scm                   # 처음 만들 DB 이름
+    ports:
+      - "5433:5432"                      # 내 컴퓨터 5433 → 컨테이너 5432 (이미 설치된 PostgreSQL 5432와 안 겹치게)
+    volumes:
+      - db-data:/var/lib/postgresql/data # DB 파일을 볼륨에 저장해 컨테이너를 지워도 데이터가 남게
+    healthcheck:                         # DB가 접속을 받을 준비가 됐는지 검사
+      test: ["CMD-SHELL", "pg_isready -U scm -d scm"]
+      interval: 3s
+      retries: 10
+
+  backend:
+    build: ./backend                     # backend/Dockerfile 로 이미지를 만든다
+    env_file:
+      - path: .env                       # SECRET_KEY 등을 .env 에서 읽는다
+        required: false                  # .env 가 없어도 시작은 된다
+    environment:
+      # Docker 안에서는 DB 호스트가 서비스 이름 db, 포트는 5432 (.env 의 localhost:5433 보다 우선한다)
+      DATABASE_URL: postgresql+psycopg://scm:scm_local_pw@db:5432/scm
+      WATCHFILES_FORCE_POLLING: "true"   # Windows 폴더 변경을 컨테이너가 놓치지 않게 주기적으로 확인
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload  # 개발용: 코드 저장 시 자동 재시작
+    volumes:
+      - ./backend:/app                   # 내 컴퓨터 backend/ 를 컨테이너 /app 에 연결 (다시 빌드 없이 코드 반영)
+    ports:
+      - "8001:8000"                      # 내 컴퓨터 8001 → 컨테이너 8000
+    depends_on:
+      db:
+        condition: service_healthy       # DB 준비가 끝난 뒤 백엔드를 띄운다
+
+volumes:
+  db-data:                               # DB 데이터를 담는 이름 있는 볼륨
