@@ -114,15 +114,18 @@ flowchart LR
 ## 역할별 업무 흐름
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph L1["구매·재고 담당 (시스템 역할: 담당자)"]
+        direction LR
         CHK[재고 확인<br/>부족 품목 파악] --> DRAFT[발주서 작성<br/>DRAFT]
         ORD[공급업체 발주<br/>ORDERED]
     end
     subgraph L2["관리자 (시스템 역할: 관리자)"]
+        direction LR
         APR[발주 승인<br/>APPROVED]
     end
     subgraph L3["창고 담당 (시스템 역할: 담당자)"]
+        direction LR
         RCV[입고 등록<br/>전량 입고 시 RECEIVED]
         SHIP[출고 등록<br/>재고 감소]
     end
