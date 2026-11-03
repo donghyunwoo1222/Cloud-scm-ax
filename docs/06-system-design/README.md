@@ -34,7 +34,7 @@
 
 - A1 실수 정정 이력: `movement_type`에 CORRECTION 추가, `reverses_movement_id`로 원래 이력을 가리킨다. 사유 필수, direction은 원래의 반대, 정정의 정정 불가, 정정 수량 합계 ≤ 원래 수량. 발주 입고 정정은 ORDERED일 때만(RECEIVED는 불가, 한계). 30일 판매·누적 입고량에서 정정 수량을 뺀다. ADJUSTMENT는 실사 차이 전용.
 - A2 S7 재정의: 기본 공급업체가 비활성이면 추천에서 제외(MISSING_INFO, "기본 공급업체가 비활성입니다. 품목 정보를 확인하세요").
-- A3 비활성 범위: 공급업체·품목은 삭제 없이 항상 비활성. 비활성은 새 발주(새 발주서·품목 추가·추천·초안)에만 안 나오고, 비활성이 든 DRAFT는 승인 때 INACTIVE_REFERENCE. 출고·조정·정정과 ORDERED 발주의 입고는 허용.
+- A3 비활성 범위: 공급업체·품목은 삭제 없이 항상 비활성. 비활성은 새 발주(새 발주서·품목 추가·추천·초안)에만 안 나오고, 비활성이 든 DRAFT는 승인 때 INACTIVE_REFERENCE. 출고·조정·정정, ORDERED 발주의 입고, 직접 입고(반품 등)도 허용.
 - A4 소수와 올림: 일평균·재주문점·비교는 소수 그대로, 최종 추천 수량만 올림(ceil). 일평균 표시는 소수 첫째 자리까지.
 - A5 제외 사유 우선순위: MISSING_INFO → INSUFFICIENT_DATA → NO_SALES_30D 중 첫 번째 하나만. 데이터 부족 = (오늘 − 첫 입출고 날짜) < 14일. 계산 함수와 추천 service는 today를 인자로 받는다.
 - A6 쿠키 인증 보안: 브라우저는 Next.js 주소로만 요청하고 Next.js가 `/api/*`를 FastAPI로 전달(rewrites, CORS 불필요). 쿠키는 httpOnly, SameSite=Lax, 배포 환경에서 Secure. 상태 변경은 POST/PATCH만, GET은 읽기만.
