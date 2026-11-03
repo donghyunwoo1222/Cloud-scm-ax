@@ -36,7 +36,7 @@ MVP 완료 기준: F1~F8 이슈 충족, 대표 시나리오 통과, 데이터 �
 5. 출고 유형은 SALE / DISPOSAL / OTHER_OUT이다. 일평균 판매량에는 SALE만 포함한다.
 6. 발주 상태는 `DRAFT → APPROVED → ORDERED → RECEIVED`이고, 한 번도 입고되지 않은 발주만 `CANCELLED`가 될 수 있다. 부분 입고 후에도 ORDERED를 유지하고, 초과 입고는 막는다. 승인은 관리자만 한다.
 7. 리드타임은 공급업체에 저장한다. 품목마다 기본 공급업체가 필수다.
-8. 공급업체·품목은 삭제하지 않고 항상 비활성(`is_active`)으로 바꾼다. 삭제 기능은 없다. 비활성은 새 발주(새 발주서 작성·품목 추가·추천 목록·초안 생성)에만 안 나오고, 비활성이 든 DRAFT는 승인 때 막는다. 출고·조정·정정과 이미 ORDERED인 발주의 입고는 계속 된다.
+8. 공급업체·품목은 삭제하지 않고 항상 비활성(`is_active`)으로 바꾼다. 삭제 기능은 없다. 비활성은 새 발주(새 발주서 작성·품목 추가·추천 목록·초안 생성)에만 안 나오고, 비활성이 든 DRAFT는 승인 때 막는다. 출고·조정·정정, 이미 ORDERED인 발주의 입고, 직접 입고(반품 등)도 허용한다.
 9. 직원 계정은 관리자가 직접 만든다(이메일 + 임시 비밀번호).
 
 표 7개: companies, users, suppliers, products, purchase_orders, purchase_order_items, inventory_movements. 재고 표, 추천 결과 표, 상태 이력 표는 두지 않는다. 자세한 구조는 `docs/06-system-design/erd.md`를 따른다.
