@@ -7,3 +7,4 @@ psycopg[binary]==3.3.7      # PostgreSQL 접속 드라이버 (binary: 따로 컴
 pydantic-settings==2.16.2   # .env·환경 변수 읽기
 pytest==9.2.0               # 자동 테스트 실행기
 httpx2==2.16.0              # 테스트에서 가짜 HTTP 요청을 보낼 때 필요 (httpx 후속판, starlette 권장)
+ruff==0.17.3                # 코드 검사(린트) 도구, 개발용 (python -m ruff check .)
