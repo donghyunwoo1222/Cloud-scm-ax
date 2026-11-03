@@ -43,7 +43,7 @@
 | F4 입출고 | POST /inventory-movements | 직접 입고, 출고(판매·폐기·기타), 재고 조정 등록. movement\_type으로 구분 | 둘 다 |
 | F4 | POST /inventory-movements/{id}/corrections | 잘못 넣은 이력 {id}를 정정(CORRECTION 등록) | 둘 다 |
 | F4 | GET /inventory-movements | 이력 조회(품목·유형·기간 필터) | 둘 다 |
-| F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 안전재고 비교 | 둘 다 |
+| F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 상태(가용재고 ≤ 재주문점이면 부족, 추천과 같은 기준) | 둘 다 |
 | F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록, DRAFT 발주서 만들기(직접) | 둘 다 |
 | F6 | GET /purchase-orders/{id}, PATCH /purchase-orders/{id} | 상세, DRAFT 일 때만 품목·수량 수정 | 둘 다 |
 | F6 | POST /purchase-orders/{id}/approve | DRAFT → APPROVED | 관리자 |
@@ -124,7 +124,7 @@
 
 ### 4) 발주 상태 변경: approve · order · cancel
 
-세 경로 모두 요청 본문이 없다. 서버가 현재 상태를 보고 허용되는 한 단계만 바꾼다(DRAFT→APPROVED→ORDERED). 그 밖의 요청은 409 `INVALID_STATUS`, 담당자가 approve를 부르면 403 `FORBIDDEN_ROLE`(S11), 입고 이력이 있는 발주의 cancel은 409 `CANNOT_CANCEL_RECEIVED`이다. 비활성 공급업체나 비활성 품목이 든 DRAFT를 approve하면 409 `INACTIVE_REFERENCE`이다. 마지막 상태 변경은 모두 한 번에 하나씩만 되도록 서버가 현재 상태를 읽고 갱신하는 조건을 한 구문에서 검사한다(두 명이 동시에 눌러도 한 번만 반영).
+세 경로 모두 요청 본문이 없다. 서버가 현재 상태를 보고 허용되는 한 단계만 바꾼다(DRAFT→APPROVED→ORDERED). 그 밖의 요청은 409 `INVALID_STATUS`, 담당자가 approve를 부르면 403 `FORBIDDEN_ROLE`(S11), 입고 이력이 있는 발주의 cancel은 409 `CANNOT_CANCEL_RECEIVED`이다(입고 후 전부 정정해 누적 입고량이 0이어도 RECEIPT 기록이 있으면 마찬가지, 임시 확정). 비활성 공급업체나 비활성 품목이 든 DRAFT를 approve하면 409 `INACTIVE_REFERENCE`이다. 마지막 상태 변경은 모두 한 번에 하나씩만 되도록 서버가 현재 상태를 읽고 갱신하는 조건을 한 구문에서 검사한다(두 명이 동시에 눌러도 한 번만 반영).
 
 ### 5) 발주 추천 조회: GET /recommendations
 
