@@ -1,9 +1,7 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -11,9 +9,13 @@ config = context.config
 
 # DB 주소는 alembic.ini 에 적지 않고(비밀값 커밋 방지) .env·환경 변수의 DATABASE_URL 을 읽는다.
 # alembic.ini 는 Windows에서 cp949로 읽혀 한글 주석을 넣으면 오류가 나므로 설명은 여기에 둔다.
-from app.config import settings  # 설정 한 벌을 가져온다
+# 테스트처럼 코드에서 주소를 미리 넣어 부른 경우(tests/conftest.py)에는 그 주소를 그대로 쓴다.
+if not config.get_main_option("sqlalchemy.url"):  # 미리 넣은 주소가 없을 때만
+    from app.config import settings  # 설정 한 벌을 가져온다
 
-config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))  # DB 주소를 Alembic에 넘긴다 (% 는 설정 파일 문법상 두 번 써야 한다)
+    config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))  # DB 주소를 Alembic에 넘긴다 (% 는 설정 파일 문법상 두 번 써야 한다)
+
+from app.models import Base  # 표 7개가 등록된 모델의 부모
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -24,7 +26,7 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-target_metadata = None
+target_metadata = Base.metadata  # 자동 생성(autogenerate)이 이 표 정의와 실제 DB를 비교한다
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
