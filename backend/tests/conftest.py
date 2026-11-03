@@ -4,8 +4,12 @@ from pathlib import Path  # 파일 경로 다루기
 import pytest  # 테스트 도구
 from alembic import command  # 코드에서 alembic upgrade/downgrade 를 부르는 도구
 from alembic.config import Config  # alembic.ini 읽기
+from fastapi.testclient import TestClient  # 서버를 띄우지 않고 앱에 요청을 보내는 도구
 from sqlalchemy import create_engine, make_url, text  # DB 연결, 주소 해석, SQL 문장
 from sqlalchemy.orm import Session  # ORM 세션
+
+from app.db import get_db  # 앱이 쓰는 DB 세션 의존성
+from app.main import app  # 테스트할 앱
 
 # 테스트 전용 DB. 개발용 DB(scm)와 이름을 나눠, 테스트가 개발 데이터를 지우지 않게 한다
 TEST_DATABASE_URL = os.environ.get(
@@ -45,8 +49,17 @@ def session(engine):
     """테스트 하나마다: 트랜잭션 안에서 실행하고 끝나면 되돌려, 테스트끼리 데이터가 섞이지 않게 한다."""
     conn = engine.connect()  # 연결 하나
     trans = conn.begin()  # 바깥 트랜잭션 시작
-    sess = Session(bind=conn)  # 이 연결을 쓰는 세션
+    sess = Session(bind=conn, join_transaction_mode="create_savepoint")  # 이 연결을 쓰는 세션. 코드가 commit 해도 세이브포인트만 확정돼 바깥 트랜잭션은 그대로
     yield sess  # 테스트에 넘긴다
     sess.close()  # 세션 닫기
     trans.rollback()  # 테스트가 넣은 행을 모두 되돌린다
     conn.close()  # 연결 반납
+
+
+@pytest.fixture
+def client(session):
+    """앱이 개발 DB 대신 이 테스트의 세션(scm_test, 끝나면 되돌림)을 쓰게 바꾼 클라이언트."""
+    app.dependency_overrides[get_db] = lambda: session  # get_db 를 테스트 세션으로 바꿔 끼운다
+    with TestClient(app) as c:  # 쿠키를 기억하는 가짜 브라우저
+        yield c
+    app.dependency_overrides.clear()  # 다음 테스트에 영향 없게 원래대로

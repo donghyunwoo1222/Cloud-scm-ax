@@ -27,6 +27,8 @@ jobs:
           --health-retries 10
     env:
       TEST_DATABASE_URL: postgresql+psycopg://scm:scm_local_pw@localhost:5433/scm_test  # 테스트가 쓸 DB 주소
+      DATABASE_URL: postgresql+psycopg://scm:scm_local_pw@localhost:5433/scm_test     # 앱 설정 필수값 (테스트는 위 주소로 바꿔 끼운다)
+      SECRET_KEY: ci-only-test-secret-not-used-anywhere-else  # CI 전용 테스트 값 (32자 이상). 실제 키가 아니다
     steps:
       - uses: actions/checkout@v4            # 저장소 코드를 내려받는다
       - uses: actions/setup-python@v5        # Python 설치

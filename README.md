@@ -27,6 +27,12 @@
 Copy-Item .env.example .env
 ```
 
+`.env`의 `SECRET_KEY`를 32자 이상 임의 문자열로 바꾼다(그대로 두면 백엔드가 시작하지 않는다). 아래 명령의 출력을 붙여 넣으면 된다.
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
 DB 주소는 실행 위치에 따라 두 가지다.
 
 - 백엔드가 Docker 안에서 돌 때: `postgresql+psycopg://scm:scm_local_pw@db:5432/scm` (`docker-compose.yml`이 직접 넣는다)
