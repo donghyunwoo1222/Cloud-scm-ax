@@ -33,6 +33,8 @@ MVP의 데이터는 표 7개로 충분하고, 재고 수량은 따로 저장하�
 - 추천 결과 표: 추천은 화면을 열 때 계산한다. 수량 수정 비율을 재는 데 필요한 값은 발주 품목에 남긴다.
 - 발주 상태 로그 표: 승인자와 승인 시각은 발주서 칸으로 남기므로 MVP에서는 필요 없다.
 
+다른 회사 행 연결은 서버가 막는다(#23). DB 수준 복합 외래키(company\_id, id)는 확장 후보다.
+
 공급업체의 납기·단가 이력(F2)도 따로 표를 두지 않는다. 발주서의 약속 납기와 단가, 입출고 이력의 실제 입고일을 합쳐 보여준다.
 
 ## ERD 그림
@@ -282,6 +284,7 @@ ALTER TABLE inventory_movements ADD CONSTRAINT chk_movement CHECK (
     AND (movement_type <> 'RECEIPT' OR direction = 'IN')                      -- 입고는 항상 늘림
     AND (movement_type NOT IN ('SALE', 'DISPOSAL', 'OTHER_OUT') OR direction = 'OUT')  -- 출고 3종은 항상 줄임
     AND (movement_type <> 'SALE' OR sales_channel IS NOT NULL)                -- 판매에는 채널 필수 (R7)
+    AND (movement_type = 'SALE' OR sales_channel IS NULL)                     -- 판매가 아니면 채널은 비움
     AND (movement_type NOT IN ('ADJUSTMENT', 'CORRECTION') OR reason IS NOT NULL)  -- 조정·정정에는 사유 필수 (R10)
     AND ((movement_type = 'CORRECTION') = (reverses_movement_id IS NOT NULL))  -- 정정만 원래 이력을 가리키고, 정정은 반드시 가리킨다
     AND (movement_type IN ('RECEIPT', 'CORRECTION') OR purchase_order_item_id IS NULL)  -- 발주 연결은 입고와 그 정정에만

@@ -62,7 +62,7 @@ python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 ```
 
-테스트 실행은 항상 이 명령 하나로 한다(CI도 `backend/`에서 같은 `python -m pytest`를 쓴다).
+테스트 실행은 항상 이 명령 하나로 한다(CI도 `backend/`에서 같은 `python -m pytest`를 쓴다). DB 제약 테스트가 있으므로 2번의 Docker DB가 떠 있어야 한다. 테스트는 개발용 DB(`scm`)가 아니라 같은 컨테이너의 테스트 전용 DB(`scm_test`, 없으면 자동 생성)를 쓰고, 실행할 때마다 표를 지우고 마이그레이션으로 다시 만든다. 다른 DB를 쓰려면 환경 변수 `TEST_DATABASE_URL`을 준다.
 
 ```powershell
 cd backend
