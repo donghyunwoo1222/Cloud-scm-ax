@@ -2,34 +2,10 @@
 
 import pytest  # 테스트 도구
 
-from app.auth.security import hash_password  # 테스트 사용자 비밀번호
-from app.models import Company, User  # 표
+from app.models import User  # 사용자 표
+from tests.helpers import PASSWORD, login_as  # 공통 비밀번호·로그인 (준비 데이터 world 는 conftest)
 
-PASSWORD = "test-password"  # 테스트 사용자 공통 비밀번호
 URL = "/api/v1/users"  # 직원 계정 경로
-
-
-@pytest.fixture
-def world(session):
-    """회사 A(관리자·담당자), 회사 B(관리자·담당자)."""
-    out = {}
-    for key in ("a", "b"):
-        company = Company(name=f"회사{key.upper()}")
-        session.add(company)
-        session.flush()  # company.id 생성
-        for role in ("ADMIN", "STAFF"):
-            user = User(
-                company_id=company.id, name=f"{key}-{role}", email=f"{role.lower()}@{key}.test",
-                password_hash=hash_password(PASSWORD), role=role,
-            )
-            session.add(user)
-            session.flush()  # user.id 생성
-            out[f"{key}_{role.lower()}"] = user  # 예) out["a_admin"]
-    return out
-
-
-def login_as(client, email: str) -> None:
-    assert client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD}).status_code == 200
 
 
 def new_user(**override) -> dict:

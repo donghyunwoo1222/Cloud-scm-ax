@@ -81,6 +81,22 @@ Alembic(표 변경 이력)도 `backend/`에서 `.venv\Scripts\alembic <명령>`�
 
 린트는 코드 규칙 위반을 찾는 검사다. PR을 올리면 CI(GitHub Actions)가 4번 테스트와 함께 자동으로 돌린다. 백엔드는 `cd backend; .venv\Scripts\python -m ruff check .`, 프론트는 `cd frontend; npm run lint`로 실행한다.
 
+### 6. 개발용 시드 데이터
+
+화면 확인용 샘플(회사 2곳, 회사마다 관리자·담당자 1명, 공급업체 2개, 품목 5개)을 개발 DB(`scm`)에 넣는다. Docker DB가 떠 있고 `alembic upgrade head`를 한 뒤에 실행한다. 테스트 DB(`scm_test`)에는 넣지 않는다.
+
+```powershell
+cd backend
+.venv\Scripts\python -m scripts.seed
+```
+
+다시 실행하면 시드를 지우고 새로 넣는다. 시드만 지우려면 `.venv\Scripts\python -m scripts.seed --clear`. 시드 계정(개발용 비밀번호 `seed-pass-1234`):
+
+| 회사 | 관리자 | 담당자 |
+| --- | --- | --- |
+| 가나패션(시드) | admin.gana@seed.local | staff.gana@seed.local |
+| 사아마트(시드) | admin.saa@seed.local | staff.saa@seed.local |
+
 ## 문서
 - [docs/](docs/) 기획·설계·검증 문서
 

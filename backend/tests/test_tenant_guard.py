@@ -11,13 +11,11 @@ from pydantic import BaseModel  # 임시 요청 모양
 
 from app.api import auth as auth_api  # 진짜 로그인 경로 (쿠키 발급)
 from app.auth.deps import AdminUser, CurrentUser  # 검사할 의존성
-from app.auth.security import hash_password  # 테스트 사용자 비밀번호
 from app.db import DB, get_db  # DB 세션
 from app.errors import register_error_handlers  # 공통 오류 모양
-from app.models import Company, Supplier, User  # 표
+from app.models import Supplier  # 공급업체 표
 from app.services.tenant import check_ref, get_owned, scoped  # 검사할 공통 함수
-
-PASSWORD = "test-password"  # 모든 테스트 사용자 공통 비밀번호
+from tests.helpers import login_as  # 공통 로그인 (준비 데이터 world 는 conftest)
 
 # ----- 테스트 전용 임시 경로: 이후 진짜 API가 공통 함수를 쓰는 모양 그대로 -----
 router = APIRouter()  # 임시 경로 묶음
@@ -56,27 +54,6 @@ guard_app.include_router(auth_api.router, prefix="/api/v1")  # 진짜 로그인 
 guard_app.include_router(router, prefix="/api/v1")  # 임시 경로
 
 
-# ----- 준비 데이터: 회사 A·B, 각 관리자·담당자·공급업체 1개 -----
-@pytest.fixture
-def world(session):
-    """회사 2곳과 각 회사의 관리자·담당자·공급업체."""
-    out = {}
-    for key in ("a", "b"):  # 회사 A, B
-        company = Company(name=f"회사{key.upper()}")
-        session.add(company)
-        session.flush()  # company.id 생성
-        for role in ("ADMIN", "STAFF"):  # 관리자, 담당자
-            session.add(User(
-                company_id=company.id, name=f"{key}-{role}", email=f"{role.lower()}@{key}.test",
-                password_hash=hash_password(PASSWORD), role=role,
-            ))
-        supplier = Supplier(company_id=company.id, name=f"{key.upper()}업체", lead_time_days=3)
-        session.add(supplier)
-        session.flush()  # supplier.id 생성
-        out[key] = {"company": company, "supplier": supplier}
-    return out
-
-
 @pytest.fixture
 def client(session):
     """임시 앱이 테스트 세션(scm_test, 끝나면 되돌림)을 쓰게 한 클라이언트."""
@@ -86,15 +63,11 @@ def client(session):
     guard_app.dependency_overrides.clear()
 
 
-def login_as(client, email: str) -> None:
-    assert client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD}).status_code == 200  # 쿠키를 받는다
-
-
 # ----- 테스트 -----
 def test_own_company_detail(client, world):
     """A 사용자가 A 공급업체 상세 → 200."""
     login_as(client, "staff@a.test")
-    response = client.get(f"/api/v1/suppliers/{world['a']['supplier'].id}")
+    response = client.get(f"/api/v1/suppliers/{world['a_supplier'].id}")
     assert response.status_code == 200
     assert response.json()["data"]["name"] == "A업체"
 
@@ -102,7 +75,7 @@ def test_own_company_detail(client, world):
 def test_other_company_and_missing_id_look_the_same(client, world):
     """A 사용자가 B 공급업체 상세 → 404, 없는 id → 404. 두 응답이 완전히 같다."""
     login_as(client, "staff@a.test")
-    other = client.get(f"/api/v1/suppliers/{world['b']['supplier'].id}")  # 있지만 B 회사 것
+    other = client.get(f"/api/v1/suppliers/{world['b_supplier'].id}")  # 있지만 B 회사 것
     missing = client.get("/api/v1/suppliers/999999")  # 아예 없는 id
     assert other.status_code == missing.status_code == 404
     assert other.json() == missing.json()  # code·message·details 모두 같다 → B 업체가 있는지 알 수 없다
@@ -112,10 +85,10 @@ def test_other_company_and_missing_id_look_the_same(client, world):
 def test_body_reference_to_other_company(client, world):
     """A 사용자가 본문에 B 공급업체 id → 404, details 에 칸 이름. A 업체 id 는 통과."""
     login_as(client, "staff@a.test")
-    bad = client.post("/api/v1/products", json={"default_supplier_id": world["b"]["supplier"].id})
+    bad = client.post("/api/v1/products", json={"default_supplier_id": world["b_supplier"].id})
     assert bad.status_code == 404
     assert bad.json()["error"]["details"] == [{"field": "default_supplier_id", "reason": "not_found"}]
-    good = client.post("/api/v1/products", json={"default_supplier_id": world["a"]["supplier"].id})
+    good = client.post("/api/v1/products", json={"default_supplier_id": world["a_supplier"].id})
     assert good.status_code == 200
 
 
