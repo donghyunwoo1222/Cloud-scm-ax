@@ -6,7 +6,7 @@
 
 ## 지금 위치
 
-마지막으로 머지한 PR은 #56(2026-11-03)이다. 구현 PR과 닫힌 이슈는 아래와 같다.
+마지막으로 머지한 PR은 #58(2026-11-03)이다. 구현 PR과 닫힌 이슈는 아래와 같다.
 
 | PR | 닫힌 이슈 | 내용 |
 | --- | --- | --- |
@@ -18,12 +18,14 @@
 | #54 | #24 | [3주차-6] 직원 계정 관리 API |
 | #55 | #25 | [3주차-7] 공급업체 API (비활성 포함) |
 | #56 | #26 | [3주차-8] 품목 API (기본 공급업체 필수) + 개발용 시드 데이터 |
+| #57 | - | docs: 진행 상황 파일(PROGRESS.md)과 갱신 규칙 |
+| #58 | #27 | [3주차-9] 프론트: 로그인·상단 메뉴·rewrites |
 
 main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·`frontend` 통과 필수, 강제 push·삭제 금지).
 
-리뷰 대기: #27 [3주차-9] 프론트: 로그인·상단 메뉴·rewrites (PR 머지 전)
+리뷰 대기: #28 [3주차-10] 프론트: 공급업체·품목 화면 (PR 머지 전)
 
-다음에 할 이슈: #28 [3주차-10] 프론트: 공급업체·품목 화면
+다음에 할 이슈: #59 [3주차-11] 프론트: 사용자 관리 화면 → 3주차 속도 점검 → #29 [4주차-1] 입출고 등록과 음수 재고 차단
 
 ## 정해진 공통 규칙 (구현 중 결정)
 
@@ -39,7 +41,10 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
   - 요청 칸 타입·PATCH 규칙: `app/schemas/common.py`(`Name`, `NonNegInt`, `PatchModel` 등)
   - 테스트: `tests/conftest.py`의 `world`(회사 A·B, 관리자·담당자, A업체·B업체), `tests/helpers.py`(`PASSWORD`, `login_as`). 준비 데이터 fixture는 끝에 `session.commit()`
 - 프론트 공통 장치(#27)
-  - API 호출은 `frontend/app/lib/api.ts`의 `api()` 하나로: 주소는 `/api/v1/...` 상대 경로(rewrites), 성공이면 `data`, 실패면 `ApiError(status, code, message, details)`, 401이면 로그인 화면으로(로그인 요청만 `redirectOn401: false`). 목록의 `meta`가 필요하면 이 함수를 넓혀서 쓴다
+  - API 호출은 `frontend/app/lib/api.ts`로: 주소는 `/api/v1/...` 상대 경로(rewrites), 한 건·동작은 `api()`(성공이면 `data`), 목록은 `apiList()`(`data`·`meta`). 실패면 `ApiError(status, code, message, details)`, 401이면 로그인 화면으로(로그인 요청만 `redirectOn401: false`)
+  - 목록 화면은 `frontend/app/lib/list.tsx`의 `useList`(쪽·검색어·비활성 포함), `ListControls`, `Pager`, `ErrorText`(서버 message + 문제 칸의 한글 이름)를 쓴다
+  - 수정 폼은 바뀐 칸만 PATCH 한다(예: 기본 공급업체가 나중에 비활성이 된 품목도 단가는 고칠 수 있게)
+  - 숫자 칸의 0 이상·정수 검사는 화면에서 막지 않고 서버 message 로 보여준다(검사 규칙은 서버 한 곳)
   - 로그인 후 화면은 `frontend/app/(app)/` 아래에 둔다. 레이아웃이 `/me`로 로그인을 확인하고, 화면에서는 `useMe()`(확인 전 null)로 내 정보·역할을 읽는다
   - 레이아웃은 로그인 확인 전에도 화면을 그리되 숨긴다(`hidden`). 그리지 않으면 Next.js 16 개발 모드가 instant navigation 경고를 낸다
   - 메뉴 숨김·화면 안내는 편의이고, 권한은 서버가 검사한다
@@ -52,7 +57,7 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 - #43 배포 전: 클라우드(GCP/AWS)와 월 비용 상한을 결정한다. rate limit·Secure 쿠키 확인(이슈 본문에 있음)
 - #44 시연 데이터: 시드 명령이 배포 DB에서 절대 실행되지 않게 막는다(지금은 `@seed.local` 이메일로 시드 회사를 찾는다)
 - 3주차 끝(#28 후): 속도 점검
-- 사용자 관리 화면: API(#24)는 있지만 화면 이슈가 없다. 언제 만들지 사용자에게 결정받는다(지금은 "준비 중" 자리)
+- 공급업체 선택 상자는 활성 업체 100개까지만 불러온다(`products/page.tsx`의 shortcut 주석). 100개를 넘으면 검색형 선택 상자로 바꾼다
 - 8주차: 아래 "꼭 알기 모음"으로 면접 정리
 
 ## 꼭 알기 모음
