@@ -123,6 +123,7 @@ MVP 완료 기준: F1~F8 이슈 충족, 대표 시나리오 통과, 데이터 �
 - 사용자 테스트: `docs/07-user-test/`
 - 이후 계획(MVP 이후 백로그): `docs/10-roadmap/post-mvp-backlog.md`
 - 용어 정리: `docs/99-glossary.md`
+- 진행 상황·공통 규칙·꼭 알기 모음: `docs/PROGRESS.md`
 
 문서끼리 내용이 다르면 CLAUDE.md → docs/06-system-design → 그 밖의 문서 순서로 따르고, 어긋난 곳은 사용자에게 알린다.
 
