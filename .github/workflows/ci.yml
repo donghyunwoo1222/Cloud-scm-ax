@@ -1,0 +1,48 @@
+# CI(지속적 통합): PR을 올리거나 main에 합칠 때마다 GitHub 서버가 자동으로 검사를 돌린다
+name: CI
+
+on:
+  pull_request:          # PR을 열거나 새 커밋을 올릴 때
+  push:
+    branches: [main]     # main에 합쳐졌을 때
+
+jobs:
+  backend:               # 백엔드 검사 (린트 → 테스트)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend   # 모든 명령을 backend/ 폴더에서 실행 (README와 같은 위치)
+    # DB 없이 도는 테스트만 있어 PostgreSQL은 아직 없다.
+    # #21(DB 표)에서 여기에 services: postgres 를 추가하고 DATABASE_URL 을 넘긴다.
+    steps:
+      - uses: actions/checkout@v4            # 저장소 코드를 내려받는다
+      - uses: actions/setup-python@v5        # Python 설치
+        with:
+          python-version: "3.14"             # 로컬·Docker와 같은 버전
+          cache: pip                         # 라이브러리 내려받기를 캐시해 다음 실행을 빠르게
+          cache-dependency-path: backend/requirements.txt
+      - name: 라이브러리 설치
+        run: python -m pip install -r requirements.txt
+      - name: 린트(ruff)
+        run: python -m ruff check .          # 규칙 위반이 있으면 여기서 실패
+      - name: 테스트(pytest)
+        run: python -m pytest                # README의 로컬 명령과 같은 명령
+
+  frontend:              # 프론트 검사 (린트 → 빌드)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4          # Node.js 설치
+        with:
+          node-version: "24"                 # 로컬과 같은 버전
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 라이브러리 설치
+        run: npm ci                          # package-lock.json 그대로 설치 (버전이 매번 같게)
+      - name: 린트(ESLint)
+        run: npm run lint
+      - name: 빌드
+        run: npm run build                   # 타입 오류나 빌드 오류가 있으면 실패
