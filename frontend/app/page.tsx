@@ -1,12 +1,6 @@
-// 첫 화면 (주소 /): 지금은 프로젝트 이름만 보여준다
+import { redirect } from "next/navigation"; // 다른 주소로 보내는 도구
+
+// 첫 주소(/)는 대시보드로 보낸다. 로그인 안 했으면 대시보드 틀이 다시 로그인 화면으로 보낸다
 export default function Home() {
-  return (
-    <main style={{ padding: "3rem" }}>
-      {/* 화면 가장자리에 여백을 준다 */}
-      <h1>Cloud SCM + AX</h1>
-      {/* 프로젝트 이름 */}
-      <p>중소 유통업체용 재고·발주 관리 서비스</p>
-      {/* 한 줄 소개 */}
-    </main>
-  );
+  redirect("/dashboard");
 }
