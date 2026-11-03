@@ -8,26 +8,26 @@ MVP의 데이터는 표 7개로 충분하고, 재고 수량은 따로 저장하�
 
 | 구분 | 내용 |
 | --- | --- |
-| 확정으로 받은 것 | 리드타임은 공급업체에 저장, 품목의 기본 공급업체는 필수 1개, 출고 유형(판매/폐기·파손/기타)과 실사 조정 이력(사유 필수), 이력이 있는 공급업체·품목의 비활성 처리, 부분 입고 후 취소 불가, 발주 없는 직접 입고 허용, 승인은 관리자만 |
-| 이 문서에서 처음 제안하는 것 | 표 7개 구성(재고 저장 표, 추천 결과 표, 상태 로그 표를 두지 않음), 입출고 이력 수정·삭제 불가, 발주 품목에 추천 수량 기록, 최근 30일 구간의 정의, PostgreSQL에서 쓰는 제약 문법. 모두 "(제안)"으로 표시한다 |
+| 확정으로 받은 것 | 리드타임은 공급업체에 저장, 품목의 기본 공급업체는 필수 1개, 출고 유형(판매/폐기·파손/기타)과 실사 조정 이력(사유 필수), 공급업체·품목은 삭제하지 않고 항상 비활성으로 바꾼다(삭제 기능은 없다), 부분 입고 후 취소 불가, 발주 없는 직접 입고 허용, 승인은 관리자만, 입출고 이력 수정·삭제 불가(실수는 정정 이력 CORRECTION으로 바로잡음), 최근 30일 = 오늘 포함 30일 |
+| 이 문서에서 처음 정한 것 | 표 7개 구성(재고 저장 표, 추천 결과 표, 상태 로그 표를 두지 않음), 발주 품목에 추천 수량 기록, PostgreSQL에서 쓰는 제약 문법. 사용자가 판단을 맡겨 2026-11-03에 임시 확정했고, "(임시 확정)"으로 표시한다 |
 
-기술 스택은 아직 확정하지 않았다. 아래 제약 문법은 읽기 쉽도록 PostgreSQL 기준으로 적었고, 다른 DB를 고르면 아키텍처 단계에서 다시 맞춘다.
+기술 스택은 FastAPI + PostgreSQL + Next.js로 임시 확정했다(아키텍처 문서). 아래 제약 문법은 PostgreSQL 기준이다.
 
 ## 표 목록과 역할
 
-표는 회사, 사용자, 공급업체, 품목, 발주서, 발주 품목, 입출고 이력의 7개다. 표 이름은 소문자 복수형(snake\_case)이고, 이슈에 쓴 InventoryMovements는 inventory\_movements와 같은 표다(제안).
+표는 회사, 사용자, 공급업체, 품목, 발주서, 발주 품목, 입출고 이력의 7개다. 표 이름은 소문자 복수형(snake\_case)이고, 이슈에 쓴 InventoryMovements는 inventory\_movements와 같은 표다(임시 확정).
 
 | 표 | 한글 이름 | 역할 | 행이 생기는 때 | 고칠 수 있는가 |
 | --- | --- | --- | --- | --- |
 | companies | 회사 | 서비스를 쓰는 회사 한 곳. 모든 데이터의 울타리(R1) | 회사 가입 | 수정 가능, 삭제 없음 |
 | users | 사용자 | 로그인 계정과 역할(관리자, 담당자) | 관리자가 직원 계정 생성 | 역할 변경·비활성 |
-| suppliers | 공급업체 | 발주 대상, 리드타임(일)을 여기서 가진다 | 구매 담당 등록 | 수정 가능, 이력이 있으면 비활성 |
-| products | 품목 | SKU, 단가, 안전재고, 기본 공급업체 | 품목 등록 | 수정 가능, 이력이 있으면 비활성 |
+| suppliers | 공급업체 | 발주 대상, 리드타임(일)을 여기서 가진다 | 구매 담당 등록 | 수정 가능, 삭제 없이 항상 비활성 |
+| products | 품목 | SKU, 단가, 안전재고, 기본 공급업체 | 품목 등록 | 수정 가능, 삭제 없이 항상 비활성 |
 | purchase\_orders | 발주서 | 공급업체 한 곳에 보내는 발주 한 장. 상태와 승인 기록을 가진다 | 직접 작성 또는 추천에서 초안 생성 | 상태만 정해진 순서로 이동 |
-| purchase\_order\_items | 발주 품목 | 발주서의 품목 한 줄(수량, 단가, 추천 수량) | 발주서 작성 | DRAFT일 때만 수정(제안) |
-| inventory\_movements | 입출고 이력 | 재고를 바꾸는 모든 사건. 현재고의 유일한 근거(R2) | 입고·출고·조정 등록 | 수정·삭제 불가(제안) |
+| purchase\_order\_items | 발주 품목 | 발주서의 품목 한 줄(수량, 단가, 추천 수량) | 발주서 작성 | DRAFT일 때만 수정(임시 확정) |
+| inventory\_movements | 입출고 이력 | 재고를 바꾸는 모든 사건. 현재고의 유일한 근거(R2) | 입고·출고·조정·정정 등록 | 수정·삭제 불가(확정) |
 
-일부러 두지 않은 표도 있다. 세 가지 모두 필요성이 생기면 그때 추가한다(제안).
+일부러 두지 않은 표도 있다. 세 가지 모두 필요성이 생기면 그때 추가한다(임시 확정).
 
 - 재고 수량 표: 이력 합계와 어긋날 수 있어 R2를 깨뜨린다. MVP 규모에서는 합계 계산으로 충분하다.
 - 추천 결과 표: 추천은 화면을 열 때 계산한다. 수량 수정 비율을 재는 데 필요한 값은 발주 품목에 남긴다.
@@ -56,7 +56,7 @@ erDiagram
 
 ## 표별 칸 설명
 
-표마다 칸이름, 형식, 필수 여부, 의미와 규칙을 정했다. 모든 표에 공통으로 id(행 번호), created\_at(만든 시각), updated\_at(고친 시각)가 있고, companies를 제외한 모든 표에 company\_id(소속 회사)가 있다. 아래 표에는 이 공통 칸을 다시 적지 않는다. 형식은 정수, 문자열, 날짜, 시각, 참/거짓, 선택지(정해진 값 중 하나)로 적는다. 금액은 원 단위 정수로 저장한다(제안).
+표마다 칸이름, 형식, 필수 여부, 의미와 규칙을 정했다. 모든 표에 공통으로 id(행 번호), created\_at(만든 시각), updated\_at(고친 시각)가 있고, companies를 제외한 모든 표에 company\_id(소속 회사)가 있다. 아래 표에는 이 공통 칸을 다시 적지 않는다. 형식은 정수, 문자열, 날짜, 시각, 참/거짓, 선택지(정해진 값 중 하나)로 적는다. 금액은 원 단위 정수로 저장한다(임시 확정).
 
 ### companies (회사)
 
@@ -88,7 +88,7 @@ erDiagram
 | email | 문자열 | 선택 | 이메일 |
 | memo | 문자열 | 선택 | 메모 |
 | lead\_time\_days | 정수 | 필수 | 발주해서 받을 때까지 걸리는 일수. 0 이상. 이 업체 품목들이 함께 쓴다 |
-| is\_active | 참/거짓 | 필수 | 기본 참. 비활성 업체는 새 발주 선택 목록에서만 숨긴다. 기존 발주·품목 연결은 유지 |
+| is\_active | 참/거짓 | 필수 | 기본 참. 삭제하지 않고 항상 비활성으로 바꾼다. 비활성 업체는 새 발주에만 안 나온다(아래 "비활성의 효과"). 기존 발주·품목 연결은 유지 |
 
 ### products (품목)
 
@@ -101,9 +101,14 @@ erDiagram
 | unit\_cost | 정수 | 필수 | 구매 단가(원). 0 이상. 발주 품목의 단가 기본값으로 쓴다 |
 | safety\_stock | 정수 | 필수 | 안전재고. 기본 0, 0 이상 |
 | default\_supplier\_id | 정수 | 필수 | 기본 공급업체(suppliers를 가리킴). 품목의 리드타임은 이 업체의 값. 같은 회사 업체만 선택할 수 있다 |
-| is\_active | 참/거짓 | 필수 | 기본 참. 비활성 품목은 새 발주·입출고 선택 목록에서만 숨긴다 |
+| is\_active | 참/거짓 | 필수 | 기본 참. 삭제하지 않고 항상 비활성으로 바꾼다. 비활성 품목은 새 발주에만 안 나온다(아래 "비활성의 효과") |
 
 품목에는 현재고 칸이 없다. 현재고는 inventory\_movements의 합계로 구한다(R2).
+
+**비활성의 효과(확정).** 공급업체·품목은 삭제하지 않고 항상 비활성으로 바꾸며, 삭제 기능은 없다. 비활성은 "새 발주에만 안 나온다"는 뜻이다.
+
+- 막는 것: 새 발주서 작성, 발주서에 품목 추가, 추천 목록, 추천으로 초안 생성. 비활성 공급업체·품목이 든 DRAFT 발주서는 승인할 때 INACTIVE\_REFERENCE로 막는다.
+- 허용하는 것: 출고, 조정, 정정, 이미 ORDERED인 발주의 입고, 발주 없는 직접 입고. 비활성이 되어도 남은 재고를 팔거나 버리고, 오는 중인 물건을 받을 수 있어야 하기 때문이다. 반품처럼 발주 없이 돌아오는 물건도 받아야 한다.
 
 ### purchase\_orders (발주서)
 
@@ -122,7 +127,7 @@ erDiagram
 | received\_at | 시각 | 선택 | RECEIVED로 바뀐 시각. 약속 납기와 비교하는 실제 입고 시각 |
 | cancelled\_at | 시각 | 선택 | CANCELLED로 바뀐 시각 |
 
-규칙은 세 가지다. 첫째, 회사마다 공급업체 하나에 DRAFT 발주서는 1장만 둘 수 있다(S10). 둘째, 상태는 DRAFT → APPROVED → ORDERED → RECEIVED 순서로만 바뀌고, 입고가 한 번도 없는 발주서만 CANCELLED가 될 수 있다. 셋째, 품목·수량은 DRAFT일 때만 고칠 수 있다(제안).
+규칙은 세 가지다. 첫째, 회사마다 공급업체 하나에 DRAFT 발주서는 1장만 둘 수 있다(S10). 둘째, 상태는 DRAFT → APPROVED → ORDERED → RECEIVED 순서로만 바뀌고, 입고가 한 번도 없는 발주서만 CANCELLED가 될 수 있다. 셋째, 품목·수량은 DRAFT일 때만 고칠 수 있다(임시 확정).
 
 ### purchase\_order\_items (발주 품목)
 
@@ -132,11 +137,11 @@ erDiagram
 | purchase\_order\_id | 정수 | 필수 | 속한 발주서 |
 | product\_id | 정수 | 필수 | 발주할 품목. 같은 발주서에 같은 품목을 두 줄 넣을 수 없다 |
 | quantity | 정수 | 필수 | 발주 수량. 1 이상 |
-| unit\_price | 정수 | 필수 | 발주 당시 단가(원). 품목 단가가 나중에 바뀔도 과거 발주는 그대로 남는다 |
-| recommended\_quantity | 정수 | 선택 | 추천으로 만든 줄이면 당시 추천 수량, 직접 작성했으면 비움. 수량 수정 비율 측정에 쓴다(제안) |
-| recommendation\_reason | 문자열 | 선택 | 당시 화면에 보인 이유 문장. 나중에 계산 규칙이 바뀌어도 그때의 근거를 남긴다(제안) |
+| unit\_price | 정수 | 필수 | 발주 당시 단가(원). 품목 단가가 나중에 바뀌어도 과거 발주는 그대로 남는다 |
+| recommended\_quantity | 정수 | 선택 | 추천으로 만든 줄이면 당시 추천 수량, 직접 작성했으면 비움. 수량 수정 비율 측정에 쓴다(임시 확정) |
+| recommendation\_reason | 문자열 | 선택 | 당시 화면에 보인 이유 문장. 나중에 계산 규칙이 바뀌어도 그때의 근거를 남긴다(임시 확정) |
 
-발주 품목에는 입고 수량 칸이 없다. 발주에 대한 누적 입고량은 이 줄에 연결된 입고 이력의 합으로 구한다. 누적 입고량이 quantity를 넘기면 등록을 막는다(초과 입고 차단).
+발주 품목에는 입고 수량 칸이 없다. 발주에 대한 누적 입고량은 이 줄에 연결된 RECEIPT 합계에서 연결된 CORRECTION(입고 정정) 합계를 뺀 값으로 구한다. 누적 입고량이 quantity를 넘기면 등록을 막는다(초과 입고 차단).
 
 ### inventory\_movements (입출고 이력)
 
@@ -144,21 +149,36 @@ erDiagram
 | --- | --- | --- | --- |
 | company\_id | 정수 | 필수 | 소속 회사 |
 | product\_id | 정수 | 필수 | 수량이 바뀐 품목 |
-| movement\_type | 선택지 | 필수 | RECEIPT(입고), SALE(판매 출고), DISPOSAL(폐기·파손 출고), OTHER\_OUT(기타 출고), ADJUSTMENT(재고 조정) |
-| direction | 선택지 | 필수 | IN(늘림) 또는 OUT(줄임). RECEIPT는 항상 IN, SALE·DISPOSAL·OTHER\_OUT은 항상 OUT, ADJUSTMENT는 둘 다 가능 |
+| movement\_type | 선택지 | 필수 | RECEIPT(입고), SALE(판매 출고), DISPOSAL(폐기·파손 출고), OTHER\_OUT(기타 출고), ADJUSTMENT(재고 조정, 실사 차이 전용), CORRECTION(정정, 잘못 넣은 이력 바로잡기) |
+| direction | 선택지 | 필수 | IN(늘림) 또는 OUT(줄임). RECEIPT는 항상 IN, SALE·DISPOSAL·OTHER\_OUT은 항상 OUT, ADJUSTMENT는 둘 다 가능, CORRECTION은 원래 이력의 반대 |
 | quantity | 정수 | 필수 | 수량. 항상 1 이상의 양수. 늘고 줌은 direction으로 구분한다 |
 | movement\_date | 날짜 | 필수 | 입출고가 일어난 날. 기본 오늘 |
-| purchase\_order\_item\_id | 정수 | 선택 | RECEIPT일 때 연결한 발주 품목. 비우면 발주 없는 직접 입고. RECEIPT가 아니면 항상 비움 |
-| sales\_channel | 선택지 | 선택 | SMARTSTORE, OWN\_MALL, OTHER. SALE일 때만 필수, 그 외에는 비움(제안) |
-| reason | 문자열 | 선택 | 조정 사유. ADJUSTMENT일 때 필수(R10) |
+| purchase\_order\_item\_id | 정수 | 선택 | RECEIPT일 때 연결한 발주 품목. 비우면 발주 없는 직접 입고. 발주 입고를 바로잡는 CORRECTION은 원래 이력과 같은 값. 그 밖에는 항상 비움 |
+| reverses\_movement\_id | 정수 | 선택 | CORRECTION이 바로잡는 원래 이력(inventory\_movements를 가리킴). 같은 회사 이력만 가리킨다. CORRECTION이면 필수, 아니면 항상 비움 |
+| sales\_channel | 선택지 | 선택 | SMARTSTORE, OWN\_MALL, OTHER. SALE일 때만 필수, 그 외에는 비움(임시 확정) |
+| reason | 문자열 | 선택 | 조정·정정 사유. ADJUSTMENT(R10)와 CORRECTION일 때 필수 |
 | memo | 문자열 | 선택 | 메모 |
 | created\_by | 정수 | 필수 | 등록한 사용자 |
 
-이 표의 규칙이 제일 중요하다. 첫째, 한 번 쌓인 행은 고치거나 지울 수 없다(R2, 제안). 잘못 등록했을 때는 반대 방향의 조정 행을 사유와 함께 추가한다. 둘째, 등록 직후 품목의 현재고가 0 미만이 되는 행은 저장하지 않는다(R3). 셋째, 조회가 빨라지도록 (company\_id, product\_id, movement\_date) 순서로 인덱스를 둔다(제안).
+이 표의 규칙이 제일 중요하다. 첫째, 한 번 쌓인 행은 고치거나 지울 수 없다(R2, 확정). 잘못 등록했을 때는 원래 이력을 가리키는 정정(CORRECTION) 행을 사유와 함께 추가한다. ADJUSTMENT는 재고 실사 차이 전용으로 남긴다. 둘째, 등록 직후 품목의 현재고가 0 미만이 되는 행은 저장하지 않는다(R3). 셋째, 조회가 빨라지도록 (company\_id, product\_id, movement\_date) 순서로 인덱스를 두고, 발주 품목별 누적 입고량 조회를 위해 purchase\_order\_item\_id에도 인덱스를 둔다(임시 확정).
+
+### 정정 이력 규칙 (CORRECTION, 확정)
+
+잘못 넣은 이력은 지우지 않고, 원래 이력을 가리키는 정정 행을 하나 더 쌓아 바로잡는다.
+
+- CORRECTION이면 reverses\_movement\_id와 reason이 필수다. CORRECTION이 아니면 reverses\_movement\_id는 비운다.
+- direction은 원래 이력의 반대다(원래가 OUT이면 IN). 품목은 원래 이력과 같다.
+- 정정의 정정은 할 수 없다(원래 이력이 CORRECTION이면 거절).
+- 한 이력에 대한 정정 수량 합계는 원래 수량을 넘을 수 없다.
+- 원래 이력이 발주 입고면 purchase\_order\_item\_id를 원래 이력과 같은 값으로 넣는다. 발주 입고 정정은 발주가 ORDERED일 때만 허용한다. RECEIVED가 된 발주의 입고는 정정할 수 없다(한계).
+- 정정 때문에 현재고가 0 미만이 되면 R3 그대로 막는다(행 잠금 포함).
+- 집계: 30일 판매 합계 = 기간 안 SALE 수량 − 그 SALE들을 가리키는 CORRECTION 수량(기간은 원래 SALE의 날짜로 판단). 발주 누적 입고량 = 연결된 RECEIPT − 연결된 CORRECTION. 현재고는 direction을 그대로 더하고 빼므로 계산 방법이 바뀌지 않는다.
+
+예) 판매 100개(#51)를 잘못 넣고 정정 90개를 등록하면, 재고는 −100 + 90 = −10만큼만 줄고 30일 판매 합계는 100 − 90 = 10이다(S13).
 
 ## 재고와 추천 계산 조회
 
-추천 계산에 필요한 숫자 세 개(현재고, 최근 30일 판매 합계, 발주 진행 중 수량)는 모두 이력 표에서 조회로 구한다. 별도 저장 칸이 없으니 숫자가 이력과 어긋날 수 없다. 아래 조회는 PostgreSQL 기준의 설계 예시이고 실제 코드는 구현 단계에서 쓴다(제안).
+추천 계산에 필요한 숫자 세 개(현재고, 최근 30일 판매 합계, 발주 진행 중 수량)는 모두 이력 표에서 조회로 구한다. 별도 저장 칸이 없으니 숫자가 이력과 어긋날 수 없다. 아래 조회는 PostgreSQL 기준의 설계 예시이고 실제 코드는 구현 단계에서 쓴다(임시 확정).
 
 ### 세 가지 조회
 
@@ -169,24 +189,32 @@ FROM inventory_movements
 WHERE company_id = :company_id   -- R1: 로그인한 회사 데이터만
   AND product_id = :product_id;  -- 계산할 품목 1개
 
--- 2) 최근 30일 판매 수량 합계 (일평균 판매량 = 이 값 ÷ 30)
-SELECT COALESCE(SUM(quantity), 0) AS sales_30d  -- 판매가 없으면 0
-FROM inventory_movements
-WHERE company_id = :company_id
-  AND product_id = :product_id
-  AND movement_type = 'SALE'                           -- R9: 폐기·기타 출고와 조정은 제외
-  AND movement_date BETWEEN :today - 29 AND :today;    -- 오늘 포함 달력 기준 30일(제안)
+-- 2) 최근 30일 판매 수량 합계 = 기간 안 SALE 수량 - 그 SALE들을 가리키는 정정 수량 (일평균 판매량 = 이 값 ÷ 30)
+SELECT COALESCE(SUM(s.quantity - COALESCE(c.corrected, 0)), 0) AS sales_30d  -- SALE마다 (원래 수량 - 정정 수량)을 더한다, 판매가 없으면 0
+FROM inventory_movements s
+LEFT JOIN (
+    SELECT reverses_movement_id, SUM(quantity) AS corrected   -- 원래 이력별 정정 수량 합계
+    FROM inventory_movements
+    WHERE company_id = :company_id
+      AND movement_type = 'CORRECTION'
+    GROUP BY reverses_movement_id
+) c ON c.reverses_movement_id = s.id                          -- 정정을 원래 SALE에 붙인다
+WHERE s.company_id = :company_id
+  AND s.product_id = :product_id
+  AND s.movement_type = 'SALE'                                -- R9: 폐기·기타 출고와 조정은 제외
+  AND s.movement_date BETWEEN :today - 29 AND :today;         -- 오늘 포함 30일(확정). 기간은 원래 SALE의 날짜로 판단
 
 -- 3) 발주 진행 중 수량 = ORDERED 발주의 발주 수량 - 이미 입고된 수량
 SELECT COALESCE(SUM(i.quantity - COALESCE(r.received, 0)), 0) AS in_transit
 FROM purchase_order_items i
 JOIN purchase_orders o ON o.id = i.purchase_order_id          -- 줄이 속한 발주서의 상태를 보기 위한 연결
 LEFT JOIN (
-    SELECT purchase_order_item_id, SUM(quantity) AS received  -- 발주 품목별 누적 입고량
+    SELECT purchase_order_item_id,
+           SUM(CASE WHEN movement_type = 'RECEIPT' THEN quantity ELSE -quantity END) AS received  -- 누적 입고량 = 입고 - 입고 정정
     FROM inventory_movements
     WHERE company_id = :company_id
-      AND movement_type = 'RECEIPT'
-      AND purchase_order_item_id IS NOT NULL                  -- 직접 입고는 발주와 무관하므로 제외
+      AND movement_type IN ('RECEIPT', 'CORRECTION')          -- 발주 연결을 가질 수 있는 건 입고와 그 정정뿐
+      AND purchase_order_item_id IS NOT NULL                  -- 직접 입고와 그 정정은 발주와 무관하므로 제외
     GROUP BY purchase_order_item_id
 ) r ON r.purchase_order_item_id = i.id
 WHERE o.company_id = :company_id
@@ -219,7 +247,7 @@ WHERE o.company_id = :company_id
 
 ### 그 밖의 조회
 
-- 데이터 부족 판정: 품목별 MIN(movement\_date)로 첫 이력 날짜를 구해 14일과 비교한다. 기준은 품목의 첫 입출고 기록일로 확정했다(AX 설계 문서 기준).
+- 데이터 부족 판정: 품목별 MIN(movement\_date)로 첫 이력 날짜를 구해 (오늘 − 첫 입출고 날짜) < 14일이면 데이터 부족이다. 기준은 품목의 첫 입출고 기록일로 확정했다(AX 설계 문서 기준).
 - "초안 작성 중" 표시: 품목이 DRAFT 발주서의 발주 품목에 들어 있는지만 보면 된다. 별도 칸이 필요 없다.
 - 재고 커버 일수는 현재고 ÷ 일평균 판매량이고, 재고 현황의 상태(정상/부족)도 같은 조회에서 나온다. 상태는 저장하지 않고 화면을 열 때 계산한다(R8).
 
@@ -230,11 +258,11 @@ WHERE o.company_id = :company_id
 | 규칙 | 구조에서의 반영 | 막는 곳 |
 | --- | --- | --- |
 | R1 회사 데이터 분리 | 회사 표를 빼고 모든 표에 company\_id. 같은 회사 안에서만 유일한 값(SKU, 업체명, 발주번호)을 둔다 | 서버: 로그인 정보의 company\_id를 모든 조회·수정에 강제. 연결하는 행이 같은 회사인지도 검사 |
-| R2 재고 = 이력 | 재고 칸 없음. inventory\_movements는 추가만 하고 고치거나 지우지 않음 | 서버가 수정·삭제 요청을 만들지 않음(제안) |
-| R3 음수 재고 금지 | 일부 칸만으로는 표현 불가 | 서버: 출고·조정 등록과 같은 처리 안에서 현재고를 계산해 결과가 0 미만이면 거절 |
+| R2 재고 = 이력 | 재고 칸 없음. inventory\_movements는 추가만 하고 고치거나 지우지 않음. 실수는 CORRECTION + reverses\_movement\_id로 바로잡음 | 서버: 이력 수정·삭제 API가 없다(확정). 정정 규칙은 서버가 검사 |
+| R3 음수 재고 금지 | 일부 칸만으로는 표현 불가 | 서버: 출고·조정·정정 등록과 같은 처리 안에서 현재고를 계산해 결과가 0 미만이면 거절 |
 | R4 발주 상태 순서 | status 선택지, 취소 시각 칸 | 서버: 허용된 이동만 처리. CANCELLED는 연결된 입고 이력이 없을 때만 |
 | R5 승인은 관리자만 | approved\_by, approved\_at 칸 | 서버: APPROVED 전환 요청자의 role이 ADMIN인지 확인 |
-| R6 부분 입고 | 누적 입고량 = 발주 품목에 연결된 RECEIPT 합계(칸으로 저장하지 않음) | 서버: 초과 입고 거절, 모든 줄이 채워지면 같은 처리 안에서 RECEIVED로 전환 |
+| R6 부분 입고 | 누적 입고량 = 발주 품목에 연결된 RECEIPT 합계 − 연결된 CORRECTION 합계(칸으로 저장하지 않음) | 서버: 초과 입고 거절, 모든 줄이 채워지면 같은 처리 안에서 RECEIVED로 전환 |
 | R7 판매 채널 | sales\_channel 칸 | DB: SALE이면 비울 수 없도록 |
 | R8 부족 표시 | 상태를 저장하지 않고 조회에서 계산 | 조회(앞 섹션) |
 | R9 출고 유형 | movement\_type. 판매량 집계는 SALE만 | 조회 |
@@ -248,26 +276,29 @@ CREATE UNIQUE INDEX one_draft_per_supplier
     ON purchase_orders (company_id, supplier_id)  -- 회사와 공급업체 조합마다
     WHERE status = 'DRAFT';                       -- DRAFT인 행만 유일하게 검사
 
--- 입출고 이력의 표현 규칙 (R7, R10 포함)
+-- 입출고 이력의 표현 규칙 (R7, R10, 정정 포함)
 ALTER TABLE inventory_movements ADD CONSTRAINT chk_movement CHECK (
     quantity > 0                                                              -- 수량은 항상 양수
     AND (movement_type <> 'RECEIPT' OR direction = 'IN')                      -- 입고는 항상 늘림
     AND (movement_type NOT IN ('SALE', 'DISPOSAL', 'OTHER_OUT') OR direction = 'OUT')  -- 출고 3종은 항상 줄임
     AND (movement_type <> 'SALE' OR sales_channel IS NOT NULL)                -- 판매에는 채널 필수 (R7)
-    AND (movement_type <> 'ADJUSTMENT' OR reason IS NOT NULL)                 -- 조정에는 사유 필수 (R10)
-    AND (movement_type = 'RECEIPT' OR purchase_order_item_id IS NULL)         -- 발주 연결은 입고에만
+    AND (movement_type NOT IN ('ADJUSTMENT', 'CORRECTION') OR reason IS NOT NULL)  -- 조정·정정에는 사유 필수 (R10)
+    AND ((movement_type = 'CORRECTION') = (reverses_movement_id IS NOT NULL))  -- 정정만 원래 이력을 가리키고, 정정은 반드시 가리킨다
+    AND (movement_type IN ('RECEIPT', 'CORRECTION') OR purchase_order_item_id IS NULL)  -- 발주 연결은 입고와 그 정정에만
 );
 ```
+
+CHECK는 한 행 안의 값만 볼 수 있다. 다른 행과 비교해야 하는 정정 규칙(direction이 원래 이력의 반대인지, 같은 회사·같은 품목인지, 정정의 정정이 아닌지, 정정 수량 합계가 원래 수량 이하인지, 발주 연결이 원래 이력과 같은지)은 서버가 같은 처리 안에서 검사한다.
 
 그 밖에는 정수 칸의 0 이상 제한(lead\_time\_days, safety\_stock, unit\_cost, unit\_price), 회사당 유일한 값(sku, 업체명, po\_number), 발주서 안의 품목 중복 금지(purchase\_order\_id + product\_id)를 제약으로 간다.
 
 ### 동시에 들어오는 출고 (R3)
 
-재고 52개인 품목에 두 사람이 같은 순간 40개씩 출고를 등록하면, 둘 다 "52 − 40 = 12, 괜찮다"고 판단해 재고가 −28이 될 수 있다. 그래서 출고·조정 등록은 한 번에 하나씩 처리해야 한다. 같은 처리 안에서 먼저 품목 행을 잠가 다른 등록이 기다리게 한 뒤, 현재고를 계산하고 이력을 저장한다(제안). 같은 방식으로 발주 품목의 초과 입고도 막는다.
+재고 52개인 품목에 두 사람이 같은 순간 40개씩 출고를 등록하면, 둘 다 "52 − 40 = 12, 괜찮다"고 판단해 재고가 −28이 될 수 있다. 그래서 출고·조정·정정 등록은 한 번에 하나씩 처리해야 한다. 같은 처리 안에서 먼저 품목 행을 잠가 다른 등록이 기다리게 한 뒤, 현재고를 계산하고 이력을 저장한다(확정). 같은 방식으로 발주 품목의 초과 입고와 정정 수량 초과도 막는다.
 
 ## 시나리오 점검
 
-AX 설계의 정답 시나리오 S1\~S11이 위 7개 표만으로 표현되고 계산되는지 하나씩 맞춰 본다. 새 표나 칸이 필요한 시나리오는 없었다.
+AX 설계의 정답 시나리오 S1\~S14가 위 7개 표만으로 표현되고 계산되는지 하나씩 맞춰 본다. 새 표는 필요 없었고, S13(판매 정정)을 위해 inventory\_movements에 reverses\_movement\_id 칸 하나를 더했다.
 
 | 번호 | 상황 | 구조에서 이렇게 표현된다 |
 | --- | --- | --- |
@@ -276,12 +307,15 @@ AX 설계의 정답 시나리오 S1\~S11이 위 7개 표만으로 표현되고 �
 | S3 | 이미 발주 중 | ORDERED 발주 품목의 (발주 수량 − 입고 수량) 160이 가용재고에 더해져 210 > 70, 추천 없음 |
 | S4 | 취소된 발주 | 진행 중 계산은 상태가 ORDERED인 발주만 합산하므로 CANCELLED는 0, 추천 160 |
 | S5 | 판매 없음 | 최근 30일 SALE 출고 합계가 0. 추천 계산에서 제외하고 "최근 30일 판매 없음" 표시 |
-| S6 | 데이터 부족 | 첫 입출고일(이력의 가장 이른 날짜)을 조회해 14일 미만이면 "데이터 부족" 표시. 기준은 14일로 확정 |
-| S7 | 정보 미입력 | 리드타임은 공급업체 칸, 기본 공급업체는 품목 칸. 필수 칸이라 비는 일은 드물고, 비면 추천 제외 |
+| S6 | 데이터 부족 | 첫 입출고일(이력의 가장 이른 날짜)을 조회해 (오늘 − 첫 입출고일) < 14일이면 "데이터 부족" 표시. 기준은 14일로 확정 |
+| S7 | 기본 공급업체 비활성 | products.default\_supplier\_id가 가리키는 suppliers.is\_active가 거짓이면 추천에서 제외(MISSING\_INFO). 리드타임·기본 공급업체는 필수 칸이라 비어 있는 경우는 없다 |
 | S8 | 회사 분리 | 모든 조회에 company\_id 조건. 이력·발주 품목도 company\_id를 직접 가지므로 조인 누락이 있어도 걸러진다 |
 | S9 | 초안 묶기 | 같은 공급업체 품목 2개를 DRAFT 발주 1건 아래 발주 품목 2줄로 저장 |
 | S10 | 초안 중복 방지 | 공급업체당 DRAFT 1건 부분 고유 인덱스가 막고, 이미 있으면 그 발주에 품목 줄만 추가 |
 | S11 | 승인 권한 | 표 구조가 아니라 서버의 역할 검사로 막는다(users.role). 구조에는 role 칸만 필요 |
+| S12 | 소수 올림 (임시 확정) | 표 구조와 무관. 조회 결과(30일 판매 7)로 계산 함수가 소수 그대로 계산하고 추천 수량만 올림해 7 |
+| S13 | 판매 정정 (임시 확정) | SALE 100 한 줄 + reverses\_movement\_id가 그 SALE을 가리키는 CORRECTION 90 한 줄. 조회 2)가 100 − 90 = 10 |
+| S14 | 사유 겹침 (임시 확정) | 첫 이력이 10일 전이고 30일 판매 0. 표 구조와 무관하게 계산 함수의 우선순위로 INSUFFICIENT\_DATA |
 
 ### 대표 시나리오
 
@@ -293,12 +327,15 @@ AX 설계의 정답 시나리오 S1\~S11이 위 7개 표만으로 표현되고 �
 
 | 번호 | 질문 | 결정 | 상태 |
 | --- | --- | --- | --- |
-| 1 | 입출고 이력을 수정·삭제할 수 있는가 | 불가. 잘못 넣은 건 반대 방향 조정 이력으로 바로잡는다. 기획 문서 권한 표의 입고·출고 "등록·수정"은 "등록"으로 고친다 | 확정(사용자) |
+| 1 | 입출고 이력을 수정·삭제할 수 있는가 | 불가. 잘못 넣은 건 원래 이력을 가리키는 정정(CORRECTION) 이력으로 바로잡는다. 기획 문서 권한 표의 입고·출고 "등록·수정"은 "등록"으로 고쳤다 | 확정(사용자) |
 | 2 | 데이터 부족 판단 기준일 | 품목의 첫 입출고 기록일부터 14일 미만이면 "데이터 부족"(AX 설계 문서 기준). S6의 "10일"은 14일에 맞춰 고친다 | 확정(사용자) |
 | 3 | 최근 30일의 경계 | 오늘 포함 30일(오늘 −29일 \~ 오늘) | 확정(사용자) |
 | 4 | 추천 계산 시점 | 요청이 올 때 계산하고 저장하지 않는다. 항상 최신 재고 기준이라 숫자가 어긋날 일이 없고, 지금 품목 수에서는 충분히 빠르다 | 임시 확정(위임) |
 | 5 | 재고 캐시 표 | 두지 않는다. 느려질 때만 추가 | 임시 확정(위임) |
 | 6 | 기술 스택·DB | FastAPI + PostgreSQL + Next.js(아키텍처 문서) | 임시 확정(위임) |
 | 7 | 임시 비밀번호 첫 로그인 때 변경 | MVP에서는 하지 않는다(후순위). 계정은 관리자가 만들어 전달한다 | 임시 확정(위임) |
+| 8 | 비활성의 범위 | 삭제 없이 항상 비활성. 새 발주에만 안 나오고, 출고·조정·정정, ORDERED 발주의 입고, 발주 없는 직접 입고는 허용 | 확정(사용자) |
+
+11월 3일 설계 리뷰에서 정한 결정 6개(A1\~A6)는 `docs/06-system-design/README.md`의 "결정 현황"에 모았다.
 
 다음 단계는 같은 6단계의 API 설계와 아키텍처다. 이 문서의 표·칸·규칙이 API의 입력·출력과 권한 검사의 기준이 된다.
