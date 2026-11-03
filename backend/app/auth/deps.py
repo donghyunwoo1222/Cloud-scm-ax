@@ -29,7 +29,19 @@ def get_current_user(request: Request, db: DB) -> User:
     user = db.get(User, payload["user_id"])  # 토큰 속 사용자를 DB에서 다시 확인
     if user is None or not user.is_active:  # 그사이 비활성이 됐으면 토큰이 남아 있어도 막는다
         raise unauthenticated()
-    return user  # 경로 함수에 넘긴다
+    if user.company_id != payload["company_id"]:  # 토큰의 회사와 실제 소속이 다르면 (정상이라면 일어날 수 없음) 믿지 않는다
+        raise unauthenticated()
+    return user  # 경로 함수에 넘긴다. 회사 분리는 user.company_id(= 토큰의 company_id)로 한다
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]  # 경로 함수에서 `user: CurrentUser` 로 로그인 사용자를 받는다
+
+
+def require_admin(user: CurrentUser) -> User:
+    """관리자 전용 경로용. 로그인은 했지만 담당자(STAFF)면 403."""
+    if user.role != "ADMIN":  # 관리자가 아니면
+        raise AppError(403, "FORBIDDEN_ROLE", "관리자만 할 수 있는 작업입니다.")
+    return user
+
+
+AdminUser = Annotated[User, Depends(require_admin)]  # 경로 함수에서 `user: AdminUser` 로 쓰면 관리자만 통과한다

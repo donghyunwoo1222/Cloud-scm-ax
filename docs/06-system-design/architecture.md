@@ -61,7 +61,7 @@ backend/
 
 | 규칙 | 지키는 자리 | 방법 |
 | --- | --- | --- |
-| 회사 분리(R1) | auth + 모든 service | auth가 토큰에서 company\_id를 꺼내 service 함수의 첫 번째 인자로 넘긴다. 모든 조회·저장에 이 값이 들어간다. 인자를 빼먹으면 함수가 호출되지 않는다 |
+| 회사 분리(R1) | auth + 모든 service | auth가 토큰에서 company\_id를 꺼내 service 함수의 첫 번째 인자로 넘긴다. 모든 조회·저장에 이 값이 들어간다. 인자를 빼먹으면 함수가 호출되지 않는다. 행 찾기·참조 검사·목록은 `services/tenant.py`의 `get_owned`·`check_ref`·`scoped`만 쓴다(#23) |
 | 재고·음수 차단(R2, R3) | services/stock | 이력을 쓰는 함수를 한 곳(`register_movement`)만 둔다. 트랜잭션 안에서 품목 줄을 잠그고 합계를 확인한다. 발주 입고와 정정(CORRECTION)도 이 함수를 재사용한다 |
 | 발주 상태(R5) | services/orders | "어느 상태에서 어느 상태로 갈 수 있는지"를 표 하나로 적고 모든 상태 변경이 그 표를 거친다. 승인은 역할 검사를 함께 한다 |
 | 추천(F8) | services/recommend | 조회 3개(ERD)는 데이터만 가져오고, 수식은 DB를 모르는 순수 함수로 분리해 테스트한다. service와 순수 함수 모두 오늘 날짜(today)를 인자로 받는다 |
