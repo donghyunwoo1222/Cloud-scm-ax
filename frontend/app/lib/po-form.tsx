@@ -45,10 +45,10 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
     setLines((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row))); // 그 줄만 바꾼다
   }
 
-  // 품목을 고르면 단가 칸이 비어 있을 때 품목 단가로 채워 준다 (고친 값은 덮어쓰지 않는다)
+  // 품목을 고르거나 바꾸면 단가 칸을 그 품목의 단가로 채운다 (단가를 직접 고치고 싶으면 품목을 고른 뒤에 고친다)
   function pickProduct(index: number, productId: string) {
     const cost = options.find((p) => String(p.id) === productId)?.unit_cost; // 고른 품목의 단가
-    setLine(index, { product_id: productId, ...(lines[index].unit_price === "" && cost !== undefined ? { unit_price: String(cost) } : {}) });
+    setLine(index, { product_id: productId, unit_price: cost === undefined ? "" : String(cost) }); // 선택을 비우면 단가도 비운다
   }
 
   async function submit(event: FormEvent) {

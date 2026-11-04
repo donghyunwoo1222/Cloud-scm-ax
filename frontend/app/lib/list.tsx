@@ -101,12 +101,19 @@ export function Pager({ meta, onPage }: { meta: Meta | null; onPage: (page: numb
   );
 }
 
+// 문제 칸의 한글 이름. 줄 목록 안의 칸(예: "items.0.quantity")은 "1번째 줄 수량" 으로 바꾼다
+function fieldName(field: string, labels: Record<string, string>): string {
+  const row = field.match(/^\w+\.(\d+)\.(\w+)$/); // 목록이름.줄번호.칸이름 모양인지
+  if (row) return `${Number(row[1]) + 1}번째 줄 ${labels[row[2]] ?? row[2]}`; // 줄 번호는 0부터라 1을 더한다
+  return labels[field] ?? field; // 그 밖에는 칸 이름 그대로 찾는다
+}
+
 // 서버 오류를 그대로 보여준다. 입력값 오류면 어느 칸인지(labels 로 한글 이름)도 덧붙인다
 export function ErrorText({ error, labels = {} }: { error: unknown; labels?: Record<string, string> }) {
   if (!error) return null; // 오류 없음
   if (!(error instanceof ApiError)) return <p role="alert" style={S.error}>알 수 없는 오류가 났습니다.</p>;
   const fields = Array.isArray(error.details) // details 가 [{field, reason}, ...] 모양이면
-    ? (error.details as { field?: string }[]).map((d) => labels[d.field ?? ""] ?? d.field).filter(Boolean)
+    ? (error.details as { field?: string }[]).map((d) => fieldName(d.field ?? "", labels)).filter(Boolean)
     : []; // 칸 이름만 모은다
   return (
     <p role="alert" style={S.error}>
