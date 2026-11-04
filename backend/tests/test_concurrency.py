@@ -8,9 +8,12 @@ from sqlalchemy import func, select  # 개수 세기
 
 from app.clock import seoul_today  # 서울 기준 오늘
 from app.errors import AppError  # 업무 오류
-from app.models import Company, Product, PurchaseOrder, Supplier, User  # 표
+from app.models import Company, Product, PurchaseOrder, PurchaseOrderItem, Supplier, User  # 표
 from app.schemas.movements import CorrectionCreate  # 정정 요청 모양
-from app.schemas.purchase_orders import PurchaseOrderCreate  # 발주서 작성 요청 모양
+from app.schemas.purchase_orders import (  # 발주서 작성·입고 요청 모양
+    PurchaseOrderCreate,
+    ReceiptCreate,
+)
 from app.schemas.users import UserUpdate  # 직원 수정 요청 모양
 from app.services import purchase_orders as po_service  # 발주서 작성
 from app.services import stock as stock_service  # 재고 (register_movement)
@@ -181,3 +184,77 @@ def test_concurrent_approve_and_cancel_serialized(engine, committed_company):
     assert results.count("APPROVED") <= 1 and results.count("CANCELLED") == 1
     assert all(isinstance(e, AppError) and e.code == "INVALID_STATUS" for e in results if not isinstance(e, str))
     assert run_in_new_session(engine, lambda s: s.get(PurchaseOrder, order_id).status) == "CANCELLED"
+
+
+def ordered_po(engine, data, product_ids, quantity=100) -> tuple[int, list[int]]:
+    """진짜로 commit 한 ORDERED 발주서 하나 → (발주서 id, 줄 id 들 = product_ids 순서). 작성 → 승인 → 발주."""
+    supplier_id = run_in_new_session(engine, lambda s: s.scalar(select(Supplier.id).where(Supplier.company_id == data["company_id"])))
+    request = PurchaseOrderCreate(supplier_id=supplier_id, items=[{"product_id": p, "quantity": quantity, "unit_price": 100} for p in product_ids])
+    order_id = run_in_new_session(engine, lambda s: po_service.create_order(data["company_id"], s, data["admin_id"], request).id)
+    for action in ("approve", "order"):
+        run_in_new_session(engine, lambda s, a=action: po_service.change_status(data["company_id"], s, data["admin_id"], order_id, a))
+    items = run_in_new_session(engine, lambda s: {i.product_id: i.id for i in s.scalars(select(PurchaseOrderItem).where(PurchaseOrderItem.purchase_order_id == order_id))})
+    return order_id, [items[p] for p in product_ids]
+
+
+def receive_call(engine, data, order_id, lines):
+    """입고 한 건을 새 연결로 (API 요청 하나와 같은 모양) → 바뀐 상태. lines 는 (줄 id, 수량)."""
+    body = ReceiptCreate(items=[{"purchase_order_item_id": i, "quantity": q} for i, q in lines])
+    return lambda: run_in_new_session(engine, lambda s: po_service.receive_order(data["company_id"], s, data["admin_id"], order_id, body).status)
+
+
+def test_concurrent_receipts_never_exceed_order(engine, committed_company):
+    """#35 완료 기준: 100개 중 70개 입고된 줄에 30개씩 8건을 동시에 보내면 1건만 성공, 나머지는 OVER_RECEIPT (발주서 행 잠금)."""
+    data = committed_company
+    order_id, (item_id,) = ordered_po(engine, data, [data["product_id"]])
+    receive_call(engine, data, order_id, [(item_id, 70)])()  # 먼저 70 입고
+    gate = hold_row_lock(engine, PurchaseOrder, order_id)  # 발주서 줄을 0.5초 잠가 8건이 확실히 겹치게
+    results = run_at_once(gate, *[delayed(receive_call(engine, data, order_id, [(item_id, 30)])) for _ in range(8)])[1:]
+    assert results.count("RECEIVED") == 1  # 30 이 한 번 들어가 100 이 되며 전량 입고
+    assert all(isinstance(e, AppError) and e.code in ("OVER_RECEIPT", "INVALID_STATUS") for e in results if e != "RECEIVED")  # 뒤 요청은 초과이거나(RECEIVED 이후) 상태 오류
+    total = run_in_new_session(engine, lambda s: po_service.received_quantities(data["company_id"], s, [item_id])[item_id])
+    assert total == 100  # 발주 수량을 넘지 않았다
+
+
+def test_concurrent_receipt_and_cancel_one_wins(engine, committed_company):
+    """#35: ORDERED 발주에 입고와 취소를 동시에 보내면 둘 중 하나만 성공한다.
+
+    문지기는 품목 줄을 잠근다. 입고는 상태(ORDERED)를 읽은 뒤 품목 잠금에서 멈추므로, 그 사이에 취소가 끼어들 틈이 생긴다.
+    입고가 발주서를 먼저 잠그면 취소는 입고가 끝날 때까지 기다려 409, 잠그지 않으면 둘 다 성공해 이 테스트가 실패한다.
+    허용 결과: "입고 성공 + 취소 409 CANNOT_CANCEL_RECEIVED" 또는 "취소 성공 + 입고 409 INVALID_STATUS".
+    """
+    data = committed_company
+    order_id, (item_id,) = ordered_po(engine, data, [data["product_id"]])
+    gate = hold_row_lock(engine, Product, data["product_id"])  # 품목 줄을 0.5초 잠가 입고가 '상태 확인 후 쓰기 전'에 멈추게
+    cancel = lambda: run_in_new_session(engine, lambda s: po_service.change_status(data["company_id"], s, data["admin_id"], order_id, "cancel").status)
+    receipt, cancelled = run_at_once(gate, delayed(receive_call(engine, data, order_id, [(item_id, 10)])), delayed(cancel, 0.2))[1:]  # 입고가 먼저 출발, 취소는 입고가 멈춘 뒤
+
+    def outcome(r):
+        return r if isinstance(r, str) else getattr(r, "code", repr(r))  # 성공이면 상태, 실패면 오류 코드
+
+    assert (outcome(receipt), outcome(cancelled)) in (
+        ("ORDERED", "CANNOT_CANCEL_RECEIVED"),  # 입고가 이겼다
+        ("INVALID_STATUS", "CANCELLED"),  # 취소가 이겼다
+    ), (outcome(receipt), outcome(cancelled))
+
+
+def test_receipts_in_opposite_product_order_do_not_deadlock(engine, committed_company):
+    """#35: 품목 A·B 가 든 발주서 두 장에 A→B, B→A 순서로 동시에 입고해도 둘 다 끝난다 (품목 번호 순으로 잠그므로 교착 없음)."""
+    data = committed_company
+    def add_product_b(s):
+        product = Product(company_id=data["company_id"], sku="CC-2", name="동시성품목2", unit="개", unit_cost=1000,
+                          default_supplier_id=s.scalar(select(Supplier.id).where(Supplier.company_id == data["company_id"])))
+        s.add(product)
+        s.flush()  # id 받기
+        return product.id
+
+    product_b = run_in_new_session(engine, add_product_b)  # 두 번째 품목 B
+    a = data["product_id"]
+    po1, (a1, b1) = ordered_po(engine, data, [a, product_b])
+    po2, (a2, b2) = ordered_po(engine, data, [a, product_b])
+    for _ in range(5):  # 여러 번 겹쳐 본다 (교착은 운이 나쁠 때만 드러나므로)
+        results = run_at_once(
+            receive_call(engine, data, po1, [(a1, 1), (b1, 1)]),  # A → B 순서로 보냄
+            receive_call(engine, data, po2, [(b2, 1), (a2, 1)]),  # B → A 순서로 보냄
+        )
+        assert results == ["ORDERED", "ORDERED"], results  # 교착이면 한쪽이 DeadlockDetected 예외가 된다

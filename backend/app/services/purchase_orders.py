@@ -1,14 +1,15 @@
-"""발주서 작성·수정·조회(#33)와 상태 변경 approve·order·cancel(#34) (F6). 모든 함수는 company_id 를 첫 번째 인자로 받는다(R1).
+"""발주서 작성·수정·조회(#33), 상태 변경 approve·order·cancel(#34), 발주 입고(#35) (F6). 모든 함수는 company_id 를 첫 번째 인자로 받는다(R1).
 
 저장 확정(commit)은 하지 않는다. API 경로 함수가 요청 끝에 한 번만 한다.
 """
 
 from collections import defaultdict  # 없는 키는 빈 목록으로 시작하는 딕셔너리
+from datetime import datetime, time  # 날짜 → 시각 (received_at)
 
 from sqlalchemy import case, delete, func, select  # 삭제, 조건 합계, 합계, SELECT 문
 from sqlalchemy.orm import Session  # DB 세션 타입
 
-from app.clock import seoul_today  # 서울 기준 오늘
+from app.clock import SEOUL, seoul_today  # 서울 시간대, 서울 기준 오늘
 from app.errors import AppError  # 공통 오류
 from app.models import (  # 표들
     Company,
@@ -25,7 +26,9 @@ from app.schemas.purchase_orders import (  # 요청·응답 모양
     PurchaseOrderCreate,
     PurchaseOrderOut,
     PurchaseOrderUpdate,
+    ReceiptCreate,
 )
+from app.services.stock import register_movement  # 이력을 쓰는 유일한 함수 (품목 잠금·flush)
 from app.services.tenant import check_ref, get_owned, scoped  # 회사 분리 도우미 (#23)
 
 
@@ -170,6 +173,72 @@ def list_orders(company_id: int, db: Session, page: PageParams, supplier_id: int
     return paginate(db, stmt.order_by(PurchaseOrder.created_at.desc(), PurchaseOrder.id.desc()), page)
 
 
+def received_quantities(company_id: int, db: Session, item_ids: list[int]) -> dict[int, int]:
+    """발주 줄별 누적 입고량 = 연결된 RECEIPT 합계 − 연결된 CORRECTION 합계 (erd.md 조회 3). 한 번의 GROUP BY. 없으면 키 없음."""
+    if not item_ids:
+        return {}
+    signed = case((InventoryMovement.movement_type == "RECEIPT", InventoryMovement.quantity), else_=-InventoryMovement.quantity)  # 입고 +, 정정 −
+    return {k: int(v) for k, v in db.execute(
+        select(InventoryMovement.purchase_order_item_id, func.sum(signed)).where(
+            InventoryMovement.company_id == company_id,
+            InventoryMovement.purchase_order_item_id.in_(item_ids),  # 발주에 연결된 이력만 (입고와 그 정정)
+        ).group_by(InventoryMovement.purchase_order_item_id)
+    ).all()}  # 줄 id → 누적 입고량
+
+
+def receive_order(company_id: int, db: Session, user_id: int, order_id: int, data: ReceiptCreate) -> PurchaseOrder:
+    """POST /purchase-orders/{id}/receipts: 여러 줄을 한 번에 입고하고, 모든 줄이 차면 RECEIVED 로 바꾼다.
+
+    ① 발주서 잠금 → ② 모든 줄을 먼저 검사(초과면 아무것도 쓰지 않고 409) → ③ 품목 번호 순으로 register_movement(품목 잠금)
+    → ④ 누적 입고량으로 상태 결정. commit 은 API 가 요청 끝에 한 번만 해서, 여러 줄이 모두 저장되거나 모두 취소된다.
+    """
+    order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # ① 발주서 잠금(잠금 순서: 회사 → 발주서 → 품목). 다른 회사 404
+    if order.status != "ORDERED":  # DRAFT·APPROVED 는 아직 주문 전, RECEIVED·CANCELLED 는 끝
+        raise AppError(409, "INVALID_STATUS", f"발주함(ORDERED) 상태의 발주서만 입고할 수 있습니다. 지금은 {order.status}입니다.",
+                       {"status": order.status})
+    today = seoul_today()  # 서울 기준 오늘
+    movement_date = data.movement_date or today  # 비우면 오늘 (#29 와 같은 규칙)
+    if movement_date > today:  # 아직 일어나지 않은 입고가 재고에 섞이지 않게
+        raise AppError(422, "VALIDATION_ERROR", "입고일은 오늘 이후로 할 수 없습니다.", [{"field": "movement_date", "reason": "invalid"}])
+    ids = [line.purchase_order_item_id for line in data.items]  # 요청한 발주 줄 번호들
+    if len(set(ids)) != len(ids):  # 같은 줄을 두 번 보내면 수량을 합칠지 애매하므로 받지 않는다
+        raise AppError(422, "VALIDATION_ERROR", "같은 발주 품목을 두 번 넣을 수 없습니다. 수량을 한 줄로 합쳐 주세요.",
+                       [{"field": "items", "reason": "duplicate"}])
+    items = {i.id: i for i in db.scalars(scoped(company_id, PurchaseOrderItem).where(
+        PurchaseOrderItem.purchase_order_id == order.id))}  # 이 발주서의 줄들 (줄 id → 줄)
+    missing = [i for i in ids if i not in items]  # 이 발주서에 없는 줄 (다른 발주서·다른 회사 줄 포함)
+    if missing:
+        raise AppError(404, "NOT_FOUND", "이 발주서에 없는 품목 줄입니다.", [{"field": "items", "reason": "not_found", "ids": missing}])
+    received = received_quantities(company_id, db, list(items))  # ② 잠근 뒤에 읽어야 먼저 끝난 입고·정정이 반영된다
+    for line in data.items:  # 모든 줄을 쓰기 전에 검사: 하나라도 넘치면 아무것도 쓰지 않는다
+        item = items[line.purchase_order_item_id]
+        done = received.get(item.id, 0)  # 지금까지 누적 입고량
+        if done + line.quantity > item.quantity:  # 예) 100 중 70 입고, 40 요청 → 110 > 100
+            remaining = item.quantity - done  # 남은 수량 (예: 30)
+            raise AppError(
+                409, "OVER_RECEIPT",
+                f"발주 수량 {item.quantity}개 중 {done}개가 이미 입고되어 {remaining}개까지만 입고할 수 있습니다.",
+                {"purchase_order_item_id": item.id, "ordered": item.quantity, "received": done,
+                 "remaining": remaining, "requested": line.quantity},
+            )
+    for line in sorted(data.items, key=lambda line: items[line.purchase_order_item_id].product_id):  # ③ 품목 번호 오름차순으로 잠근다 (교착 방지)
+        item = items[line.purchase_order_item_id]
+        register_movement(  # 품목 잠금 + 저장(flush). 비활성 품목이어도 ORDERED 발주의 입고는 허용 (check_ref 는 활성을 보지 않는다)
+            company_id, db, user_id, product_id=item.product_id, movement_type="RECEIPT", direction="IN",
+            quantity=line.quantity, movement_date=movement_date, purchase_order_item_id=item.id,
+        )
+        received[item.id] = received.get(item.id, 0) + line.quantity  # 누적 갱신
+    if all(received.get(i.id, 0) >= i.quantity for i in items.values()):  # ④ 모든 줄이 다 찼으면
+        order.status = "RECEIVED"  # 전량 입고 (부분이면 ORDERED 그대로)
+        last = db.scalar(select(func.max(InventoryMovement.movement_date)).join(
+            PurchaseOrderItem, PurchaseOrderItem.id == InventoryMovement.purchase_order_item_id).where(
+            PurchaseOrderItem.purchase_order_id == order.id, InventoryMovement.company_id == company_id,
+            InventoryMovement.movement_type == "RECEIPT"))  # 이 발주서의 모든 입고 중 가장 늦은 입고일
+        order.received_at = datetime.combine(last, time(), SEOUL)  # 실제 입고일 (서울 자정). 예) 11/12 에 입고일 11/10 으로 등록 → 11/10
+    db.flush()
+    return order
+
+
 def build_out(company_id: int, db: Session, orders: list[PurchaseOrder]) -> list[dict]:
     """발주서들을 응답 모양으로. 줄·품목·업체·누적 입고량을 목록 전체에 대해 각각 한 번의 조회로 가져온다(N+1 없음)."""
     ids = [o.id for o in orders]
@@ -179,13 +248,7 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder]) -> list
         Product.id.in_({i.product_id for i in items})))} if items else {}  # 품목 id → 품목
     suppliers = {s.id: s for s in db.scalars(scoped(company_id, Supplier).where(
         Supplier.id.in_({o.supplier_id for o in orders})))} if orders else {}  # 업체 id → 업체
-    signed = case((InventoryMovement.movement_type == "RECEIPT", InventoryMovement.quantity), else_=-InventoryMovement.quantity)  # 입고 +, 정정 −
-    received = dict(db.execute(
-        select(InventoryMovement.purchase_order_item_id, func.sum(signed)).where(
-            InventoryMovement.company_id == company_id,
-            InventoryMovement.purchase_order_item_id.in_([i.id for i in items]),  # 발주에 연결된 이력만 (입고와 그 정정)
-        ).group_by(InventoryMovement.purchase_order_item_id)
-    ).all()) if items else {}  # 줄 id → 누적 입고량
+    received = received_quantities(company_id, db, [i.id for i in items])  # 줄 id → 누적 입고량
     by_order = defaultdict(list)  # 발주서 id → 줄 응답들
     for i in items:
         p = products[i.product_id]

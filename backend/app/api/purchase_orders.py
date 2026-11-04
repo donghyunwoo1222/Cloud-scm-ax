@@ -1,4 +1,4 @@
-"""발주서 경로: 작성·수정·조회(#33), 상태 변경 approve·order·cancel(#34). 승인만 관리자, 나머지는 둘 다. 입고(#35)는 아직 없다."""
+"""발주서 경로: 작성·수정·조회(#33), 상태 변경 approve·order·cancel(#34), 입고(#35). 승인만 관리자, 나머지는 둘 다."""
 
 from typing import Annotated  # 타입에 부가 정보를 붙이는 도구
 
@@ -7,7 +7,11 @@ from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
 from app.auth.deps import AdminUser, CurrentUser  # 관리자만 / 로그인 사용자 (#22·#23)
 from app.db import DB  # 요청마다 DB 세션
 from app.pagination import Page  # page·page_size
-from app.schemas.purchase_orders import PurchaseOrderCreate, PurchaseOrderUpdate  # 요청 모양
+from app.schemas.purchase_orders import (  # 요청 모양
+    PurchaseOrderCreate,
+    PurchaseOrderUpdate,
+    ReceiptCreate,
+)
 from app.services import purchase_orders as po_service  # 업무 규칙
 
 router = APIRouter(prefix="/purchase-orders")  # 이 파일의 경로는 모두 /purchase-orders 로 시작
@@ -68,3 +72,10 @@ def mark_ordered(order_id: int, user: CurrentUser, db: DB) -> dict:
 @router.post("/{order_id}/cancel")  # DRAFT·APPROVED·ORDERED → CANCELLED (입고 기록이 없을 때만, 둘 다)
 def cancel_order(order_id: int, user: CurrentUser, db: DB) -> dict:
     return transition(order_id, user, db, "cancel")
+
+
+@router.post("/{order_id}/receipts", status_code=201)  # 발주 입고 (ORDERED 일 때만, 부분 가능, 다 차면 RECEIVED)
+def receive_order(order_id: int, data: ReceiptCreate, user: CurrentUser, db: DB) -> dict:
+    order = po_service.receive_order(user.company_id, db, user.id, order_id, data)  # 404·409·422
+    db.commit()  # 요청 끝에 한 번만 확정: 여러 줄이 함께 저장된다 (발주서·품목 잠금도 여기서 풀린다)
+    return one(user, db, order)  # 갱신된 상태와 줄별 누적 입고량
