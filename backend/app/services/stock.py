@@ -18,8 +18,10 @@ from app.models import (  # 입출고 이력, 품목, 발주서·발주 품목
     PurchaseOrder,
     PurchaseOrderItem,
 )
+from app.pagination import PageParams, paginate  # 목록 쪽 나누기
 from app.schemas.movements import CorrectionCreate, MovementCreate  # 등록·정정 요청 모양
-from app.services.tenant import check_ref, get_owned  # 회사 분리 도우미 (#23)
+from app.services.products import list_products  # 품목 목록 (활성 거르기·최신순·쪽 나누기)
+from app.services.tenant import check_ref, get_owned, scoped  # 회사 분리 도우미 (#23)
 
 OUT_TYPES = {"SALE", "DISPOSAL", "OTHER_OUT"}  # 항상 줄이는 유형
 
@@ -163,3 +165,47 @@ def create_correction(
         purchase_order_item_id=original.purchase_order_item_id,  # 발주 입고 정정이면 같은 발주 품목 (누적 입고량 = 입고 − 정정)
         reverses_movement_id=original.id,  # 원래 이력을 가리킨다
     )
+
+
+def stock_rows(company_id: int, db: Session, products: list[Product]) -> list[dict]:
+    """품목들의 현재고를 한 번의 GROUP BY 로 구해 응답 칸으로 만든다 (품목마다 따로 묻지 않는다). 이력 없는 품목은 0."""
+    signed = case((InventoryMovement.direction == "IN", InventoryMovement.quantity), else_=-InventoryMovement.quantity)  # IN +, OUT −
+    sums = dict(db.execute(
+        select(InventoryMovement.product_id, func.sum(signed))  # 품목별 합계
+        .where(InventoryMovement.company_id == company_id, InventoryMovement.product_id.in_([p.id for p in products]))  # 우리 회사, 이 쪽 품목들만
+        .group_by(InventoryMovement.product_id)
+    ).all())  # 품목 id → 현재고
+    return [
+        {"product_id": p.id, "sku": p.sku, "name": p.name, "unit": p.unit, "safety_stock": p.safety_stock,
+         "is_active": p.is_active, "current_stock": int(sums.get(p.id, 0))}  # 이력이 없으면 0
+        for p in products
+    ]
+
+
+def list_stock(company_id: int, db: Session, page: PageParams, include_inactive: bool) -> tuple[list[dict], dict]:
+    """GET /stock: 품목 목록과 같은 순서·쪽 나누기(최신 품목 먼저)에 현재고를 붙인다."""
+    products, meta = list_products(company_id, db, page, include_inactive, None)  # 활성 거르기·최신순·meta
+    return stock_rows(company_id, db, products), meta
+
+
+def get_stock(company_id: int, db: Session, product_id: int) -> dict:
+    """GET /stock/{product_id}: 한 품목 (비활성도 조회 가능). 다른 회사·없는 id 는 404."""
+    product = get_owned(company_id, db, Product, product_id)
+    return stock_rows(company_id, db, [product])[0]
+
+
+def list_movements(
+    company_id: int, db: Session, page: PageParams,
+    product_id: int | None, movement_type: str | None, date_from: date | None, date_to: date | None,
+) -> tuple[list[InventoryMovement], dict]:
+    """GET /inventory-movements: 우리 회사 이력, 입출고일 최신순(같은 날은 나중에 등록한 것 먼저). 기간은 양 끝 날짜 포함."""
+    stmt = scoped(company_id, InventoryMovement)  # 회사 조건이 붙은 시작점
+    if product_id is not None:
+        stmt = stmt.where(InventoryMovement.product_id == product_id)  # 이 품목만
+    if movement_type is not None:
+        stmt = stmt.where(InventoryMovement.movement_type == movement_type)  # 이 유형만
+    if date_from is not None:
+        stmt = stmt.where(InventoryMovement.movement_date >= date_from)  # 이 날짜부터
+    if date_to is not None:
+        stmt = stmt.where(InventoryMovement.movement_date <= date_to)  # 이 날짜까지
+    return paginate(db, stmt.order_by(InventoryMovement.movement_date.desc(), InventoryMovement.id.desc()), page)
