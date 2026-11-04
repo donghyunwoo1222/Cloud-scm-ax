@@ -91,6 +91,8 @@
 
 성공하면 201과 함께 등록된 이력과 등록 직후 재고(`stock_after`)를 돌려준다. 화면이 바로 재고 숫자를 갱신할 수 있다.
 
+`movement_date`를 비우면 서울 기준 오늘로 저장한다. 미래 날짜는 422 `VALIDATION_ERROR`, 과거 날짜는 허용한다(늦게 입력하는 경우). 아직 일어나지 않은 입출고가 재고·30일 판매에 섞이지 않게 하기 위해서다(#29, 임시 확정). 이 경로는 `purchase_order_item_id`와 `CORRECTION`을 받지 않는다(422): 발주 입고는 3), 정정은 2)로만 한다.
+
 ### 2) 잘못 넣은 이력 정정: POST /inventory-movements/{id}/corrections
 
 ```json
