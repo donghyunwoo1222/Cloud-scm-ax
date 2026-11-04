@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react"; // 폼 제출, 처음 �
 
 import { api, apiList } from "./api"; // 공통 API 호출 함수
 import { ErrorText } from "./list"; // 서버 오류 표시
+import { S } from "./styles"; // 화면 공통 스타일
 
 export type MovementType = "RECEIPT" | "SALE" | "DISPOSAL" | "OTHER_OUT" | "ADJUSTMENT"; // 서버가 받는 유형 5개
 export const TYPE_LABEL: Record<string, string> = {
@@ -76,10 +77,10 @@ export function MovementForm({ types }: { types: MovementType[] }) {
   }
 
   return (
-    <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.5rem", alignItems: "end", margin: "1rem 0" }}>
+    <form onSubmit={submit} style={S.formGridWide}>
       <label>
         품목*
-        <select value={productId} onChange={(e) => { setProductId(e.target.value); setStock(null); setDone(""); }} style={{ display: "block" }}>
+        <select value={productId} onChange={(e) => { setProductId(e.target.value); setStock(null); setDone(""); }} style={S.block}>
           <option value="">선택하세요</option>
           {products.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
         </select>
@@ -89,7 +90,7 @@ export function MovementForm({ types }: { types: MovementType[] }) {
       {types.length > 1 && (
         <label>
           유형*
-          <select value={type} onChange={(e) => setType(e.target.value as MovementType)} style={{ display: "block" }}>
+          <select value={type} onChange={(e) => setType(e.target.value as MovementType)} style={S.block}>
             {types.map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
           </select>
         </label>
@@ -97,7 +98,7 @@ export function MovementForm({ types }: { types: MovementType[] }) {
       {type === "SALE" && (
         <label>
           판매 채널*
-          <select value={channel} onChange={(e) => setChannel(e.target.value)} style={{ display: "block" }}>
+          <select value={channel} onChange={(e) => setChannel(e.target.value)} style={S.block}>
             {CHANNELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </label>
@@ -105,7 +106,7 @@ export function MovementForm({ types }: { types: MovementType[] }) {
       {type === "ADJUSTMENT" && (
         <label>
           방향*
-          <select value={direction} onChange={(e) => setDirection(e.target.value)} style={{ display: "block" }}>
+          <select value={direction} onChange={(e) => setDirection(e.target.value)} style={S.block}>
             <option value="OUT">감소 (실제가 더 적음)</option>
             <option value="IN">증가 (실제가 더 많음)</option>
           </select>
@@ -120,9 +121,9 @@ export function MovementForm({ types }: { types: MovementType[] }) {
       {type === "ADJUSTMENT" && <label>사유* <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예: 실사 차이" /></label>}
       <label>메모 <input value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
       <button type="submit">등록</button>
-      <div style={{ gridColumn: "1 / -1" }}>
+      <div style={S.fullRow}>
         <ErrorText error={error} labels={LABELS} />
-        {done && <p role="status" style={{ color: "green" }}>{done}</p>}
+        {done && <p role="status" style={S.ok}>{done}</p>}
       </div>
     </form>
   );

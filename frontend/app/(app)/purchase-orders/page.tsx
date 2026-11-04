@@ -1,6 +1,77 @@
-import ComingSoon from "../coming-soon"; // "준비 중" 자리
+"use client"; // 목록·필터를 다루는 화면이라 브라우저에서 실행
 
-// 발주 화면 (주소 /purchase-orders)
+import Link from "next/link"; // 상세·작성 화면 링크
+import { useEffect, useState } from "react"; // 처음 한 번 실행, 상태
+
+import { apiList } from "../../lib/api"; // 공통 API 호출 함수
+import { ErrorText, Pager, useList } from "../../lib/list"; // 목록 공통 부품
+import { PurchaseOrder, STATUS_LABEL, totalQuantity } from "../../lib/po"; // 발주서 모양·상태 이름·수량 합계
+import { S } from "../../lib/styles"; // 화면 공통 스타일
+
+type SupplierOption = { id: number; name: string }; // 거르기 선택 상자에 쓸 공급업체
+
+// 발주 화면 (주소 /purchase-orders): 최신순 목록 + 상태·공급업체로 거르기
 export default function Page() {
-  return <ComingSoon title="발주" issue="#36" />;
+  const [status, setStatus] = useState(""); // 고른 상태 ("" 이면 전체)
+  const [supplierId, setSupplierId] = useState(""); // 고른 공급업체 ("" 이면 전체)
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]); // 공급업체 선택지
+  const [error, setError] = useState<unknown>(null); // 선택지 불러오기 오류
+  const list = useList<PurchaseOrder>("/purchase-orders", { status, supplier_id: supplierId }); // 20개씩, 최신순, 조건이 바뀌면 다시 불러온다
+
+  useEffect(() => {
+    // 비활성 업체가 낸 지난 발주서도 걸러 볼 수 있게 비활성도 포함한다
+    // shortcut: 업체 100개까지만 불러온다(서버 page_size 최대). 100개를 넘으면 검색형 선택 상자로 바꾼다
+    apiList<SupplierOption>("/suppliers?page_size=100&include_inactive=true").then((r) => setSuppliers(r.data)).catch(setError);
+  }, []);
+
+  // 조건을 바꾸면 1쪽부터 다시 본다
+  function filter(set: (value: string) => void, value: string) {
+    set(value); // 조건 바꾸기
+    list.setPage(1); // 1쪽으로
+  }
+
+  return (
+    <section>
+      <h1>발주</h1>
+      <p><Link href="/purchase-orders/new">발주서 작성</Link></p>
+
+      <div style={S.toolbar}>
+        <label>상태
+          <select value={status} onChange={(e) => filter(setStatus, e.target.value)} style={S.block}>
+            <option value="">전체</option>
+            {Object.entries(STATUS_LABEL).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+          </select>
+        </label>
+        <label>공급업체
+          <select value={supplierId} onChange={(e) => filter(setSupplierId, e.target.value)} style={S.block}>
+            <option value="">전체</option>
+            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </label>
+      </div>
+      <ErrorText error={error} />
+      <ErrorText error={list.error} />
+
+      <table style={S.table}>
+        <thead>
+          <tr style={S.headRow}><th>발주번호</th><th>공급업체</th><th>상태</th><th>품목 수</th><th>합계 수량</th><th>약속 납기</th></tr>
+        </thead>
+        <tbody>
+          {list.rows.map((o) => (
+            <tr key={o.id} style={S.row}>
+              <td><Link href={`/purchase-orders/${o.id}`}>{o.po_number}</Link></td>
+              <td>{o.supplier_name}</td>
+              <td>{STATUS_LABEL[o.status]}</td>
+              <td>{o.items.length}</td>
+              <td>{totalQuantity(o)}</td>
+              <td>{o.due_date ?? "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {list.meta?.total === 0 && <p>조건에 맞는 발주서가 없습니다.</p>}
+      {/* 빈 목록 안내 */}
+      <Pager meta={list.meta} onPage={list.setPage} />
+    </section>
+  );
 }

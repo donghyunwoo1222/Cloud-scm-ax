@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react"; // 폼 제�
 import { api, apiList, Meta } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
+import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/stock 의 한 행 (부족/정상 상태는 #39)
 type Stock = { product_id: number; sku: string; name: string; unit: string; safety_stock: number; is_active: boolean; current_stock: number };
@@ -91,13 +92,13 @@ export default function Page() {
       <ListControls includeInactive={stock.includeInactive} onToggleInactive={stock.toggleInactive} />
       {/* 재고 목록 API 에는 검색어가 없어 검색창은 숨긴다 */}
       <ErrorText error={stock.error} />
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <table style={S.table}>
         <thead>
-          <tr style={{ textAlign: "left" }}><th>품목명</th><th>SKU</th><th>현재고</th><th>안전재고</th><th></th></tr>
+          <tr style={S.headRow}><th>품목명</th><th>SKU</th><th>현재고</th><th>안전재고</th><th></th></tr>
         </thead>
         <tbody>
           {stock.rows.map((s) => (
-            <tr key={s.product_id} style={{ borderTop: "1px solid #ccc", opacity: s.is_active ? 1 : 0.5 }}>
+            <tr key={s.product_id} style={bodyRow(s.is_active)}>
               <td>{s.name}{!s.is_active && " (비활성)"}</td>
               <td>{s.sku}</td>
               <td>{s.current_stock} {s.unit}</td>
@@ -111,17 +112,17 @@ export default function Page() {
       {stock.meta?.total === 0 && <p>품목이 없습니다. 품목을 먼저 등록하세요.</p>}
       <Pager meta={stock.meta} onPage={stock.setPage} />
 
-      <h2 style={{ marginTop: "2rem" }}>입출고 이력</h2>
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "end", margin: "1rem 0" }}>
+      <h2 style={S.sectionTitle}>입출고 이력</h2>
+      <div style={S.toolbar}>
         {/* 필터: 품목·유형·기간 */}
         <label>품목
-          <select value={productId} onChange={(e) => filter(setProductId, e.target.value)} style={{ display: "block" }}>
+          <select value={productId} onChange={(e) => filter(setProductId, e.target.value)} style={S.block}>
             <option value="">전체</option>
             {products.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
           </select>
         </label>
         <label>유형
-          <select value={type} onChange={(e) => filter(setType, e.target.value)} style={{ display: "block" }}>
+          <select value={type} onChange={(e) => filter(setType, e.target.value)} style={S.block}>
             <option value="">전체</option>
             {Object.entries(TYPE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
@@ -130,10 +131,10 @@ export default function Page() {
         <label>종료일 <input type="date" value={to} onChange={(e) => filter(setTo, e.target.value)} /></label>
       </div>
       <ErrorText error={error} />
-      {notice && <p role="status" style={{ color: "green" }}>{notice}</p>}
+      {notice && <p role="status" style={S.ok}>{notice}</p>}
 
       {correcting && (
-        <form onSubmit={correct} style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "end", padding: "0.75rem", border: "1px solid #999", margin: "0.5rem 0" }}>
+        <form onSubmit={correct} style={S.panel}>
           {/* 정정 폼: 원래 이력 요약 + 수량·사유 */}
           <span>
             정정 대상: #{correcting.id} {correcting.product_name} {TYPE_LABEL[correcting.movement_type]} {correcting.quantity}개 ({correcting.movement_date})
@@ -142,17 +143,17 @@ export default function Page() {
           <label>사유* <input value={cReason} onChange={(e) => setCReason(e.target.value)} placeholder="예: 10개를 100개로 잘못 입력" /></label>
           <button type="submit">정정 등록</button>
           <button type="button" onClick={() => setCorrecting(null)}>취소</button>
-          <div style={{ flexBasis: "100%" }}><ErrorText error={cError} labels={LABELS} /></div>
+          <div style={S.basisFull}><ErrorText error={cError} labels={LABELS} /></div>
         </form>
       )}
 
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <table style={S.table}>
         <thead>
-          <tr style={{ textAlign: "left" }}><th>번호</th><th>입출고일</th><th>품목</th><th>유형</th><th>수량</th><th>사유·채널·메모</th><th></th></tr>
+          <tr style={S.headRow}><th>번호</th><th>입출고일</th><th>품목</th><th>유형</th><th>수량</th><th>사유·채널·메모</th><th></th></tr>
         </thead>
         <tbody>
           {rows.map((m) => (
-            <tr key={m.id} style={{ borderTop: "1px solid #ccc" }}>
+            <tr key={m.id} style={S.row}>
               <td>#{m.id}</td>
               <td>{m.movement_date}</td>
               <td>{m.product_name} ({m.product_sku})</td>

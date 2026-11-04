@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react"; // 폼 제출, 처음 �
 
 import { api, apiList } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
+import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/products 의 한 행 (재고 숫자는 없다, #31)
 type Product = {
@@ -115,7 +116,7 @@ export default function ProductsPage() {
     <section>
       <h1>품목</h1>
 
-      <form onSubmit={save} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "0.5rem", alignItems: "end", margin: "1rem 0" }}>
+      <form onSubmit={save} style={S.formGrid}>
         {/* 등록·수정 폼 */}
         <label>SKU* <input value={form.sku} onChange={(e) => set("sku", e.target.value)} /></label>
         <label>품목명* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
@@ -124,7 +125,7 @@ export default function ProductsPage() {
         <label>안전재고 <input type="number" value={form.safety_stock} onChange={(e) => set("safety_stock", e.target.value)} /></label>
         <label>
           기본 공급업체*
-          <select value={form.default_supplier_id} onChange={(e) => set("default_supplier_id", e.target.value)} style={{ display: "block" }}>
+          <select value={form.default_supplier_id} onChange={(e) => set("default_supplier_id", e.target.value)} style={S.block}>
             <option value="">선택하세요</option>
             {currentMissing && <option value={currentMissing.id}>{currentMissing.name} (비활성, 현재 값)</option>}
             {suppliers.map((s) => (
@@ -134,7 +135,7 @@ export default function ProductsPage() {
             ))}
           </select>
         </label>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
+        <div style={S.buttons}>
           <button type="submit">{editing === null ? "등록" : "수정 저장"}</button>
           {editing !== null && <button type="button" onClick={reset}>취소</button>}
         </div>
@@ -143,15 +144,15 @@ export default function ProductsPage() {
 
       <ListControls placeholder="SKU·품목명 검색" includeInactive={list.includeInactive} onSearch={list.search} onToggleInactive={list.toggleInactive} />
       <ErrorText error={list.error} />
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <table style={S.table}>
         <thead>
-          <tr style={{ textAlign: "left" }}>
+          <tr style={S.headRow}>
             <th>SKU</th><th>품목명</th><th>단위</th><th>단가</th><th>안전재고</th><th>기본 공급업체</th><th>리드타임</th><th>상태</th><th></th>
           </tr>
         </thead>
         <tbody>
           {list.rows.map((p) => (
-            <tr key={p.id} style={{ borderTop: "1px solid #ccc", opacity: p.is_active ? 1 : 0.5 }}>
+            <tr key={p.id} style={bodyRow(p.is_active)}>
               {/* 비활성 행은 흐리게 */}
               <td>{p.sku}</td>
               <td>{p.name}</td>

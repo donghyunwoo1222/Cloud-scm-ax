@@ -175,6 +175,17 @@ def test_list_latest_first(client, world, data):
     assert [o["id"] for o in client.get(URL).json()["data"]] == [b["id"], a["id"]]
 
 
+def test_list_filter_by_status(client, world, data):
+    login_as(client)
+    a = client.post(URL, json=body(world, line(data["p1"]))).json()["data"]  # DRAFT
+    b = client.post(URL, json={"supplier_id": new_supplier(client, "넷째업체"), "items": [line(data["p1"])]}).json()["data"]
+    login_as(client, "admin@a.test")
+    assert client.post(f"{URL}/{b['id']}/approve").status_code == 200  # b 만 APPROVED
+    ids = lambda status: [o["id"] for o in client.get(URL, params={"status": status}).json()["data"]]  # 상태별 목록의 id
+    assert ids("DRAFT") == [a["id"]] and ids("APPROVED") == [b["id"]] and ids("ORDERED") == []  # 상태가 맞는 것만
+    assert client.get(URL, params={"status": "BOGUS"}).status_code == 422  # 모르는 상태는 422
+
+
 # ----- 회사 분리 -----
 def test_company_isolation(client, world, data):
     login_as(client)

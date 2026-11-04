@@ -1,7 +1,7 @@
 """발주서 요청·응답 모양 (#33: 작성·수정·조회. 승인·발주·취소는 #34, 입고는 #35)."""
 
 from datetime import date, datetime  # 날짜·시각 칸
-from typing import Annotated  # 타입에 검사를 덧붙이는 도구
+from typing import Annotated, Literal  # 타입에 검사를 덧붙이는 도구, 정해진 값 중 하나
 
 from pydantic import BaseModel, ConfigDict, Field  # 모양 정의·검사 도구
 
@@ -9,6 +9,7 @@ from app.schemas.common import Memo, NonNegInt, PatchModel  # 공통 칸 타입�
 
 PosInt = Annotated[int, Field(ge=1, strict=True)]  # 1 이상 정수만 (3.0·"3"·true 는 422)
 Id = Annotated[int, Field(strict=True)]  # 번호 칸 (정수만)
+PoStatus = Literal["DRAFT", "APPROVED", "ORDERED", "RECEIVED", "CANCELLED"]  # 목록 상태 필터 (그 밖의 값은 422)
 
 
 class ItemIn(BaseModel):
