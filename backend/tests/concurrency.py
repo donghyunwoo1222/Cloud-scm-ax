@@ -5,8 +5,9 @@
 """
 
 import threading  # 여러 작업을 동시에 실행
+import time  # 잠깐 기다리기
 
-from sqlalchemy import delete  # DELETE 문
+from sqlalchemy import delete, select  # DELETE·SELECT 문
 from sqlalchemy.orm import Session  # DB 세션
 
 from app.models import (  # 표 7개
@@ -63,3 +64,28 @@ def delete_companies(engine, company_ids: list[int]) -> None:
             session.execute(delete(model).where(model.company_id.in_(company_ids)))
         session.execute(delete(Company).where(Company.id.in_(company_ids)))  # 마지막에 회사
         session.commit()
+
+
+def hold_row_lock(engine, model, row_id: int, seconds: float = 0.5):
+    """'문지기': 행 하나를 seconds 동안 잠가 두는 함수를 돌려준다. run_at_once 의 첫 함수로 넣는다.
+
+    새 연결을 만드는 시간이 요청마다 달라 '동시' 요청이 실제로는 한 줄로 들어가 버리는 일을 막는다.
+    문지기가 잠근 동안 다른 요청들은 모두 출발해 각자 기다리는 자리까지 와 있고, 문지기가 풀면 한꺼번에 겹친다.
+    다른 요청은 delayed() 로 감싸 문지기가 먼저 잠그게 한다.
+    """
+    def gate():
+        with Session(engine) as session:
+            session.scalar(select(model).where(model.id == row_id).with_for_update())  # 잠금
+            time.sleep(seconds)  # 다른 요청들이 모두 도착할 시간
+            session.commit()  # 풀기
+
+    return gate
+
+
+def delayed(call, seconds: float = 0.1):
+    """call 을 seconds 뒤에 실행하는 함수로 감싼다 (문지기가 먼저 잠그도록)."""
+    def run():
+        time.sleep(seconds)
+        return call()
+
+    return run

@@ -38,5 +38,16 @@ class MovementOut(BaseModel):
     sales_channel: str | None  # 판매 채널
     reason: str | None  # 사유
     memo: str | None  # 메모
+    reverses_movement_id: int | None  # 정정이면 바로잡은 원래 이력
+    purchase_order_item_id: int | None  # 발주 입고(와 그 정정)면 연결된 발주 품목
     created_by: int  # 등록한 사용자
     created_at: datetime  # 등록 시각
+
+
+class CorrectionCreate(BaseModel):
+    """POST /inventory-movements/{id}/corrections 본문. 품목·방향·날짜는 원래 이력에서 서버가 정한다."""
+
+    model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422 (방향·품목을 바꿔 보내지 못하게)
+
+    quantity: Annotated[int, Field(strict=True, ge=1)]  # 정정 수량: 1 이상 정수 (예: 판매 100을 10으로 → 90)
+    reason: Reason  # 사유 필수 (예: "판매 10개를 100개로 잘못 입력")
