@@ -134,7 +134,7 @@
 
 ### 4) 발주 상태 변경: approve · order · cancel
 
-세 경로 모두 요청 본문이 없다. 서버가 현재 상태를 보고 허용되는 한 단계만 바꾼다(DRAFT→APPROVED→ORDERED). 그 밖의 요청은 409 `INVALID_STATUS`, 담당자가 approve를 부르면 403 `FORBIDDEN_ROLE`(S11), 입고 이력이 있는 발주의 cancel은 409 `CANNOT_CANCEL_RECEIVED`이다(입고 후 전부 정정해 누적 입고량이 0이어도 RECEIPT 기록이 있으면 마찬가지, 임시 확정). 비활성 공급업체나 비활성 품목이 든 DRAFT를 approve하면 409 `INACTIVE_REFERENCE`이다. 마지막 상태 변경은 모두 한 번에 하나씩만 되도록 서버가 현재 상태를 읽고 갱신하는 조건을 한 구문에서 검사한다(두 명이 동시에 눌러도 한 번만 반영).
+세 경로 모두 요청 본문이 없다. 서버가 현재 상태를 보고 허용되는 한 단계만 바꾼다(DRAFT→APPROVED→ORDERED). 그 밖의 요청은 409 `INVALID_STATUS`, 담당자가 approve를 부르면 403 `FORBIDDEN_ROLE`(S11), 입고 이력이 있는 발주의 cancel은 409 `CANNOT_CANCEL_RECEIVED`이다(입고 후 전부 정정해 누적 입고량이 0이어도 RECEIPT 기록이 있으면 마찬가지, 임시 확정). 비활성 공급업체나 비활성 품목이 든 DRAFT를 approve하면 409 `INACTIVE_REFERENCE`이다. 상태 변경은 모두 한 번에 하나씩만 되도록, 서버가 먼저 발주서 행을 잠그고(SELECT … FOR UPDATE) 그 **뒤에** 현재 상태를 읽어 검사한 다음 바꾼다(두 명이 동시에 눌러도 한 번만 반영. 잠그기 전에 읽은 상태로 검사하면 두 요청이 모두 DRAFT를 보고 통과할 수 있다). "갱신 구문에 상태 조건을 넣는 방식"(UPDATE … WHERE status = …)은 쓰지 않는다. 입고·정정과 같은 행 잠금 방식으로 맞춰 잠금 순서 규칙 하나로 관리한다(#34, #71).
 
 상태 변경이 다른 행을 함께 잠가야 하면 회사 → 발주서 → 품목 순서를 지킨다(PROGRESS.md의 행 잠금 순서).
 
@@ -146,7 +146,7 @@
 | order | APPROVED | ORDERED | 둘 다 | 없음 | ordered\_at |
 | cancel | DRAFT, APPROVED, ORDERED | CANCELLED | 둘 다 | 연결된 RECEIPT 행이 있으면 409 `CANNOT_CANCEL_RECEIVED` | cancelled\_at |
 
-동시에 눌러도 한 번만 반영되는 방법은 발주서 행 잠금이다(잠근 뒤 현재 상태를 읽고 바꾼다). 응답은 바뀐 발주서(`GET /purchase-orders/{id}`와 같은 모양)다.
+동시에 눌러도 한 번만 반영되는 방법은 위에 적은 발주서 행 잠금이다(동시 승인 8건 → 1건 성공, 테스트로 확인). 응답은 바뀐 발주서(`GET /purchase-orders/{id}`와 같은 모양)다.
 
 ### 5) 발주 추천 조회: GET /recommendations
 
@@ -223,7 +223,7 @@
 | DUPLICATE\_DRAFT | 409 | 이미 DRAFT가 있는 공급업체에 새 발주서를 만듦. details에 기존 발주서 id·발주번호(#33) | S10 |
 | INACTIVE\_REFERENCE | 409 | 비활성 공급업체를 품목의 기본 공급업체로 고르거나(등록·수정, #26), 비활성 공급업체·품목을 새 발주서 작성·품목 추가·추천 초안 생성에 쓰거나, 비활성이 든 DRAFT를 승인. 출고·조정·정정, 이미 ORDERED인 발주의 입고, 발주 없는 직접 입고에는 내지 않는다 | 비활성 범위(A3) |
 | EMAIL\_TAKEN | 409 | 이미 쓰는 이메일로 계정 생성 | F1 |
-| LAST\_ADMIN | 409 | 회사의 마지막 활성 관리자를 담당자로 바꾸거나 비활성으로 바꿈(자기 자신 포함) | F1 |
+| LAST\_ADMIN | 409 | 회사의 마지막 활성 관리자를 담당자로 바꾸거나 비활성으로 바꿈(자기 자신 포함). 직원 변경은 회사 행을 잠근 뒤 대상 직원을 읽어 검사한다(#71) | F1 |
 | DUPLICATE\_NAME | 409 | 같은 회사에 같은 이름의 공급업체를 등록하거나 그 이름으로 바꿈(앞뒤 공백 제거 후 비교, 다른 회사는 허용) | F2 |
 | DUPLICATE\_SKU | 409 | 같은 회사에 같은 SKU의 품목을 등록하거나 그 SKU로 바꿈(공백 제거·대문자로 비교, 다른 회사는 허용) | F3 |
 

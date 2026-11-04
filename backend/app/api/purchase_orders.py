@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
 from app.auth.deps import AdminUser, CurrentUser  # 관리자만 / 로그인 사용자 (#22·#23)
 from app.db import DB  # 요청마다 DB 세션
 from app.pagination import Page  # page·page_size
+from app.schemas.common import PathId, QueryId  # 번호 칸 (DB 범위를 넘으면 422, #71)
 from app.schemas.purchase_orders import (  # 요청 모양
     PoStatus,
     PurchaseOrderCreate,
@@ -28,7 +29,7 @@ def list_orders(
     user: CurrentUser,
     db: DB,
     page: Page,
-    supplier_id: Annotated[int | None, Query()] = None,  # 이 공급업체의 발주만
+    supplier_id: QueryId = None,  # 이 공급업체의 발주만
     status: Annotated[PoStatus | None, Query()] = None,  # 이 상태의 발주만
 ) -> dict:
     rows, meta = po_service.list_orders(user.company_id, db, page, supplier_id, status)  # 회사는 토큰 사용자에게서
@@ -43,12 +44,12 @@ def create_order(data: PurchaseOrderCreate, user: CurrentUser, db: DB) -> dict:
 
 
 @router.get("/{order_id}")  # 상세
-def get_order(order_id: int, user: CurrentUser, db: DB) -> dict:
+def get_order(order_id: PathId, user: CurrentUser, db: DB) -> dict:
     return one(user, db, po_service.get_order(user.company_id, db, order_id))  # 다른 회사 404
 
 
 @router.patch("/{order_id}")  # 수정 (DRAFT 일 때만)
-def update_order(order_id: int, data: PurchaseOrderUpdate, user: CurrentUser, db: DB) -> dict:
+def update_order(order_id: PathId, data: PurchaseOrderUpdate, user: CurrentUser, db: DB) -> dict:
     order = po_service.update_order(user.company_id, db, order_id, data)  # 404·409·422
     db.commit()  # 요청 끝에 한 번만 확정
     return one(user, db, order)
@@ -62,22 +63,22 @@ def transition(order_id: int, user, db, action: str) -> dict:
 
 
 @router.post("/{order_id}/approve")  # DRAFT → APPROVED (관리자만, 담당자는 403 FORBIDDEN_ROLE)
-def approve_order(order_id: int, user: AdminUser, db: DB) -> dict:
+def approve_order(order_id: PathId, user: AdminUser, db: DB) -> dict:
     return transition(order_id, user, db, "approve")
 
 
 @router.post("/{order_id}/order")  # APPROVED → ORDERED (공급업체에 발주했음 표시, 둘 다)
-def mark_ordered(order_id: int, user: CurrentUser, db: DB) -> dict:
+def mark_ordered(order_id: PathId, user: CurrentUser, db: DB) -> dict:
     return transition(order_id, user, db, "order")
 
 
 @router.post("/{order_id}/cancel")  # DRAFT·APPROVED·ORDERED → CANCELLED (입고 기록이 없을 때만, 둘 다)
-def cancel_order(order_id: int, user: CurrentUser, db: DB) -> dict:
+def cancel_order(order_id: PathId, user: CurrentUser, db: DB) -> dict:
     return transition(order_id, user, db, "cancel")
 
 
 @router.post("/{order_id}/receipts", status_code=201)  # 발주 입고 (ORDERED 일 때만, 부분 가능, 다 차면 RECEIVED)
-def receive_order(order_id: int, data: ReceiptCreate, user: CurrentUser, db: DB) -> dict:
+def receive_order(order_id: PathId, data: ReceiptCreate, user: CurrentUser, db: DB) -> dict:
     order = po_service.receive_order(user.company_id, db, user.id, order_id, data)  # 404·409·422
     db.commit()  # 요청 끝에 한 번만 확정: 여러 줄이 함께 저장된다 (발주서·품목 잠금도 여기서 풀린다)
     return one(user, db, order)  # 갱신된 상태와 줄별 누적 입고량

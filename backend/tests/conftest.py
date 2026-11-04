@@ -11,7 +11,11 @@ from sqlalchemy.orm import Session  # ORM 세션
 from app.auth.security import hash_password  # 테스트 사용자 비밀번호 해시
 from app.db import get_db  # 앱이 쓰는 DB 세션 의존성
 from app.main import app  # 테스트할 앱
-from app.models import Company, Supplier, User  # 준비 데이터 표
+from app.models import Company, Product, Supplier, User  # 준비 데이터 표
+from tests.concurrency import (  # 진짜 commit 하는 준비·정리 (committed_company)
+    delete_companies,
+    run_in_new_session,
+)
 from tests.helpers import PASSWORD  # 테스트 사용자 공통 비밀번호
 
 # 테스트 전용 DB. 개발용 DB(scm)와 이름을 나눠, 테스트가 개발 데이터를 지우지 않게 한다
@@ -33,15 +37,23 @@ def create_test_database_if_missing(url: str) -> None:
     admin.dispose()  # 접속을 정리한다
 
 
+def reset_database(url: str) -> None:
+    """표를 모두 지우고 마이그레이션으로 처음부터 다시 만든다. DB 이름이 정확히 scm_test 가 아니면 아무것도 하지 않고 멈춘다."""
+    name = make_url(url).database  # 주소에서 DB 이름만 꺼낸다 (접속은 아직 하지 않는다)
+    if name != "scm_test":  # 개발 DB(scm) 등을 잘못 넣으면 downgrade base 가 그 DB 의 표를 모두 지운다
+        pytest.exit(f"테스트 DB 이름이 scm_test 가 아닙니다({name!r}). 아무것도 지우지 않고 멈춥니다.", returncode=1)
+    create_test_database_if_missing(url)  # 테스트 DB 준비
+    cfg = Config(str(BACKEND_DIR / "alembic.ini"))  # alembic 설정 읽기
+    cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations"))  # 어느 폴더에서 실행해도 마이그레이션 파일을 찾게
+    cfg.set_main_option("sqlalchemy.url", url.replace("%", "%%"))  # 개발 DB가 아닌 테스트 DB에 적용
+    command.downgrade(cfg, "base")  # 이전 실행에서 남은 표를 모두 지운다 (downgrade 도 함께 검증)
+    command.upgrade(cfg, "head")  # 실제 마이그레이션 파일로 표 7개를 만든다 (모델이 아니라 마이그레이션을 검증)
+
+
 @pytest.fixture(scope="session")
 def engine():
     """테스트 한 번 실행에 한 번: 표를 지우고 마이그레이션으로 처음부터 다시 만든다."""
-    create_test_database_if_missing(TEST_DATABASE_URL)  # 테스트 DB 준비
-    cfg = Config(str(BACKEND_DIR / "alembic.ini"))  # alembic 설정 읽기
-    cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations"))  # 어느 폴더에서 실행해도 마이그레이션 파일을 찾게
-    cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL.replace("%", "%%"))  # 개발 DB가 아닌 테스트 DB에 적용
-    command.downgrade(cfg, "base")  # 이전 실행에서 남은 표를 모두 지운다 (downgrade 도 함께 검증)
-    command.upgrade(cfg, "head")  # 실제 마이그레이션 파일로 표 7개를 만든다 (모델이 아니라 마이그레이션을 검증)
+    reset_database(TEST_DATABASE_URL)  # 테스트 DB 초기화
     eng = create_engine(TEST_DATABASE_URL)  # 테스트가 쓸 연결 묶음
     yield eng  # 테스트들에게 넘긴다
     eng.dispose()  # 끝나면 정리
@@ -96,3 +108,26 @@ def world(session):
         out[f"{key}_supplier"] = supplier
     session.commit()  # 준비 데이터 확정 (앱이 오류 뒤 rollback 해도 남는다, 테스트 끝에는 함께 되돌림)
     return out
+
+
+@pytest.fixture
+def committed_company(engine):
+    """진짜로 commit 한 회사 하나(관리자 1명, 공급업체 1개, 품목 1개). 테스트가 끝나면 지운다."""
+    def create(session):
+        company = Company(name="동시성상사")
+        session.add(company)
+        session.flush()  # company.id 생성
+        admin = User(company_id=company.id, name="관리자0", email=f"admin0-{company.id}@concurrency.test",
+                     password_hash="x", role="ADMIN")  # 로그인은 하지 않으므로 해시는 아무 값
+        supplier = Supplier(company_id=company.id, name="동시성업체", lead_time_days=3)
+        session.add_all([admin, supplier])
+        session.flush()  # id 생성
+        product = Product(company_id=company.id, sku="CC-1", name="동시성품목", unit="개", unit_cost=1000,
+                          default_supplier_id=supplier.id)
+        session.add(product)
+        session.commit()  # 진짜 확정 (다른 연결에서도 보인다)
+        return {"company_id": company.id, "admin_id": admin.id, "product_id": product.id}
+
+    data = run_in_new_session(engine, create)
+    yield data
+    delete_companies(engine, [data["company_id"]])  # 테스트 데이터 정리

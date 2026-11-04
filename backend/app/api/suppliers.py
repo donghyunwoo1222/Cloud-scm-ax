@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
 from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
 from app.db import DB  # 요청마다 DB 세션
 from app.pagination import Page  # page·page_size
+from app.schemas.common import PathId  # 번호 칸 (DB 범위를 넘으면 422, #71)
 from app.schemas.suppliers import SupplierCreate, SupplierOut, SupplierUpdate  # 요청·응답 모양
 from app.services import suppliers as suppliers_service  # 업무 규칙
 
@@ -35,10 +36,10 @@ def create_supplier(data: SupplierCreate, user: CurrentUser, db: DB) -> dict:
 
 
 @router.get("/{supplier_id}")  # 상세
-def get_supplier(supplier_id: int, user: CurrentUser, db: DB) -> dict:
+def get_supplier(supplier_id: PathId, user: CurrentUser, db: DB) -> dict:
     return {"data": out(suppliers_service.get_supplier(user.company_id, db, supplier_id))}  # 다른 회사 404
 
 
 @router.patch("/{supplier_id}")  # 수정·비활성·다시 활성
-def update_supplier(supplier_id: int, data: SupplierUpdate, user: CurrentUser, db: DB) -> dict:
+def update_supplier(supplier_id: PathId, data: SupplierUpdate, user: CurrentUser, db: DB) -> dict:
     return {"data": out(suppliers_service.update_supplier(user.company_id, db, supplier_id, data))}  # 다른 회사 404

@@ -8,6 +8,7 @@ from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
 from app.db import DB  # 요청마다 DB 세션
 from app.models import Product, Supplier  # 품목, 공급업체 표
 from app.pagination import Page  # page·page_size
+from app.schemas.common import PathId  # 번호 칸 (DB 범위를 넘으면 422, #71)
 from app.schemas.products import (  # 요청·응답 모양
     ProductCreate,
     ProductOut,
@@ -54,10 +55,10 @@ def create_product(data: ProductCreate, user: CurrentUser, db: DB) -> dict:
 
 
 @router.get("/{product_id}")  # 상세
-def get_product(product_id: int, user: CurrentUser, db: DB) -> dict:
+def get_product(product_id: PathId, user: CurrentUser, db: DB) -> dict:
     return one(user, db, products_service.get_product(user.company_id, db, product_id))  # 다른 회사 404
 
 
 @router.patch("/{product_id}")  # 수정·비활성·다시 활성
-def update_product(product_id: int, data: ProductUpdate, user: CurrentUser, db: DB) -> dict:
+def update_product(product_id: PathId, data: ProductUpdate, user: CurrentUser, db: DB) -> dict:
     return one(user, db, products_service.update_product(user.company_id, db, product_id, data))  # 다른 회사 404
