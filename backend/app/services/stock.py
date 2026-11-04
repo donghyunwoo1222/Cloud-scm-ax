@@ -1,6 +1,8 @@
 """재고 (R2·R3). 현재고 = 입출고 이력 합계. 이력을 쓰는 곳은 register_movement 하나뿐이다.
 
 발주 입고(#35)·정정(#30)도 이 함수를 다시 써서, 음수 재고 차단과 행 잠금을 한 곳에서만 지킨다.
+저장 확정(commit)은 이 파일이 하지 않고 호출한 쪽(API 계층)이 요청 끝에 한 번만 한다.
+여러 줄을 한 요청에서 쓰다 중간에 실패하면(예: 발주 입고 품목 3개 중 2번째가 초과) 앞 줄까지 함께 취소되게 하려고.
 """
 
 from datetime import date  # 날짜
@@ -69,7 +71,9 @@ def register_movement(
     purchase_order_item_id: int | None = None,
     reverses_movement_id: int | None = None,
 ) -> tuple[InventoryMovement, int]:
-    """이력 한 줄을 쓰는 유일한 함수. 한 트랜잭션 안에서 ① 품목 줄 잠금 ② 현재고 계산 ③ 0 미만이면 거절 ④ 저장.
+    """이력 한 줄을 쓰는 유일한 함수. 한 트랜잭션 안에서 ① 품목 줄 잠금 ② 현재고 계산 ③ 0 미만이면 거절 ④ 저장(flush).
+
+    commit 은 하지 않는다. 호출한 쪽이 commit 해야 확정되고, 그때 잠금이 풀린다.
 
     돌려주는 값: (저장한 이력, 저장 직후 재고)
     """
@@ -77,8 +81,9 @@ def register_movement(
     stock = current_stock(company_id, db, product_id)  # ② 잠근 뒤에 읽어야 먼저 끝난 등록이 반영된 값을 본다
     after = stock + quantity if direction == "IN" else stock - quantity  # 저장 직후 재고 (예: 52 − 30 = 22)
     if after < 0:  # ③ 음수가 되면 (R3)
+        verb = "출고할" if movement_type in OUT_TYPES else "줄일"  # 출고 3종은 "출고", 감소 조정·정정은 "줄이기"
         raise AppError(
-            409, "INSUFFICIENT_STOCK", f"현재고 {stock}개보다 많이 출고할 수 없습니다.",
+            409, "INSUFFICIENT_STOCK", f"현재고 {stock}개보다 많이 {verb} 수 없습니다.",
             {"current_stock": stock, "requested": quantity},
         )  # 저장 없이 끝난다. 잠금은 요청이 끝나 세션이 닫힐 때 풀린다
     movement = InventoryMovement(
@@ -88,7 +93,7 @@ def register_movement(
         purchase_order_item_id=purchase_order_item_id, reverses_movement_id=reverses_movement_id,
     )
     db.add(movement)  # ④ 저장
-    db.commit()  # 확정과 함께 잠금이 풀린다. 기다리던 다음 등록은 이 결과가 반영된 재고를 읽는다
+    db.flush()  # DB 에 보내 id 를 받는다 (확정은 아직). 호출한 쪽의 commit 때 확정되고 잠금이 풀린다
     return movement, after
 
 

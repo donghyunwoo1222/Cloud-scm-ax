@@ -13,5 +13,6 @@ router = APIRouter(prefix="/inventory-movements")  # 이 파일의 경로는 모
 @router.post("", status_code=201)  # 직접 입고·출고·조정 등록
 def create_movement(data: MovementCreate, user: CurrentUser, db: DB) -> dict:
     movement, stock_after = stock_service.create_movement(user.company_id, db, user.id, data)  # 재고 부족이면 409
+    db.commit()  # 요청 끝에 한 번만 확정 (잠금도 여기서 풀린다)
     body = MovementOut.model_validate(movement).model_dump(mode="json")  # 등록된 이력
     return {"data": {**body, "stock_after": stock_after}}  # 등록 직후 재고도 함께 (화면이 바로 숫자를 바꾸게)

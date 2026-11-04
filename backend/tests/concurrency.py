@@ -46,9 +46,14 @@ def run_at_once(*calls):
 
 
 def run_in_new_session(engine, fn):
-    """새 DB 연결·세션 하나로 fn(session) 을 실행한다. 요청 하나가 자기 세션을 쓰는 것과 같은 모양."""
-    with Session(engine) as session:  # 끝나면 닫힌다 (commit 안 된 작업은 되돌려지고 잠금도 풀린다)
-        return fn(session)
+    """새 DB 연결·세션 하나로 fn(session) 을 실행하고 성공하면 commit 한다. API 요청 하나와 같은 모양.
+
+    fn 이 예외를 던지면 commit 하지 않는다 (세션이 닫히며 되돌려지고 잠금도 풀린다).
+    """
+    with Session(engine) as session:
+        result = fn(session)  # 요청 처리
+        session.commit()  # 요청 끝의 확정 (API 계층의 db.commit() 과 같은 자리)
+        return result
 
 
 def delete_companies(engine, company_ids: list[int]) -> None:
