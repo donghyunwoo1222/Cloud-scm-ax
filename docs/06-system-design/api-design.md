@@ -136,6 +136,16 @@
 
 상태 변경이 다른 행을 함께 잠가야 하면 회사 → 발주서 → 품목 순서를 지킨다(PROGRESS.md의 행 잠금 순서).
 
+허용 이동 표(#34). 여기 없는 이동은 모두 409 `INVALID_STATUS`다. RECEIVED는 입고(3))가 모든 품목이 다 찬 뒤에 정한다.
+
+| 경로 | 출발 상태 | 도착 상태 | 역할 | 추가 검사 | 남기는 칸 |
+| --- | --- | --- | --- | --- | --- |
+| approve | DRAFT | APPROVED | 관리자 | 비활성 업체·품목이 들면 409 `INACTIVE_REFERENCE` | approved\_by, approved\_at |
+| order | APPROVED | ORDERED | 둘 다 | 없음 | ordered\_at |
+| cancel | DRAFT, APPROVED, ORDERED | CANCELLED | 둘 다 | 연결된 RECEIPT 행이 있으면 409 `CANNOT_CANCEL_RECEIVED` | cancelled\_at |
+
+동시에 눌러도 한 번만 반영되는 방법은 발주서 행 잠금이다(잠근 뒤 현재 상태를 읽고 바꾼다). 응답은 바뀐 발주서(`GET /purchase-orders/{id}`와 같은 모양)다.
+
 ### 5) 발주 추천 조회: GET /recommendations
 
 계산은 이 요청이 올 때 서버가 한다(계산 결과를 저장하지 않는다. 임시 확정, ERD와 같다). 예시는 일평균 10, 리드타임 5, 안전재고 20, 현재고 50인 품목(S1)이다.
