@@ -6,6 +6,7 @@ import { ReactNode, useEffect, useState } from "react"; // 자식 화면 타입,
 
 import { api } from "../lib/api"; // 공통 API 호출 함수
 import { Me, MeContext, ROLE_LABEL } from "../lib/me"; // 내 정보 모양·공유 상자·역할 이름
+import { S } from "../lib/styles"; // 화면 공통 스타일
 
 // 상단 메뉴. adminOnly 는 관리자에게만 "보이게" 하는 표시일 뿐이다.
 // 메뉴를 숨기는 건 편의이고, 실제 권한은 서버가 검사한다(담당자가 주소를 직접 쳐도 API 가 403 을 준다).
@@ -38,11 +39,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <MeContext.Provider value={me}>
       {/* 아래 화면들이 useMe() 로 내 정보를 꺼내 쓸 수 있게 (확인 전에는 null) */}
-      {!me && <p style={{ padding: "2rem" }}>불러오는 중…</p>}
+      {!me && <p style={S.pad2}>불러오는 중…</p>}
       {/* 로그인 확인 전 안내 */}
       {me && (
-      <header style={{ display: "flex", flexWrap: "wrap", gap: "1rem", alignItems: "center", padding: "0.75rem 1.5rem", borderBottom: "1px solid #ccc" }}>
-        <nav style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
+      <header style={S.header}>
+        <nav style={S.nav}>
           {MENU.filter((item) => !item.adminOnly || me.role === "ADMIN").map((item) => (
             <Link key={item.href} href={item.href}>
               {item.label}
@@ -50,7 +51,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           ))}
           {/* 관리자 전용 메뉴는 관리자에게만 보인다 (편의일 뿐, 권한은 서버가 검사) */}
         </nav>
-        <span style={{ marginLeft: "auto" }}>
+        <span style={S.pushRight}>
           {me.name} · {me.company.name} · {ROLE_LABEL[me.role]}
         </span>
         {/* 내 이름·회사명·역할 */}
@@ -59,7 +60,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </button>
       </header>
       )}
-      <main hidden={!me} style={{ padding: "1.5rem" }}>{children}</main>
+      <main hidden={!me} style={S.main}>{children}</main>
       {/* 각 화면 내용. 로그인 확인 전에도 그려 두되(Next.js 가 화면 구조를 미리 검사할 수 있게) 확인 전까지는 숨긴다.
           데이터는 화면이 아니라 서버가 지킨다: 로그인 안 한 상태의 API 호출은 401 → 로그인 화면 */}
     </MeContext.Provider>

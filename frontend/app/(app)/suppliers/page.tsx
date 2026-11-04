@@ -1,9 +1,11 @@
 "use client"; // 목록·폼을 다루는 화면이라 브라우저에서 실행
 
+import Link from "next/link"; // 공급업체 상세 화면 링크
 import { FormEvent, useState } from "react"; // 폼 제출, 상태
 
 import { api } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
+import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/suppliers 의 한 행
 type Supplier = {
@@ -88,7 +90,7 @@ export default function SuppliersPage() {
     <section>
       <h1>공급업체</h1>
 
-      <form onSubmit={save} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "0.5rem", alignItems: "end", margin: "1rem 0" }}>
+      <form onSubmit={save} style={S.formGrid}>
         {/* 등록·수정 폼: 칸을 가로로 나열 */}
         <label>업체명* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
         <label>리드타임(일)* <input type="number" value={form.lead_time_days} onChange={(e) => set("lead_time_days", e.target.value)} /></label>
@@ -97,7 +99,7 @@ export default function SuppliersPage() {
         <label>연락처 <input value={form.phone} onChange={(e) => set("phone", e.target.value)} /></label>
         <label>이메일 <input value={form.email} onChange={(e) => set("email", e.target.value)} /></label>
         <label>메모 <input value={form.memo} onChange={(e) => set("memo", e.target.value)} /></label>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
+        <div style={S.buttons}>
           <button type="submit">{editingId === null ? "등록" : "수정 저장"}</button>
           {editingId !== null && <button type="button" onClick={reset}>취소</button>}
           {/* 수정 중일 때만 취소 */}
@@ -107,17 +109,17 @@ export default function SuppliersPage() {
 
       <ListControls placeholder="업체명 검색" includeInactive={list.includeInactive} onSearch={list.search} onToggleInactive={list.toggleInactive} />
       <ErrorText error={list.error} />
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <table style={S.table}>
         <thead>
-          <tr style={{ textAlign: "left" }}>
+          <tr style={S.headRow}>
             <th>업체명</th><th>리드타임</th><th>담당자</th><th>연락처</th><th>상태</th><th></th>
           </tr>
         </thead>
         <tbody>
           {list.rows.map((s) => (
-            <tr key={s.id} style={{ borderTop: "1px solid #ccc", opacity: s.is_active ? 1 : 0.5 }}>
+            <tr key={s.id} style={bodyRow(s.is_active)}>
               {/* 비활성 행은 흐리게 */}
-              <td>{s.name}</td>
+              <td><Link href={`/suppliers/${s.id}`}>{s.name}</Link></td>
               <td>{s.lead_time_days}일</td>
               <td>{s.contact_name ?? "-"}</td>
               <td>{s.phone ?? "-"}</td>

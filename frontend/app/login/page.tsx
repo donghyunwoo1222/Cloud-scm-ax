@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"; // 화면 이동 도구
 import { FormEvent, useEffect, useState } from "react"; // 폼 제출 이벤트, 처음 한 번 실행, 화면 상태
 
 import { api, ApiError } from "../lib/api"; // 공통 API 호출 함수
+import { S } from "../lib/styles"; // 화면 공통 스타일
 
 // 로그인 화면 (주소 /login)
 export default function LoginPage() {
@@ -33,20 +34,20 @@ export default function LoginPage() {
   }
 
   return (
-    <main style={{ padding: "3rem", maxWidth: 360 }}>
+    <main style={S.loginPage}>
       {/* 화면 여백과 폭 */}
       <h1>Cloud SCM + AX 로그인</h1>
-      <form onSubmit={onSubmit} style={{ display: "grid", gap: "0.75rem", marginTop: "1.5rem" }}>
+      <form onSubmit={onSubmit} style={S.formStack}>
         {/* 입력칸을 세로로 쌓는다 */}
         <label>
           이메일
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" style={{ display: "block", width: "100%" }} />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" style={S.blockFull} />
         </label>
         <label>
           비밀번호
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" style={{ display: "block", width: "100%" }} />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" style={S.blockFull} />
         </label>
-        {error && <p role="alert" style={{ color: "crimson" }}>{error}</p>}
+        {error && <p role="alert" style={S.error}>{error}</p>}
         {/* 오류가 있을 때만 표시. role="alert" 는 화면 낭독기가 바로 읽게 한다 */}
         <button type="submit" disabled={busy}>
           {busy ? "로그인 중…" : "로그인"}

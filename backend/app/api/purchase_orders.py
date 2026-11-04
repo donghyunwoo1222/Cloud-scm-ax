@@ -8,6 +8,7 @@ from app.auth.deps import AdminUser, CurrentUser  # 관리자만 / 로그인 사
 from app.db import DB  # 요청마다 DB 세션
 from app.pagination import Page  # page·page_size
 from app.schemas.purchase_orders import (  # 요청 모양
+    PoStatus,
     PurchaseOrderCreate,
     PurchaseOrderUpdate,
     ReceiptCreate,
@@ -28,8 +29,9 @@ def list_orders(
     db: DB,
     page: Page,
     supplier_id: Annotated[int | None, Query()] = None,  # 이 공급업체의 발주만
+    status: Annotated[PoStatus | None, Query()] = None,  # 이 상태의 발주만
 ) -> dict:
-    rows, meta = po_service.list_orders(user.company_id, db, page, supplier_id)  # 회사는 토큰 사용자에게서
+    rows, meta = po_service.list_orders(user.company_id, db, page, supplier_id, status)  # 회사는 토큰 사용자에게서
     return {"data": po_service.build_out(user.company_id, db, rows), "meta": meta}
 
 

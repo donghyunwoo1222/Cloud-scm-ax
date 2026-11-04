@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react"; // 폼 제출, 상태
 import { api } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { Me, ROLE_LABEL, useMe } from "../../lib/me"; // 내 정보·역할 한글 이름
+import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/users 의 한 행 (비밀번호 해시는 서버가 아예 보내지 않는다)
 type User = {
@@ -72,7 +73,7 @@ function UsersAdmin({ me }: { me: Me }) {
     <section>
       <h1>사용자 관리</h1>
 
-      <form onSubmit={create} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "0.5rem", alignItems: "end", margin: "1rem 0" }}>
+      <form onSubmit={create} style={S.formGrid}>
         {/* 계정 생성 폼 */}
         <label>이름* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
         <label>이메일* <input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} autoComplete="off" /></label>
@@ -83,7 +84,7 @@ function UsersAdmin({ me }: { me: Me }) {
         </label>
         <label>
           역할*
-          <select value={form.role} onChange={(e) => set("role", e.target.value)} style={{ display: "block" }}>
+          <select value={form.role} onChange={(e) => set("role", e.target.value)} style={S.block}>
             <option value="">선택하세요</option>
             <option value="STAFF">담당자</option>
             <option value="ADMIN">관리자</option>
@@ -96,15 +97,15 @@ function UsersAdmin({ me }: { me: Me }) {
       <ListControls includeInactive={list.includeInactive} onToggleInactive={list.toggleInactive} />
       {/* 검색창 없이 "비활성 포함"만 */}
       <ErrorText error={list.error} />
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <table style={S.table}>
         <thead>
-          <tr style={{ textAlign: "left" }}>
+          <tr style={S.headRow}>
             <th>이름</th><th>이메일</th><th>역할</th><th>상태</th><th></th>
           </tr>
         </thead>
         <tbody>
           {list.rows.map((u) => (
-            <tr key={u.id} style={{ borderTop: "1px solid #ccc", opacity: u.is_active ? 1 : 0.5 }}>
+            <tr key={u.id} style={bodyRow(u.is_active)}>
               {/* 비활성 행은 흐리게 */}
               <td>{u.name}{u.email === me.email && " (나)"}</td>
               {/* 내 계정 표시 (이메일은 전체에서 하나뿐이라 이걸로 알아본다) */}

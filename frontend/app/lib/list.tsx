@@ -3,19 +3,22 @@
 import { FormEvent, useCallback, useEffect, useState } from "react"; // 폼 제출, 함수 기억, 처음·변경 시 실행, 상태
 
 import { apiList, ApiError, Meta } from "./api"; // 목록 API 호출, 서버 오류, 쪽 정보
+import { S } from "./styles"; // 화면 공통 스타일
 
 // 목록 화면 공통 상태: 쪽 번호·검색어·비활성 포함 여부를 바꾸면 서버에서 다시 불러온다 (서버 규칙: 20개씩, 최신순)
-export function useList<T>(basePath: string) {
+export function useList<T>(basePath: string, filters: Record<string, string> = {}) {
   const [page, setPage] = useState(1); // 지금 쪽 (1부터)
   const [q, setQ] = useState(""); // 적용된 검색어
   const [includeInactive, setIncludeInactive] = useState(false); // 비활성 포함 보기 (기본은 숨김)
   const [rows, setRows] = useState<T[]>([]); // 이 쪽의 행들
   const [meta, setMeta] = useState<Meta | null>(null); // 쪽 정보 (전체 개수 등)
   const [error, setError] = useState<unknown>(null); // 불러오기 오류
+  const filterKey = JSON.stringify(filters); // 추가 조건(예: 상태·공급업체)을 글자로 바꿔 비교한다 (객체는 매번 새로 만들어져 그대로 비교할 수 없다)
 
   const reload = useCallback(async () => {
     const params = new URLSearchParams({ page: String(page) }); // 쿼리 문자열 만들기 (예: page=2&q=유통)
     if (q) params.set("q", q); // 검색어가 있을 때만
+    for (const [key, value] of Object.entries(JSON.parse(filterKey) as Record<string, string>)) if (value) params.set(key, value); // 값이 있는 추가 조건만
     if (includeInactive) params.set("include_inactive", "true"); // 비활성 포함일 때만
     try {
       const result = await apiList<T>(`${basePath}?${params}`); // 서버에서 한 쪽 가져오기
@@ -25,7 +28,7 @@ export function useList<T>(basePath: string) {
     } catch (e) {
       setError(e); // 화면에 보여줄 오류
     }
-  }, [basePath, page, q, includeInactive]);
+  }, [basePath, page, q, includeInactive, filterKey]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 목록을 서버에서 불러와 상태에 넣는 것이 이 효과의 목적이다
@@ -65,14 +68,14 @@ export function ListControls({
   }
 
   return (
-    <form onSubmit={submit} style={{ display: "flex", gap: "0.5rem", alignItems: "center", margin: "1rem 0" }}>
+    <form onSubmit={submit} style={S.searchBar}>
       {onSearch && (
         <>
           <input value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} aria-label="검색어" />
           <button type="submit">검색</button>
         </>
       )}
-      <label style={{ marginLeft: "1rem" }}>
+      <label style={S.inlineLabel}>
         <input type="checkbox" checked={includeInactive} onChange={(e) => onToggleInactive(e.target.checked)} /> 비활성 포함
       </label>
     </form>
@@ -84,7 +87,7 @@ export function Pager({ meta, onPage }: { meta: Meta | null; onPage: (page: numb
   if (!meta) return null; // 아직 불러오기 전
   const last = Math.max(1, Math.ceil(meta.total / meta.page_size)); // 마지막 쪽 (예: 87개, 20개씩 → 5쪽)
   return (
-    <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", marginTop: "0.75rem" }}>
+    <div style={S.pager}>
       <button type="button" disabled={meta.page <= 1} onClick={() => onPage(meta.page - 1)}>
         이전
       </button>
@@ -101,12 +104,12 @@ export function Pager({ meta, onPage }: { meta: Meta | null; onPage: (page: numb
 // 서버 오류를 그대로 보여준다. 입력값 오류면 어느 칸인지(labels 로 한글 이름)도 덧붙인다
 export function ErrorText({ error, labels = {} }: { error: unknown; labels?: Record<string, string> }) {
   if (!error) return null; // 오류 없음
-  if (!(error instanceof ApiError)) return <p role="alert" style={{ color: "crimson" }}>알 수 없는 오류가 났습니다.</p>;
+  if (!(error instanceof ApiError)) return <p role="alert" style={S.error}>알 수 없는 오류가 났습니다.</p>;
   const fields = Array.isArray(error.details) // details 가 [{field, reason}, ...] 모양이면
     ? (error.details as { field?: string }[]).map((d) => labels[d.field ?? ""] ?? d.field).filter(Boolean)
     : []; // 칸 이름만 모은다
   return (
-    <p role="alert" style={{ color: "crimson" }}>
+    <p role="alert" style={S.error}>
       {error.message}
       {/* 서버 문장 그대로 (예: "이미 같은 SKU 의 품목이 있습니다.") */}
       {fields.length > 0 && ` (${fields.join(", ")})`}
