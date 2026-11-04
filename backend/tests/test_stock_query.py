@@ -136,3 +136,10 @@ def test_movements_paging_bounds(client, world, data):
         assert client.get(MOVES, params={"page_size": size}).status_code == 422
     assert client.get(MOVES, params={"page_size": 100}).status_code == 200
     assert client.get(MOVES, params={"page_size": 2, "page": 2}).json()["data"] != []
+
+
+def test_movements_include_product_name_and_sku(client, world, data):
+    """이력 응답에 품목 SKU·이름이 들어 있다 (화면이 품목 번호 대신 이름을 보여주려고)."""
+    login_as(client)
+    row = client.get(MOVES, params={"product_id": data["p1"].id}).json()["data"][0]
+    assert row["product_sku"] == "P1" and row["product_name"] == "P1"
