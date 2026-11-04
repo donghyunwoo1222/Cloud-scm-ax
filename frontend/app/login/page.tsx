@@ -26,6 +26,8 @@ export default function LoginPage() {
     try {
       // 서버가 토큰을 httpOnly 쿠키로 내려준다. 화면 코드는 토큰을 직접 다루지 않는다
       await api("/auth/login", { method: "POST", body: { email, password }, redirectOn401: false });
+      setPassword(""); // 로그아웃 뒤 다시 열린 로그인 화면(Next.js 가 상태를 그대로 보관한다)에 이전 비밀번호가 남지 않게 비운다
+      setBusy(false); // 같은 이유로 버튼 잠금도 풀어 둔다 (안 풀면 로그아웃 후 "로그인 중…" 으로 멈춘다)
       router.replace("/dashboard"); // 성공: 대시보드로 (뒤로 가기로 로그인 화면에 돌아오지 않게 replace)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "로그인하지 못했습니다."); // 서버가 준 문장을 그대로 보여준다
