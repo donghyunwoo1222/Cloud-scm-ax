@@ -10,7 +10,9 @@ from app.clock import seoul_today  # 서울 기준 오늘
 from app.errors import AppError  # 업무 오류
 from app.models import Company, Product, Supplier, User  # 표
 from app.schemas.movements import CorrectionCreate  # 정정 요청 모양
+from app.schemas.purchase_orders import PurchaseOrderCreate  # 발주서 작성 요청 모양
 from app.schemas.users import UserUpdate  # 직원 수정 요청 모양
+from app.services import purchase_orders as po_service  # 발주서 작성
 from app.services import stock as stock_service  # 재고 (register_movement)
 from app.services import users as users_service  # 직원 계정 (LAST_ADMIN)
 from tests.concurrency import (  # 동시 요청 도구
@@ -124,3 +126,20 @@ def test_concurrent_corrections_never_exceed_original(engine, committed_company)
     assert all(isinstance(e, AppError) and e.code == "CORRECTION_EXCEEDS" for e in failures)
     total = run_in_new_session(engine, lambda s: stock_service.corrected_quantity(data["company_id"], s, sale_id))
     assert total == 6  # 정정 합계가 원래 수량 10 을 넘지 않았다
+
+
+def test_concurrent_draft_creation_makes_one_draft(engine, committed_company):
+    """#33: 같은 공급업체에 발주서 작성 8건을 동시에 보내도 DRAFT 는 1장, 나머지는 DUPLICATE_DRAFT (회사 행 잠금)."""
+    data = committed_company
+    supplier_id = run_in_new_session(engine, lambda s: s.scalar(select(Supplier.id).where(Supplier.company_id == data["company_id"])))
+    request = PurchaseOrderCreate(supplier_id=supplier_id, items=[{"product_id": data["product_id"], "quantity": 1, "unit_price": 100}])
+
+    def create():
+        return run_in_new_session(engine, lambda s: po_service.create_order(data["company_id"], s, data["admin_id"], request).po_number)
+
+    gate = hold_row_lock(engine, Company, data["company_id"])  # 회사 줄을 0.5초 잠가 8건이 확실히 겹치게
+    results = run_at_once(gate, *[delayed(create) for _ in range(8)])[1:]  # 문지기 결과는 빼고 작성 8건만
+
+    failures = [r for r in results if isinstance(r, Exception)]
+    assert len(failures) == 7 and all(isinstance(e, AppError) and e.code == "DUPLICATE_DRAFT" for e in failures)
+    assert len([r for r in results if isinstance(r, str)]) == 1  # 한 건만 발주번호를 받았다
