@@ -130,6 +130,8 @@
 
 행 잠금 순서는 회사 → 발주서 → 품목이고, 여러 품목은 품목 번호 순으로 잠근다(교착 방지, PROGRESS.md의 행 잠금 순서).
 
+입고일(`movement_date`)은 비우면 서울 오늘, 미래 날짜는 422(직접 입고와 같은 규칙). 한 요청의 모든 줄을 먼저 검사해 하나라도 넘치면 아무것도 저장하지 않는다(초과 메시지에 남은 수량, details에 `remaining`). 같은 줄을 두 번 보내면 422, 이 발주서에 없는 줄은 404. RECEIVED가 되면 `received_at`은 이 발주서 입고 이력 중 가장 늦은 입고일이다(erd.md). 응답은 201과 갱신된 발주서(`GET /purchase-orders/{id}`와 같은 모양)다(#35).
+
 ### 4) 발주 상태 변경: approve · order · cancel
 
 세 경로 모두 요청 본문이 없다. 서버가 현재 상태를 보고 허용되는 한 단계만 바꾼다(DRAFT→APPROVED→ORDERED). 그 밖의 요청은 409 `INVALID_STATUS`, 담당자가 approve를 부르면 403 `FORBIDDEN_ROLE`(S11), 입고 이력이 있는 발주의 cancel은 409 `CANNOT_CANCEL_RECEIVED`이다(입고 후 전부 정정해 누적 입고량이 0이어도 RECEIPT 기록이 있으면 마찬가지, 임시 확정). 비활성 공급업체나 비활성 품목이 든 DRAFT를 approve하면 409 `INACTIVE_REFERENCE`이다. 마지막 상태 변경은 모두 한 번에 하나씩만 되도록 서버가 현재 상태를 읽고 갱신하는 조건을 한 구문에서 검사한다(두 명이 동시에 눌러도 한 번만 반영).

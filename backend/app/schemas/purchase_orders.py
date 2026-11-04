@@ -69,3 +69,19 @@ class PurchaseOrderOut(BaseModel):
     created_at: datetime  # 만든 시각
     updated_at: datetime  # 고친 시각
     items: list[ItemOut]  # 품목 줄
+
+
+class ReceiptLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422
+
+    purchase_order_item_id: Id  # 입고할 발주 줄 (이 발주서의 줄만)
+    quantity: PosInt  # 이번에 들어온 수량 (1 이상)
+
+
+class ReceiptCreate(BaseModel):
+    """POST /purchase-orders/{id}/receipts 본문 (#35). 여러 줄을 한 번에, 모두 저장되거나 모두 취소된다."""
+
+    model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422
+
+    movement_date: date | None = None  # 입고일. 비우면 서울 오늘, 미래 날짜는 422
+    items: Annotated[list[ReceiptLine], Field(min_length=1)]  # 입고 줄 1개 이상
