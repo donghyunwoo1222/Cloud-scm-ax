@@ -18,6 +18,7 @@ const MENU = [
   { href: "/receipts", label: "입고 등록" },
   { href: "/shipments", label: "출고 등록" },
   { href: "/purchase-orders", label: "발주" },
+  { href: "/recommendations", label: "발주 추천" },
   { href: "/users", label: "사용자 관리", adminOnly: true },
 ];
 
