@@ -1,0 +1,60 @@
+"""동시 요청 테스트 공통 도구.
+
+보통 테스트는 하나의 트랜잭션 안에서 돌고 끝에 되돌리지만, 동시 요청은 서로 다른 DB 연결이 실제로 commit 해야
+잠금(행 잠금)을 확인할 수 있다. 그래서 여기 함수들은 진짜로 commit 하고, 끝나면 만든 회사 데이터를 직접 지운다.
+"""
+
+import threading  # 여러 작업을 동시에 실행
+
+from sqlalchemy import delete  # DELETE 문
+from sqlalchemy.orm import Session  # DB 세션
+
+from app.models import (  # 표 7개
+    Company,
+    InventoryMovement,
+    Product,
+    PurchaseOrder,
+    PurchaseOrderItem,
+    Supplier,
+    User,
+)
+
+
+def run_at_once(*calls):
+    """함수들을 스레드로 '같은 순간'에 출발시키고 모두 끝날 때까지 기다린다.
+
+    돌려주는 값: 함수마다 결과값, 또는 그 함수가 던진 예외 (순서는 calls 와 같다).
+    예) run_at_once(lambda: sell(30), lambda: sell(30)) → [(이력, 22), AppError(INSUFFICIENT_STOCK)]
+    """
+    barrier = threading.Barrier(len(calls))  # 모든 스레드가 준비될 때까지 출발선에서 기다리게 한다
+    results: list = [None] * len(calls)  # 함수별 결과 자리
+
+    def worker(i, call):
+        barrier.wait()  # 다 같이 출발
+        try:
+            results[i] = call()  # 성공하면 결과값
+        except Exception as e:  # noqa: BLE001 — 어떤 예외든 그대로 담아 돌려줘야 테스트가 종류를 확인할 수 있다
+            results[i] = e
+
+    threads = [threading.Thread(target=worker, args=(i, c)) for i, c in enumerate(calls)]  # 함수마다 스레드 하나
+    for t in threads:
+        t.start()  # 출발 (barrier 에서 서로 기다린다)
+    for t in threads:
+        t.join(timeout=30)  # 끝날 때까지 기다림 (잠금이 안 풀리면 30초 뒤 실패로 드러나게)
+    assert not any(t.is_alive() for t in threads), "동시 실행이 30초 안에 끝나지 않았다 (잠금이 풀리지 않음?)"
+    return results
+
+
+def run_in_new_session(engine, fn):
+    """새 DB 연결·세션 하나로 fn(session) 을 실행한다. 요청 하나가 자기 세션을 쓰는 것과 같은 모양."""
+    with Session(engine) as session:  # 끝나면 닫힌다 (commit 안 된 작업은 되돌려지고 잠금도 풀린다)
+        return fn(session)
+
+
+def delete_companies(engine, company_ids: list[int]) -> None:
+    """테스트가 commit 한 회사들과 그 회사의 모든 행을 지운다. 다른 표를 가리키는 표부터 차례로."""
+    with Session(engine) as session:
+        for model in (InventoryMovement, PurchaseOrderItem, PurchaseOrder, Product, Supplier, User):  # 가리키는 쪽부터
+            session.execute(delete(model).where(model.company_id.in_(company_ids)))
+        session.execute(delete(Company).where(Company.id.in_(company_ids)))  # 마지막에 회사
+        session.commit()
