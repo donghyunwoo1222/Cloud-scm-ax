@@ -217,20 +217,25 @@ def test_concurrent_receipts_never_exceed_order(engine, committed_company):
 
 
 def test_concurrent_receipt_and_cancel_one_wins(engine, committed_company):
-    """#35: ORDERED 발주에 입고와 취소를 동시에 보내면 하나만 성공한다 (입고가 먼저면 CANNOT_CANCEL_RECEIVED, 취소가 먼저면 INVALID_STATUS)."""
+    """#35: ORDERED 발주에 입고와 취소를 동시에 보내면 둘 중 하나만 성공한다.
+
+    문지기는 품목 줄을 잠근다. 입고는 상태(ORDERED)를 읽은 뒤 품목 잠금에서 멈추므로, 그 사이에 취소가 끼어들 틈이 생긴다.
+    입고가 발주서를 먼저 잠그면 취소는 입고가 끝날 때까지 기다려 409, 잠그지 않으면 둘 다 성공해 이 테스트가 실패한다.
+    허용 결과: "입고 성공 + 취소 409 CANNOT_CANCEL_RECEIVED" 또는 "취소 성공 + 입고 409 INVALID_STATUS".
+    """
     data = committed_company
     order_id, (item_id,) = ordered_po(engine, data, [data["product_id"]])
-    gate = hold_row_lock(engine, PurchaseOrder, order_id)
+    gate = hold_row_lock(engine, Product, data["product_id"])  # 품목 줄을 0.5초 잠가 입고가 '상태 확인 후 쓰기 전'에 멈추게
     cancel = lambda: run_in_new_session(engine, lambda s: po_service.change_status(data["company_id"], s, data["admin_id"], order_id, "cancel").status)
-    calls = [receive_call(engine, data, order_id, [(item_id, 10)]), cancel] * 4  # 입고 4건, 취소 4건
-    results = run_at_once(gate, *[delayed(c) for c in calls])[1:]
-    statuses = {r for r in results if isinstance(r, str)}
-    assert statuses in ({"ORDERED"}, {"CANCELLED"})  # 입고만 성공했거나 취소만 성공했다 (둘이 섞이지 않는다)
-    codes = {e.code for e in results if isinstance(e, AppError)}
-    assert codes <= {"CANNOT_CANCEL_RECEIVED", "INVALID_STATUS"}
-    final = run_in_new_session(engine, lambda s: s.get(PurchaseOrder, order_id).status)
-    received = run_in_new_session(engine, lambda s: po_service.received_quantities(data["company_id"], s, [item_id]).get(item_id, 0))
-    assert (final, received > 0) in (("ORDERED", True), ("CANCELLED", False))  # 취소된 발주에 입고가 들어가는 일은 없다
+    receipt, cancelled = run_at_once(gate, delayed(receive_call(engine, data, order_id, [(item_id, 10)])), delayed(cancel, 0.2))[1:]  # 입고가 먼저 출발, 취소는 입고가 멈춘 뒤
+
+    def outcome(r):
+        return r if isinstance(r, str) else getattr(r, "code", repr(r))  # 성공이면 상태, 실패면 오류 코드
+
+    assert (outcome(receipt), outcome(cancelled)) in (
+        ("ORDERED", "CANNOT_CANCEL_RECEIVED"),  # 입고가 이겼다
+        ("INVALID_STATUS", "CANCELLED"),  # 취소가 이겼다
+    ), (outcome(receipt), outcome(cancelled))
 
 
 def test_receipts_in_opposite_product_order_do_not_deadlock(engine, committed_company):
