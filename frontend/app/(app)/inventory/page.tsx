@@ -1,6 +1,6 @@
 "use client"; // 목록·폼을 다루는 화면이라 브라우저에서 실행
 
-import { FormEvent, useCallback, useEffect, useState } from "react"; // 폼 제출, 함수 기억, 처음·변경 시 실행, 상태
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 함수 기억, 처음·변경 시 실행, 즉시 확인용 ref, 상태
 
 import { api, apiList, Meta } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
@@ -36,6 +36,8 @@ export default function Page() {
   const [cReason, setCReason] = useState(""); // 정정 사유
   const [cError, setCError] = useState<unknown>(null); // 정정 오류
   const [notice, setNotice] = useState(""); // 정정 성공 안내
+  const [busy, setBusy] = useState(false); // 정정 등록 중이면 버튼을 잠근다
+  const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
 
   useEffect(() => {
     // shortcut: 품목 100개까지만 선택지로 불러온다(서버 page_size 최대). 100개를 넘으면 검색형 선택 상자로 바꾼다
@@ -73,7 +75,9 @@ export default function Page() {
 
   async function correct(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
-    if (!correcting) return;
+    if (!correcting || sending.current) return; // 정정 대상이 없거나 이미 등록 중이면 버린다
+    sending.current = true; // 즉시 잠금
+    setBusy(true); // 버튼 잠금·글자 변경
     try {
       const r = await api<{ stock_after: number }>(`/inventory-movements/${correcting.id}/corrections`, {
         method: "POST", body: { quantity: cQty === "" ? null : Number(cQty), reason: cReason }, // 1 이상 정수·사유 필수 검사는 서버가
@@ -83,6 +87,9 @@ export default function Page() {
       await Promise.all([reloadMovements(), stock.reload()]); // 이력·재고 숫자 다시 불러오기
     } catch (e) {
       setCError(e); // 폼은 열어 둔 채 입력값 유지. 서버 문장 그대로 (정정 수량 초과, 재고 부족 등)
+    } finally {
+      sending.current = false; // 성공·실패 모두 다시 누를 수 있게 푼다
+      setBusy(false);
     }
   }
 
@@ -141,7 +148,7 @@ export default function Page() {
           </span>
           <label>정정 수량* <input type="number" min={1} step={1} value={cQty} onChange={(e) => setCQty(e.target.value)} /></label>
           <label>사유* <input value={cReason} onChange={(e) => setCReason(e.target.value)} placeholder="예: 10개를 100개로 잘못 입력" /></label>
-          <button type="submit">정정 등록</button>
+          <button type="submit" disabled={busy}>{busy ? "등록 중…" : "정정 등록"}</button>
           <button type="button" onClick={() => setCorrecting(null)}>취소</button>
           <div style={S.basisFull}><ErrorText error={cError} labels={LABELS} /></div>
         </form>

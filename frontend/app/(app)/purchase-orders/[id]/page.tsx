@@ -2,7 +2,7 @@
 
 import Link from "next/link"; // 목록·수정 화면 링크
 import { useParams } from "next/navigation"; // 주소의 [id]
-import { Suspense, FormEvent, useCallback, useEffect, useState } from "react"; // 폼 제출, 함수 기억, 처음 한 번 실행, 상태
+import { Suspense, FormEvent, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 함수 기억, 처음 한 번 실행, 즉시 확인용 ref, 상태
 
 import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
@@ -26,6 +26,8 @@ function Detail() {
   const [error, setError] = useState<unknown>(null); // 불러오기·버튼·입고 오류
   const [notice, setNotice] = useState(""); // 성공 안내 문장
   const [receiving, setReceiving] = useState(false); // 입고 등록 폼을 열었는지
+  const [busy, setBusy] = useState(false); // 입고 등록 중이면 버튼을 잠근다
+  const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
   const [qty, setQty] = useState<Record<number, string>>({}); // 줄 번호 → 이번 입고 수량 (글자)
   const [date, setDate] = useState(""); // 입고일 (화면이 열린 뒤 서울 오늘로 채운다)
   const [today, setToday] = useState(""); // 입고일 상한 (미래 날짜 선택 불가)
@@ -62,6 +64,9 @@ function Detail() {
   // 입고 등록: 수량을 적은 줄만 한 번에 보낸다 (하나라도 넘치면 서버가 아무것도 저장하지 않는다)
   async function receive(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
+    if (sending.current) return; // 이미 등록 중이면 두 번째 제출은 버린다
+    sending.current = true; // 즉시 잠금
+    setBusy(true); // 버튼 잠금·글자 변경
     const items = Object.entries(qty).filter(([, v]) => v !== "").map(([itemId, v]) => ({ purchase_order_item_id: Number(itemId), quantity: Number(v) })); // 비운 줄은 보내지 않는다
     try {
       setOrder(await api<PurchaseOrder>(`/purchase-orders/${id}/receipts`, { method: "POST", body: { movement_date: date || null, items } })); // 서버가 입고 이력을 쌓고 상태도 바꾼다
@@ -71,6 +76,9 @@ function Detail() {
       setNotice("입고했습니다. 입고한 수량만큼 현재고가 늘었습니다.");
     } catch (e) {
       setError(e); // 서버 문장 그대로 (OVER_RECEIPT 는 남은 수량이 들어 있다). 입력값은 지우지 않는다
+    } finally {
+      sending.current = false; // 성공·실패 모두 다시 누를 수 있게 푼다
+      setBusy(false);
     }
   }
 
@@ -124,7 +132,7 @@ function Detail() {
           <label>입고일 <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} /></label>
           {/* 미래 날짜는 고를 수 없다 (서버도 422) */}
           <p style={S.buttons}>
-            <button type="submit">입고</button>
+            <button type="submit" disabled={busy}>{busy ? "등록 중…" : "입고"}</button>
             <button type="button" onClick={() => setReceiving(false)}>닫기</button>
           </p>
         </form>

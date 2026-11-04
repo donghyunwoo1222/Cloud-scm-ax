@@ -1,6 +1,6 @@
 "use client"; // 입력을 다루는 폼이라 브라우저에서 실행
 
-import { FormEvent, useEffect, useState } from "react"; // 폼 제출, 처음 한 번 실행, 상태
+import { FormEvent, useEffect, useRef, useState } from "react"; // 폼 제출, 처음 한 번 실행, 즉시 확인용 ref, 상태
 
 import { api, apiList } from "./api"; // 공통 API 호출 함수
 import { ErrorText } from "./list"; // 서버 오류 표시
@@ -17,11 +17,11 @@ const LABELS = { product_id: "품목", quantity: "수량", direction: "방향", 
 // 서울 기준 오늘 (YYYY-MM-DD). 서버도 서울 기준이라 브라우저 시간대와 상관없이 맞춘다
 export const seoulToday = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
 
-type ProductOption = { id: number; sku: string; name: string }; // 선택 상자에 쓸 품목
+type ProductOption = { id: number; sku: string; name: string; is_active: boolean }; // 선택 상자에 쓸 품목
 
 // 입출고 등록 폼. types 로 이 화면에서 고를 수 있는 유형을 정한다 (입고 화면은 입고만, 출고 화면은 나머지)
 export function MovementForm({ types }: { types: MovementType[] }) {
-  const [products, setProducts] = useState<ProductOption[]>([]); // 활성 품목 선택지
+  const [products, setProducts] = useState<ProductOption[]>([]); // 품목 선택지 (비활성 포함: 비활성 품목도 입고·출고·조정은 허용, 데이터 원칙 8)
   const [productId, setProductId] = useState(""); // 고른 품목
   const [type, setType] = useState<MovementType>(types[0]); // 고른 유형
   const [quantity, setQuantity] = useState(""); // 수량 (글자로 다루고 보낼 때 숫자로)
@@ -34,6 +34,8 @@ export function MovementForm({ types }: { types: MovementType[] }) {
   const [stock, setStock] = useState<number | null>(null); // 고른 품목의 현재고 (모르면 null)
   const [done, setDone] = useState(""); // 성공 안내 문장
   const [error, setError] = useState<unknown>(null); // 등록 오류
+  const [busy, setBusy] = useState(false); // 등록 중이면 버튼을 잠그고 글자를 바꾼다
+  const sending = useRef(false); // 상태값은 다음 화면 갱신 뒤에야 바뀌어 더블클릭을 못 막으므로, 즉시 바뀌는 ref 로 한 번 더 막는다
 
   useEffect(() => {
     const t = seoulToday(); // 화면이 열린 뒤 오늘 날짜를 정한다
@@ -42,8 +44,8 @@ export function MovementForm({ types }: { types: MovementType[] }) {
   }, []);
 
   useEffect(() => {
-    // shortcut: 활성 품목 100개까지만 불러온다(서버 page_size 최대). 100개를 넘으면 검색형 선택 상자로 바꾼다
-    apiList<ProductOption>("/products?page_size=100").then((r) => setProducts(r.data)).catch(setError);
+    // shortcut: 품목 100개까지만 불러온다(서버 page_size 최대). 100개를 넘으면 검색형 선택 상자로 바꾼다
+    apiList<ProductOption>("/products?page_size=100&include_inactive=true").then((r) => setProducts(r.data)).catch(setError);
   }, []);
 
   useEffect(() => {
@@ -55,6 +57,9 @@ export function MovementForm({ types }: { types: MovementType[] }) {
 
   async function submit(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
+    if (sending.current) return; // 이미 등록 중이면 두 번째 제출은 버린다
+    sending.current = true; // 즉시 잠금
+    setBusy(true); // 버튼 잠금·글자 변경
     const body: Record<string, unknown> = {
       product_id: productId === "" ? null : Number(productId), // 비우면 null → 서버가 422
       movement_type: type,
@@ -73,6 +78,9 @@ export function MovementForm({ types }: { types: MovementType[] }) {
     } catch (e) {
       setDone("");
       setError(e); // 입력값은 지우지 않는다. 서버 문장 그대로 (재고 부족이면 현재고 숫자 포함)
+    } finally {
+      sending.current = false; // 성공·실패 모두 다시 누를 수 있게 푼다
+      setBusy(false);
     }
   }
 
@@ -82,7 +90,7 @@ export function MovementForm({ types }: { types: MovementType[] }) {
         품목*
         <select value={productId} onChange={(e) => { setProductId(e.target.value); setStock(null); setDone(""); }} style={S.block}>
           <option value="">선택하세요</option>
-          {products.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
+          {products.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}{p.is_active ? "" : " (비활성)"}</option>)}
         </select>
         {productId && stock !== null && <small>현재고 {stock}개</small>}
         {/* 고른 품목의 현재고 */}
@@ -120,7 +128,7 @@ export function MovementForm({ types }: { types: MovementType[] }) {
       </label>
       {type === "ADJUSTMENT" && <label>사유* <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예: 실사 차이" /></label>}
       <label>메모 <input value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
-      <button type="submit">등록</button>
+      <button type="submit" disabled={busy}>{busy ? "등록 중…" : "등록"}</button>
       <div style={S.fullRow}>
         <ErrorText error={error} labels={LABELS} />
         {done && <p role="status" style={S.ok}>{done}</p>}
