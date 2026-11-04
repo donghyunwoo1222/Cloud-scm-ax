@@ -45,29 +45,33 @@ export function useList<T>(basePath: string) {
   return { rows, meta, error, page, setPage, includeInactive, search, toggleInactive, reload };
 }
 
-// 검색창 + "비활성 포함" 선택
+// 검색창 + "비활성 포함" 선택 (onSearch 를 주지 않으면 검색창은 숨긴다: 검색이 없는 목록 API 용)
 export function ListControls({
   placeholder, // 검색창 안내 문구
   includeInactive, // 지금 비활성 포함 여부
   onSearch, // 검색 실행
   onToggleInactive, // 비활성 포함 바꾸기
 }: {
-  placeholder: string;
+  placeholder?: string;
   includeInactive: boolean;
-  onSearch: (q: string) => void;
+  onSearch?: (q: string) => void;
   onToggleInactive: (value: boolean) => void;
 }) {
   const [text, setText] = useState(""); // 입력 중인 검색어 (검색 버튼을 눌러야 적용)
 
   function submit(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
-    onSearch(text); // 검색 적용
+    onSearch?.(text); // 검색 적용
   }
 
   return (
     <form onSubmit={submit} style={{ display: "flex", gap: "0.5rem", alignItems: "center", margin: "1rem 0" }}>
-      <input value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} aria-label="검색어" />
-      <button type="submit">검색</button>
+      {onSearch && (
+        <>
+          <input value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} aria-label="검색어" />
+          <button type="submit">검색</button>
+        </>
+      )}
       <label style={{ marginLeft: "1rem" }}>
         <input type="checkbox" checked={includeInactive} onChange={(e) => onToggleInactive(e.target.checked)} /> 비활성 포함
       </label>
