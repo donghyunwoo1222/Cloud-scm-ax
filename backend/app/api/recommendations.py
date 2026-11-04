@@ -1,11 +1,13 @@
-"""발주 추천 경로 (F8). 관리자·담당자 모두 사용. 읽기만 하므로 commit 하지 않는다."""
+"""발주 추천 경로 (F8). 관리자·담당자 모두 사용. 조회(#39)는 commit 하지 않고, 초안 만들기(#40)는 요청 끝에 한 번만 commit 한다."""
 
 from fastapi import APIRouter  # 라우터
 
 from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
 from app.clock import seoul_today  # 서울 기준 오늘
 from app.db import DB  # 요청마다 DB 세션
-from app.services import recommendations as recommendation_service  # 추천 조회
+from app.schemas.recommendations import DraftCreate  # 초안 만들기 요청 모양
+from app.services import purchase_orders as po_service  # 발주서 응답 모양 (build_out)
+from app.services import recommendations as recommendation_service  # 추천 조회·초안 만들기
 
 router = APIRouter(prefix="/recommendations")  # 이 파일의 경로는 모두 /recommendations 로 시작
 
@@ -13,3 +15,11 @@ router = APIRouter(prefix="/recommendations")  # 이 파일의 경로는 모두 
 @router.get("")  # 추천 목록 (요청이 올 때 계산, 저장하지 않음)
 def list_recommendations(user: CurrentUser, db: DB) -> dict:
     return {"data": recommendation_service.list_recommendations(user.company_id, db, seoul_today())}  # 회사는 토큰에서, 오늘은 서울 기준 한 번
+
+
+@router.post("/drafts", status_code=201)  # 추천으로 초안 만들기 (공급업체별 DRAFT 1장, 기존 초안이 있으면 품목 추가)
+def create_drafts(data: DraftCreate, user: CurrentUser, db: DB) -> dict:
+    results = recommendation_service.create_drafts(user.company_id, db, user.id, seoul_today(), data)  # 404·409·422
+    db.commit()  # 요청 끝에 한 번만 확정 (여러 업체 초안이 모두 저장되거나 모두 취소된다, 잠금도 여기서 풀린다)
+    outs = po_service.build_out(user.company_id, db, [order for order, _ in results])  # 발주서 응답 모양 (줄·추천 근거 포함)
+    return {"data": [{**out, "created": created} for out, (_, created) in zip(outs, results)]}  # created: 새로 만들었으면 true
