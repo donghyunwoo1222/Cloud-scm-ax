@@ -9,10 +9,17 @@ from sqlalchemy import func, select  # 개수 세기
 from app.clock import seoul_today  # 서울 기준 오늘
 from app.errors import AppError  # 업무 오류
 from app.models import Company, Product, Supplier, User  # 표
+from app.schemas.movements import CorrectionCreate  # 정정 요청 모양
 from app.schemas.users import UserUpdate  # 직원 수정 요청 모양
 from app.services import stock as stock_service  # 재고 (register_movement)
 from app.services import users as users_service  # 직원 계정 (LAST_ADMIN)
-from tests.concurrency import delete_companies, run_at_once, run_in_new_session  # 동시 요청 도구
+from tests.concurrency import (  # 동시 요청 도구
+    delayed,
+    delete_companies,
+    hold_row_lock,
+    run_at_once,
+    run_in_new_session,
+)
 
 
 @pytest.fixture
@@ -91,3 +98,29 @@ def test_concurrent_admin_demotions_keep_one_admin(engine, committed_company):
     left = run_in_new_session(engine, lambda s: s.scalar(
         select(func.count()).select_from(User).where(User.company_id == data["company_id"], User.role == "ADMIN")))
     assert left == 1  # 관리자가 0명이 되지 않았다
+
+
+def test_concurrent_corrections_never_exceed_original(engine, committed_company):
+    """#30: 판매 10 에 정정 6 두 건을 동시에 보내도 한 건만 성공한다 (정정 합계 12 > 10 이 되지 않는다)."""
+    data = committed_company
+    run_in_new_session(engine, lambda s: stock_service.register_movement(  # 입고 50
+        data["company_id"], s, data["admin_id"], product_id=data["product_id"], movement_type="RECEIPT",
+        direction="IN", quantity=50, movement_date=seoul_today(),
+    ))
+    sale_id = run_in_new_session(engine, lambda s: stock_service.register_movement(  # 판매 10 → 그 이력 id
+        data["company_id"], s, data["admin_id"], product_id=data["product_id"], movement_type="SALE",
+        direction="OUT", quantity=10, movement_date=seoul_today(), sales_channel="OWN_MALL",
+    )[0].id)  # 세션이 닫히기 전에 id 를 꺼낸다
+
+    def fix(quantity):
+        return run_in_new_session(engine, lambda s: stock_service.create_correction(
+            data["company_id"], s, data["admin_id"], sale_id, CorrectionCreate(quantity=quantity, reason="오입력")))
+
+    gate = hold_row_lock(engine, Product, data["product_id"])  # 품목 줄을 0.5초 잠가 8건이 확실히 겹치게
+    results = run_at_once(gate, *[delayed(lambda: fix(6)) for _ in range(8)])[1:]  # 문지기 결과는 빼고 정정 8건만
+
+    failures = [r for r in results if isinstance(r, Exception)]
+    assert len(failures) == 7  # 첫 6 이후에는 4 만 남아 6 은 모두 막힌다
+    assert all(isinstance(e, AppError) and e.code == "CORRECTION_EXCEEDS" for e in failures)
+    total = run_in_new_session(engine, lambda s: stock_service.corrected_quantity(data["company_id"], s, sale_id))
+    assert total == 6  # 정정 합계가 원래 수량 10 을 넘지 않았다

@@ -94,7 +94,10 @@ def test_inactive_product_still_allowed(client, world, products):
     ids=["sale", "disposal", "adjust-out"],
 )
 def test_insufficient_stock(client, world, products, fields):
-    """재고 52에 60 출고 → 409, 현재고·요청 수량을 details 에. 52 는 정확히 0 까지 출고 가능."""
+    """재고 52에 60 출고 → 409, 현재고·요청 수량을 details 에. 52 는 정확히 0 까지 출고 가능.
+
+    문장은 출고 3종이면 "출고할 수 없습니다", 감소 조정이면 "줄일 수 없습니다".
+    """
     login_as(client)
     p = products["a"]
     receive(client, p, 52)
@@ -102,7 +105,7 @@ def test_insufficient_stock(client, world, products, fields):
     assert over.status_code == 409
     assert over.json()["error"] == {
         "code": "INSUFFICIENT_STOCK",
-        "message": "현재고 52개보다 많이 출고할 수 없습니다.",
+        "message": f"현재고 52개보다 많이 {'줄일' if fields['movement_type'] == 'ADJUSTMENT' else '출고할'} 수 없습니다.",
         "details": {"current_stock": 52, "requested": 60},
     }
     exact = post(client, p, quantity=52, **fields)  # 남은 재고를 딱 맞게
@@ -147,9 +150,13 @@ def test_bypass_fields_rejected(client, world, products, fields):
         ({"quantity": 0}, "quantity"),  # 수량 0
         ({"quantity": 1.5}, "quantity"),  # 소수
         ({"quantity": "3"}, "quantity"),  # 문자
+        ({"quantity": 3.0}, "quantity"),  # 정수처럼 보이는 소수
+        ({"quantity": True}, "quantity"),  # 참거짓
+        ({"quantity": -1}, "quantity"),  # 음수
     ],
     ids=["sale-no-channel", "disposal-channel", "adjust-no-direction", "adjust-no-reason", "adjust-blank-reason",
-         "sale-direction", "quantity-0", "quantity-decimal", "quantity-string"],
+         "sale-direction", "quantity-0", "quantity-decimal", "quantity-string", "quantity-float", "quantity-bool",
+         "quantity-negative"],
 )
 def test_validation(client, world, products, fields, field):
     """규칙을 어기면 422, details 에 어느 칸인지."""
