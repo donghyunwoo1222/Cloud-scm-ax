@@ -6,7 +6,7 @@
 
 ## 지금 위치
 
-마지막으로 머지한 PR은 #77(2026-11-04)이다. 구현 PR과 닫힌 이슈는 아래와 같다.
+마지막으로 머지한 PR은 #78(2026-11-04)이다. 구현 PR과 닫힌 이슈는 아래와 같다.
 
 | PR | 닫힌 이슈 | 내용 |
 | --- | --- | --- |
@@ -35,7 +35,8 @@
 | #74 | #73 | Codex 검증 반영: 화면 수정 (중복 제출 방지, 비활성 품목 입출고, 로그인 확인 실패 안내) |
 | #75 | #38 | [6주차-1] 추천 계산 순수 함수 (`calculate_recommendation`, 분수 계산, 이유 문구, S1~S7·S12~S14 단위 테스트) |
 | #77 | #39 | [6주차-2] 추천 조회 API `GET /recommendations` (조회 5번, S1~S8·S13 API 테스트) |
-| (PR 리뷰 대기) | #40 | [6주차-3] 추천으로 초안 만들기 `POST /recommendations/drafts` (서버 재계산, 공급업체별 DRAFT, S9·S10, 동시 요청) |
+| #78 | #40 | [6주차-3] 추천으로 초안 만들기 `POST /recommendations/drafts` (서버 재계산, 공급업체별 DRAFT, S9·S10, 동시 요청) |
+| (PR 리뷰 대기) | #41 | [6주차-4] 프론트: 추천 화면 (추천·제외 목록, 커버 일수·품절 위험, 초안 작성 중 표시, 초안 만들기와 409 안내) |
 
 4주차(#29~#32)는 모두 머지해 완료했다.
 
@@ -48,9 +49,9 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 - 위험은 코드 속도가 아니라 ① "같이" 이슈의 이해 시간 ② 사용자 테스트·인터뷰 섭외(#46, 외부 일정) ③ 열린 결정 2개(#37 장기·과잉 재고 기준, #43 클라우드·비용)
 - 줄이는 순서(일정이 밀릴 때): C1(#12·#42) → #45 공개 데이터 점검을 1개 데이터셋으로 → #37 대시보드를 표 위주로
 
-리뷰 대기: #40 추천으로 초안 만들기(같이). 테스트 `tests/test_recommendation_drafts.py`, 직접 확인 방법은 PR 설명 참고
+리뷰 대기: #41 추천 화면(맡김). 백엔드 변경 없음. 직접 확인 방법은 PR 설명 참고
 
-다음에 할 이슈: 6주차 #41 [6주차-4] 프론트: 추천 화면. 그 뒤 #76 재고 부족·과잉 표시
+다음에 할 이슈: 6주차 남은 것 #76 재고 부족·과잉 표시, #42
 
 ### 작업별 모델
 
@@ -104,6 +105,7 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 - 추천 계산(#38, `app/services/recommend.py`의 `calculate_recommendation`): DB·현재 시각을 모르는 순수 함수. 계산은 `Fraction`(분수)으로 하고 마지막에 추천 수량만 `math.ceil`(float면 판매 31·리드타임 16·안전재고 0에서 31 → 32로 틀린다). 결과는 `Excluded(code, message)` 또는 `Recommendation(avg_daily_sales, available, reorder_point, recommended_quantity, reason)`이고, 추천하지 않으면(가용재고 > 재주문점) 숫자는 채우고 `recommended_quantity`·`reason`만 None. 부족 판정 = `recommended_quantity is not None`. 상수 `SALES_WINDOW_DAYS`(30)·`MIN_HISTORY_DAYS`(14)·`REPLENISH_CYCLE_DAYS`(14, 임시값)는 이 파일 한 곳. 이유 문구는 확정 틀 + "추천 수량은 N개입니다."(사용자 확인), 소수는 첫째 자리·정수는 그대로. "추천 수량 0 이하" 방어 줄은 공식상 닿지 않는다(가용재고 ≤ 재주문점이면 수량 ≥ 일평균 × 14 > 0)
 - 추천 조회(#39, `GET /recommendations`, `app/services/recommendations.py`): 읽기 전용(commit 없음, 저장 안 함). 쿼리는 품목 수와 무관하게 5번(활성 품목+기본 공급업체, `stock_and_first_day`, `net_sales`, ORDERED 줄, `received_quantities`) + 로그인 확인. 품목 3개·30개의 쿼리 수가 같은지 테스트로 센다. 계산은 `calculate_recommendation` 하나만 부른다. 응답은 api-design §5대로 `{"data": {"items", "excluded"}}`이고 쪽 나누기 없음(사용자 결정: 모든 품목을 계산한 뒤 골라내므로 쪽을 나눠도 계산은 같고, 초안 선택이 여러 쪽에 걸치지 않게). items는 api-design 예시 칸 + `product_sku`·`supplier_name`, 순서는 최신 품목 먼저. 충분한 품목(가용재고 > 재주문점)은 어느 목록에도 없다. `avg_daily_sales`·`reorder_point`는 float(소수 그대로, 표시는 화면이 첫째 자리로). 비활성 품목은 제외, 기본 공급업체 비활성은 excluded MISSING_INFO
 - 추천으로 초안 만들기(#40, `POST /recommendations/drafts`, `create_drafts`): 요청은 `items[{product_id, quantity}]` 1~100개. ① `check_items`(같은 품목 두 줄 409 `DUPLICATE_ITEM`, 다른 회사 404, 비활성 품목 409) ② `calculate_for`(목록과 같은 조회 5번 + `calculate_recommendation`)로 다시 계산, 기본 공급업체 비활성 409 `INACTIVE_REFERENCE`, 추천 대상이 아니면 409 `NOT_RECOMMENDED`(사용자 결정: 전체 거절) ③ 회사 행 잠금 ④ 공급업체 번호 순으로 기존 DRAFT를 잠가 품목 추가(`created: false`) 또는 새로 만들기(`created: true`, 납기 = 오늘 + 리드타임, 단가 = 품목 단가). 기존 초안에 같은 품목이 있으면 409 `DUPLICATE_ITEM`(두 번 보낸 요청도 이것). 줄에는 사용자 `quantity`와 서버의 `recommended_quantity`·`recommendation_reason`. commit은 경로 함수에서 한 번. 동시 8건: 다른 품목이면 1장 8줄, 같은 품목이면 1건 성공·7건 `DUPLICATE_ITEM`(잠금을 빼면 두 테스트가 실패)
+- 추천 화면(#41, `frontend/app/(app)/recommendations/page.tsx`, 메뉴 "발주 추천"): 백엔드 변경 없음. 재고 커버 일수(현재고 ÷ 일평균)와 "품절 위험"(커버 일수 ≤ 리드타임, 아니면 "발주 필요")은 이 화면에서만 쓰는 표시라 화면에서 계산한다(사용자 결정). 추천 여부·수량·이유 문구는 서버 값 그대로. "초안 작성 중"은 `GET /purchase-orders?status=DRAFT&page_size=100`을 함께 불러 품목을 찾아 발주번호 링크로 표시하고 체크·수량 칸을 막는다(사용자 결정, 업체당 DRAFT 1장이라 100장이면 충분, shortcut 주석). 한 번에 100개를 넘게 고르면 안내하고 버튼을 막는다(나눠 보내지 않음, 사용자 결정). 수량 칸 기본값은 추천 수량, 검사는 서버. 성공하면 발주서 링크와 `created`에 따라 "새로 만들었습니다"/"기존 초안에 추가했습니다", 그 뒤 목록을 다시 불러온다. 409 `NOT_RECOMMENDED`는 품목별 사유 + "추천 목록 새로고침" 버튼, `DUPLICATE_ITEM`은 서버 문장 + 기존 초안 링크(details에 발주서가 있을 때), 그 밖은 서버 문장. 오류가 나도 체크·수량은 그대로. 버튼은 `busy`+ref(#73)
 - 시드: `cd backend` 후 `.venv\Scripts\python -m scripts.seed`(지우고 새로 넣기), `--clear`(지우기). 계정은 README 참고(개발용)
 
 ## 알려진 한계
@@ -124,8 +126,6 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 - #76: 재고 현황 화면(`inventory/page.tsx`)에 상태 열·상태 필터를 붙인다. 품목명/SKU 검색(`GET /stock`에 `q` 추가)은 #76 시작 때 넣을지 정한다(이슈 본문에 없음)
 - (완료, #36) 입고 등록 화면(`receipts`)은 직접 입고만 두고 안내 문구로 발주 화면의 입고 등록으로 보낸다
 - #76: 재고 목록의 `status`(부족/정상 = 가용재고 ≤ 재주문점, api-design F5 행)와 발주 진행 중 수량은 #31에서 뺐다. 추천 계산 함수를 만든 뒤 `GET /stock`에 같은 함수로 붙여 기준을 하나로 유지한다. 프론트 #32의 재고 현황 화면에는 부족 표시가 아직 없다
-- #41 초안 만들기 버튼: `POST /api/v1/recommendations/drafts` 본문 `{"items": [{"product_id", "quantity"}]}`(1~100개, 수량은 사용자가 고친 값, 추천 수량은 보내지 않는다). 성공 201 `data: [발주서(목록 API와 같은 모양) + created]` → 만든 발주서 상세로 안내. 409 코드별 안내: `NOT_RECOMMENDED`(details의 sku·reason, "추천 목록을 새로 불러오세요" + 목록 다시 부르기), `DUPLICATE_ITEM`(details의 `purchase_order_id`·`po_number`로 기존 초안 링크), `INACTIVE_REFERENCE`. 버튼은 #73처럼 `busy`+ref로 중복 클릭을 막는다(서버도 `DUPLICATE_ITEM`으로 막는다). "초안 작성 중" 표시는 응답에 없다: 화면에서 `GET /purchase-orders?status=DRAFT`의 품목으로 표시할지 API에 붙일지 #41에서 정한다
-- #41 추천 화면: 응답은 `{"data": {"items": [...], "excluded": [...]}}`(쪽 나누기 없음). items 칸: `product_id, product_sku, product_name, supplier_id, supplier_name, current_stock, in_transit, available, avg_daily_sales(float), lead_time_days, safety_stock, reorder_point(float), recommended_quantity, reason`. excluded 칸: `product_id, product_sku, product_name, code, message`. 일평균은 소수 첫째 자리로 표시. 재고 커버 일수(현재고 ÷ 일평균)·"품절 위험"(커버 일수 ≤ 리드타임)·"초안 작성 중" 표시는 응답에 없다. 화면에서 계산할지 API에 붙일지 #41에서 정한다(공식은 한 곳)
 - 7주차 전(#46 인터뷰 결과 보고): 입력 부담이 확인되면 "판매 내역 엑셀(CSV) 일괄 올리기"를 검토한다. 스마트스토어 등 주문 내역 엑셀을 파일 하나로 올려 하루 판매 수십 건을 한 번에 출고 등록. 쇼핑몰 API 연동보다 작은 해결책. MVP 범위 밖이라 넣을지 사용자에게 결정받는다. 인터뷰 질문에 "하루 출고 건수, 지금 기록 방법, 쇼핑몰 주문 내역을 엑셀로 내려받을 수 있는지"를 넣는다
 - 공급업체·품목 선택 상자는 100개까지만 불러온다(`products/page.tsx`, `po-form.tsx`, 발주 목록의 shortcut 주석). 100개를 넘으면 검색형 선택 상자로 바꾼다
 - 인터뷰·점검: 4주차 끝에 미룸. ERP 개발 경험자에게 화면·설계 점검을 부탁하는 방식으로 진행 예정(사용자 인터뷰와 구분해서 기록). 실제 사용자 1~2명도 별도로 구함. 6주차(#42) 전에 다시 결정.
@@ -159,3 +159,4 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 - #39 추천 조회는 품목마다 묻지 않고 숫자 종류마다 한 번씩 묶어 조회한다(쿼리 5번) / 품목 300개에 숫자 4종을 품목마다 물으면 1,200번이지만, 회사 전체를 GROUP BY로 한 번씩 읽으면 품목 수와 무관하게 5번이다. 품목 3개와 30개의 쿼리 수가 같은지 SQLAlchemy 이벤트로 세는 테스트를 두었고, 일부러 품목마다 조회하게 바꾸면 이 테스트가 실패한다 / "추천 API에서 N+1을 어떻게 막고 확인했나요?"
 - #40 추천 초안은 화면이 보낸 추천 수량을 받지 않고 서버가 다시 계산해 저장하며, 사용자가 고친 수량은 따로 둔다 / 화면이 "추천 160"을 보냈어도 그 사이 입고로 가용재고가 200이 되면 서버 계산은 "추천 대상 아님"이라 409로 막는다. 줄에는 수량 150(사용자)과 추천 160(서버)이 함께 남아 "추천 대비 몇 % 고쳤나"를 잴 수 있다. 추천 수량 칸을 보내면 422다 / "클라이언트가 보낸 계산 결과를 믿으면 안 되는 이유는?"
 - #40 업체 여러 곳의 초안을 한 요청에서 만들 때 회사 행을 먼저 잠그고, commit은 요청 끝에 한 번만 한다 / 같은 업체에 8건이 동시에 오면 잠금을 빼 보니 여러 요청이 동시에 "초안 없음"을 보고 새로 만들려다 고유 제약(UniqueViolation) 오류로 실패했다. 잠그면 1장에 8줄이 쌓인다. 업체 2곳 중 둘째에서 막히면 첫째 업체의 초안도 저장되지 않는다(별도 연결로 확인) / "여러 발주서를 한 번에 만드는 요청의 동시성과 원자성을 어떻게 보장했나요?"
+- #41 표시용 숫자(재고 커버 일수·품절 위험)는 화면에서, 발주 판단(추천 여부·수량·이유)은 서버 한 곳에서 계산한다 / 커버 일수 = 현재고 50 ÷ 일평균 10 = 5일, 리드타임 5일 이하라 "품절 위험"으로 보인다. 이 값은 이 화면에만 쓰이고 저장·판단에 쓰이지 않아 API를 늘리지 않았다. 반대로 추천 수량 160은 화면이 다시 계산하지 않고 서버 값을 보여 주며, 초안을 만들 때도 서버가 다시 계산한다 / "어떤 계산은 프론트에, 어떤 계산은 서버에 두었나요?"
