@@ -7,6 +7,7 @@ from app.api import (  # 경로가 든 모듈들
     movements,
     products,
     purchase_orders,
+    recommendations,
     stock,
     suppliers,
     users,
@@ -24,3 +25,4 @@ app.include_router(movements.router, prefix="/api/v1")  # 입출고 등록
 app.include_router(stock.router, prefix="/api/v1")  # 재고 조회
 app.include_router(purchase_orders.router, prefix="/api/v1")  # 발주서 작성·수정·조회
 app.include_router(dashboard.router, prefix="/api/v1")  # 대시보드 요약
+app.include_router(recommendations.router, prefix="/api/v1")  # 발주 추천 조회

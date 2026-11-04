@@ -6,7 +6,7 @@
 
 ## 지금 위치
 
-마지막으로 머지한 PR은 #74(2026-11-04)이다. 구현 PR과 닫힌 이슈는 아래와 같다.
+마지막으로 머지한 PR은 #75(2026-11-04)이다. 구현 PR과 닫힌 이슈는 아래와 같다.
 
 | PR | 닫힌 이슈 | 내용 |
 | --- | --- | --- |
@@ -33,7 +33,8 @@
 | #70 | #37 | [5주차-5] 대시보드 API·화면 (진행 중 발주, 입고 예정, 이번 달 입출고, 장기재고. 부족·과잉은 #39) |
 | #72 | #71 | Codex 검증 반영: 백엔드 안전 수정 (테스트 DB 보호, 관리자 동시 변경, 입고 전체 취소 테스트, 큰 정수 422, 문서) |
 | #74 | #73 | Codex 검증 반영: 화면 수정 (중복 제출 방지, 비활성 품목 입출고, 로그인 확인 실패 안내) |
-| (PR 리뷰 대기) | #38 | [6주차-1] 추천 계산 순수 함수 (`calculate_recommendation`, 분수 계산, 이유 문구, S1~S7·S12~S14 단위 테스트) |
+| #75 | #38 | [6주차-1] 추천 계산 순수 함수 (`calculate_recommendation`, 분수 계산, 이유 문구, S1~S7·S12~S14 단위 테스트) |
+| (PR 리뷰 대기) | #39 | [6주차-2] 추천 조회 API `GET /recommendations` (조회 5번, S1~S8·S13 API 테스트) |
 
 4주차(#29~#32)는 모두 머지해 완료했다.
 
@@ -46,9 +47,9 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 - 위험은 코드 속도가 아니라 ① "같이" 이슈의 이해 시간 ② 사용자 테스트·인터뷰 섭외(#46, 외부 일정) ③ 열린 결정 2개(#37 장기·과잉 재고 기준, #43 클라우드·비용)
 - 줄이는 순서(일정이 밀릴 때): C1(#12·#42) → #45 공개 데이터 점검을 1개 데이터셋으로 → #37 대시보드를 표 위주로
 
-리뷰 대기: #38 추천 계산 순수 함수(같이). 테스트 `tests/test_recommend_calc.py`(DB 없이 0.1초)
+리뷰 대기: #39 추천 조회 API(같이). 테스트 `tests/test_recommendations.py`, 직접 확인 방법은 PR 설명 참고
 
-다음에 할 이슈: 6주차 #39 [6주차-2] 추천 조회 API (같이, Opus)
+다음에 할 이슈: 6주차 #40 [6주차-3] 추천으로 초안 만들기. 그 뒤 #41 추천 화면, #76 재고 부족·과잉 표시
 
 ### 작업별 모델
 
@@ -96,10 +97,11 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 - 발주 프론트(#36): 화면은 `purchase-orders/`(목록·`new`·`[id]`·`[id]/edit`)와 `suppliers/[id]`(발주 이력). 타입·상태 이름·시각 표시는 `lib/po.ts`, 작성·수정 폼 하나는 `lib/po-form.tsx`(수정은 items 전체 교체). 주소의 번호를 읽는 화면은 `useParams` 를 쓰므로 Next.js 16 빌드를 위해 `Suspense` 로 감싼다. 상태 버튼 표는 상세 화면의 `ACTIONS`(승인은 관리자에게만 보임, 서버도 403). 입고 폼은 수량을 적은 줄만 보내고 실패해도 입력값을 지우지 않는다. 입고 정정은 #36 범위가 아니라 재고 화면(#32)에 있다
 - 목록 API 추가(#36): `GET /purchase-orders?status=`(DRAFT·APPROVED·ORDERED·RECEIVED·CANCELLED, 그 밖의 값은 422)를 `supplier_id` 와 함께 쓸 수 있다. 목록 부품 `useList(basePath, filters)` 에 추가 조건 인자를 넣었다
 - 스타일(#36): 인라인 style 은 `frontend/app/lib/styles.ts` 의 `S`·`bodyRow` 한 곳에 모았다(기존 화면도 교체, 모양은 그대로). 새 화면도 여기서 가져다 쓴다. 6주차 디자인은 이 파일과 `globals.css` 만 고치면 된다
-- 대시보드(#37, `GET /dashboard`, `app/services/dashboard.py`): 읽기 전용이라 commit 하지 않고 쿼리는 품목 수와 무관하게 5번 안팎. 진행 중 발주 = DRAFT·APPROVED·ORDERED 건수 + 입고 예정(ORDERED 줄의 발주 수량 − `received_quantities`). 이번 달 입출고 = 서울 기준 1일~오늘, 정정은 원래 이력의 유형에서 뺀 순수량(정정 날짜 = 원래 날짜), 조정 제외. 부족·과잉은 만들지 않았다(추천 공식과 한 곳에서 계산하려고, #39에서 붙인다). 화면은 `dashboard/page.tsx` 하나
-- 장기재고 기준(임시값, 인터뷰 후 재검토): 활성 품목, 현재고 > 0, 첫 입출고가 60일 이상 전(60일 이내 신규 품목 제외), 마지막 순판매일(SALE − 정정)이 오늘 − 60일보다 이전이거나 판매 없음. 정확히 60일 전 판매는 장기재고 아님. 상수 `DEAD_STOCK_DAYS` 한 곳. 과잉재고 기준은 #39에서 정한다
+- 대시보드(#37, `GET /dashboard`, `app/services/dashboard.py`): 읽기 전용이라 commit 하지 않고 쿼리는 품목 수와 무관하게 5번 안팎. 진행 중 발주 = DRAFT·APPROVED·ORDERED 건수 + 입고 예정(ORDERED 줄의 발주 수량 − `received_quantities`). 이번 달 입출고 = 서울 기준 1일~오늘, 정정은 원래 이력의 유형에서 뺀 순수량(정정 날짜 = 원래 날짜), 조정 제외. 부족·과잉은 만들지 않았다(추천 공식과 한 곳에서 계산하려고, #76에서 붙인다). 화면은 `dashboard/page.tsx` 하나
+- 장기재고 기준(임시값, 인터뷰 후 재검토): 활성 품목, 현재고 > 0, 첫 입출고가 60일 이상 전(60일 이내 신규 품목 제외), 마지막 순판매일(SALE − 정정)이 오늘 − 60일보다 이전이거나 판매 없음. 정확히 60일 전 판매는 장기재고 아님. 상수 `DEAD_STOCK_DAYS` 한 곳. 과잉재고 기준(임시값, 2026-11-04 사용자 선택): 현재고 ≥ 일평균 판매량 × 90일, 판매가 있는 품목만. 구현은 #76
 - 화면 수정(#73): 제출 버튼은 `busy` 상태(버튼 잠금·"등록 중…")와 `useRef`(`sending`)를 함께 쓴다. 상태값은 다음 화면 갱신 뒤에야 바뀌어 아주 빠른 더블클릭을 못 막기 때문이다. 입출고 폼·발주 입고 폼·정정 폼에 적용했고 승인·발주함·취소 버튼은 서버가 상태로 막아 두었다. 입출고 등록의 품목 선택은 비활성 품목도 "(비활성)" 표시와 함께 보여 준다(데이터 원칙 8). 발주서 작성은 그대로 활성만. 레이아웃은 `/me` 가 401 이 아닌 이유로 실패하면 오류 문장과 "다시 시도" 버튼을 보여 준다(401 은 로그인 화면으로)
 - 추천 계산(#38, `app/services/recommend.py`의 `calculate_recommendation`): DB·현재 시각을 모르는 순수 함수. 계산은 `Fraction`(분수)으로 하고 마지막에 추천 수량만 `math.ceil`(float면 판매 31·리드타임 16·안전재고 0에서 31 → 32로 틀린다). 결과는 `Excluded(code, message)` 또는 `Recommendation(avg_daily_sales, available, reorder_point, recommended_quantity, reason)`이고, 추천하지 않으면(가용재고 > 재주문점) 숫자는 채우고 `recommended_quantity`·`reason`만 None. 부족 판정 = `recommended_quantity is not None`. 상수 `SALES_WINDOW_DAYS`(30)·`MIN_HISTORY_DAYS`(14)·`REPLENISH_CYCLE_DAYS`(14, 임시값)는 이 파일 한 곳. 이유 문구는 확정 틀 + "추천 수량은 N개입니다."(사용자 확인), 소수는 첫째 자리·정수는 그대로. "추천 수량 0 이하" 방어 줄은 공식상 닿지 않는다(가용재고 ≤ 재주문점이면 수량 ≥ 일평균 × 14 > 0)
+- 추천 조회(#39, `GET /recommendations`, `app/services/recommendations.py`): 읽기 전용(commit 없음, 저장 안 함). 쿼리는 품목 수와 무관하게 5번(활성 품목+기본 공급업체, `stock_and_first_day`, `net_sales`, ORDERED 줄, `received_quantities`) + 로그인 확인. 품목 3개·30개의 쿼리 수가 같은지 테스트로 센다. 계산은 `calculate_recommendation` 하나만 부른다. 응답은 api-design §5대로 `{"data": {"items", "excluded"}}`이고 쪽 나누기 없음(사용자 결정: 모든 품목을 계산한 뒤 골라내므로 쪽을 나눠도 계산은 같고, 초안 선택이 여러 쪽에 걸치지 않게). items는 api-design 예시 칸 + `product_sku`·`supplier_name`, 순서는 최신 품목 먼저. 충분한 품목(가용재고 > 재주문점)은 어느 목록에도 없다. `avg_daily_sales`·`reorder_point`는 float(소수 그대로, 표시는 화면이 첫째 자리로). 비활성 품목은 제외, 기본 공급업체 비활성은 excluded MISSING_INFO
 - 시드: `cd backend` 후 `.venv\Scripts\python -m scripts.seed`(지우고 새로 넣기), `--clear`(지우기). 계정은 README 참고(개발용)
 
 ## 알려진 한계
@@ -109,19 +111,19 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 
 ## 나중에 챙길 일
 
-- #39: 대시보드(`dashboard/page.tsx`의 '재고 부족 품목' 자리 문구)에 부족 품목 수·목록을 붙이고 과잉재고 기준(며칠 치면 과잉인지)을 정한다. 추천 계산 함수를 같이 쓴다. 상위 #8(F7)은 그때 완료 기준(부족)을 확인하고 닫는다
+- #76: 대시보드(`dashboard/page.tsx`의 '재고 부족 품목' 자리 문구)에 부족 품목 수·목록과 과잉재고(현재고 ≥ 일평균 × 90일, 임시값)를 붙인다. `app/services/recommendations.py`의 조회 함수와 `calculate_recommendation`을 같이 쓴다. 상위 #8(F7)은 그때 완료 기준(부족)을 확인하고 닫는다
 - 인터뷰 후: 장기재고 N=60일(임시)을 재검토한다(`DEAD_STOCK_DAYS`)
 - #43 배포 전: 클라우드(GCP/AWS)와 월 비용 상한을 결정한다. rate limit·Secure 쿠키 확인(이슈 본문에 있음)
 - #44 시연 데이터: 시드 명령이 배포 DB에서 절대 실행되지 않게 막는다(지금은 `@seed.local` 이메일로 시드 회사를 찾는다)
 - 지금(4주차)부터: 사용자 테스트·인터뷰(5~10명) 섭외를 시작한다(#46). 코드보다 오래 걸리는 외부 일정이다
-- #33·#36(완료)·#39 완료 후: 상위 이슈 #3(F2)·#4(F3)의 남은 완료 기준을 확인하고 닫는다
+- #33·#36·#39(완료) 뒤: 상위 이슈 #3(F2)·#4(F3)의 남은 완료 기준을 확인하고 닫는다
 - (완료, #35) 발주 입고에서 여러 품목을 잠글 때는 품목 번호 순서로 잠근다(교착 방지). 발주서를 먼저 잠그고 품목을 잠근다(#30 정정과 같은 순서). 품목마다 commit 하지 말고 요청 끝에 한 번만
 - (완료, #35) 발주 입고 정정을 실제 입고 API로 만든 이력으로 다시 확인했다(ORDERED면 정정되고 같은 발주 줄에 연결, RECEIVED면 409)
-- #39: 재고 현황 화면(`inventory/page.tsx`)에 상태 열·상태 필터·품목명/SKU 검색(`GET /stock`에 `q` 추가)을 붙인다
+- #76: 재고 현황 화면(`inventory/page.tsx`)에 상태 열·상태 필터를 붙인다. 품목명/SKU 검색(`GET /stock`에 `q` 추가)은 #76 시작 때 넣을지 정한다(이슈 본문에 없음)
 - (완료, #36) 입고 등록 화면(`receipts`)은 직접 입고만 두고 안내 문구로 발주 화면의 입고 등록으로 보낸다
-- #39(또는 #35 뒤): 재고 목록의 `status`(부족/정상 = 가용재고 ≤ 재주문점, api-design F5 행)와 발주 진행 중 수량은 #31에서 뺐다. 추천 계산 함수를 만든 뒤 `GET /stock`에 같은 함수로 붙여 기준을 하나로 유지한다. 프론트 #32의 재고 현황 화면에는 부족 표시가 아직 없다
-- #39 추천 조회: 품목마다 `calculate_recommendation(today, first_movement_date, supplier_active, sales_30d, stock, in_transit, lead_time, safety_stock)`에 넘길 값을 조회해 만든다. ① `today`: `seoul_today()`(service 인자로 받아 테스트에서 고정) ② `first_movement_date`: 그 품목의 가장 이른 `movement_date`(정정 포함 모든 유형, 없으면 None) ③ `supplier_active`: 기본 공급업체의 `is_active` ④ `sales_30d`: 오늘−29일~오늘 SALE 합계 − 그 SALE을 가리키는 정정 합계(아래 항목) ⑤ `stock`: `current_stock`/`stock_rows` ⑥ `in_transit`: ORDERED 발주 줄의 수량 − `received_quantities`(CANCELLED·DRAFT·APPROVED·RECEIVED 제외, S4) ⑦ `lead_time`: 기본 공급업체 `lead_time_days` ⑧ `safety_stock`: 품목 값. 비활성 품목은 함수에 넣기 전에 뺀다. 응답에서 `Fraction`은 float로 바꾼다(`avg_daily_sales`·`reorder_point`). 모두 정수 상한 안이라 함수가 따로 검사하지 않는다. S8(회사 분리)·S13(정정 빼기 조회)은 API 수준 테스트로 확인
-- #39 추천 조회: 30일 판매 = 기간 안 SALE 합계 − 그 SALE을 `reverses_movement_id`로 가리키는 CORRECTION 합계(기간은 원래 SALE 날짜, erd.md 조회 2). 폐기·입고·조정을 정정한 수량은 빼지 않는다(정정 행을 모두 빼면 판매 100·폐기 정정 5 → 95로 틀린다). S13 테스트 `test_corrections.py`의 조회를 참고
+- #76: 재고 목록의 `status`(부족/정상 = 가용재고 ≤ 재주문점, api-design F5 행)와 발주 진행 중 수량은 #31에서 뺐다. 추천 계산 함수를 만든 뒤 `GET /stock`에 같은 함수로 붙여 기준을 하나로 유지한다. 프론트 #32의 재고 현황 화면에는 부족 표시가 아직 없다
+- #40 초안 만들기: 서버가 받은 품목의 추천을 다시 계산할 때 `list_recommendations`를 그대로 부르지 말고 같은 조회 함수(`stock_and_first_day`·`net_sales`·`in_transit`)와 `calculate_recommendation`을 쓴다. 추천 대상이 아니거나 excluded면 409로 막을지는 #40에서 정한다. 저장할 값은 결과의 `recommended_quantity`·`reason`
+- #41 추천 화면: 응답은 `{"data": {"items": [...], "excluded": [...]}}`(쪽 나누기 없음). items 칸: `product_id, product_sku, product_name, supplier_id, supplier_name, current_stock, in_transit, available, avg_daily_sales(float), lead_time_days, safety_stock, reorder_point(float), recommended_quantity, reason`. excluded 칸: `product_id, product_sku, product_name, code, message`. 일평균은 소수 첫째 자리로 표시. 재고 커버 일수(현재고 ÷ 일평균)·"품절 위험"(커버 일수 ≤ 리드타임)·"초안 작성 중" 표시는 응답에 없다. 화면에서 계산할지 API에 붙일지 #41에서 정한다(공식은 한 곳)
 - 7주차 전(#46 인터뷰 결과 보고): 입력 부담이 확인되면 "판매 내역 엑셀(CSV) 일괄 올리기"를 검토한다. 스마트스토어 등 주문 내역 엑셀을 파일 하나로 올려 하루 판매 수십 건을 한 번에 출고 등록. 쇼핑몰 API 연동보다 작은 해결책. MVP 범위 밖이라 넣을지 사용자에게 결정받는다. 인터뷰 질문에 "하루 출고 건수, 지금 기록 방법, 쇼핑몰 주문 내역을 엑셀로 내려받을 수 있는지"를 넣는다
 - 공급업체·품목 선택 상자는 100개까지만 불러온다(`products/page.tsx`, `po-form.tsx`, 발주 목록의 shortcut 주석). 100개를 넘으면 검색형 선택 상자로 바꾼다
 - 인터뷰·점검: 4주차 끝에 미룸. ERP 개발 경험자에게 화면·설계 점검을 부탁하는 방식으로 진행 예정(사용자 인터뷰와 구분해서 기록). 실제 사용자 1~2명도 별도로 구함. 6주차(#42) 전에 다시 결정.
@@ -152,3 +154,4 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 - #71 정수 입력은 요청 검사 단계에서 업무 상한을 둔다(수량 100만, 단가 1억 원, 리드타임 365일, 번호는 DB 최댓값) / DB integer 최댓값은 2,147,483,647이라 2,147,483,648을 넣으면 DB 오류로 500이 났다. 상한을 두면 DB에 가기 전에 어느 칸이 문제인지와 함께 422를 준다 / "500 과 422 의 차이, 입력 검증은 어디서 해야 하나요?"
 - #38 추천 수식은 DB를 모르는 순수 함수로 떼고, 조회 결과(숫자 8개)와 오늘 날짜를 인자로 받는다 / 판매 300·리드타임 5·안전재고 20·현재고 50을 넣으면 DB 없이 0.1초 만에 "재주문점 70, 추천 160"을 확인한다. 날짜를 안에서 읽으면 "첫 입출고 후 13일이면 제외, 14일이면 계산" 같은 경계 테스트가 실행하는 날마다 달라진다. ≤를 <로, 올림을 반올림으로 바꾸면 테스트가 바로 실패하는 것도 확인했다 / "추천 계산을 어떻게 테스트했고, 왜 순수 함수로 분리했나요?"
 - #38 소수는 float 대신 분수(`Fraction`)로 계산하고 마지막에만 올림한다 / float로는 판매 31·리드타임 16이면 31 ÷ 30 × 30 = 31.000000000000004라 올림하면 32개가 된다(정답 31). 판매 1~399·리드타임 0~39·안전재고 0~29 조합 중 1,050건이 이렇게 1개씩 더 추천됐다 / "돈·수량 계산에서 float를 쓰면 안 되는 이유는?"
+- #39 추천 조회는 품목마다 묻지 않고 숫자 종류마다 한 번씩 묶어 조회한다(쿼리 5번) / 품목 300개에 숫자 4종을 품목마다 물으면 1,200번이지만, 회사 전체를 GROUP BY로 한 번씩 읽으면 품목 수와 무관하게 5번이다. 품목 3개와 30개의 쿼리 수가 같은지 SQLAlchemy 이벤트로 세는 테스트를 두었고, 일부러 품목마다 조회하게 바꾸면 이 테스트가 실패한다 / "추천 API에서 N+1을 어떻게 막고 확인했나요?"
