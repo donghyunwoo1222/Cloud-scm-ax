@@ -9,6 +9,7 @@ from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
 from app.db import DB  # 요청마다 DB 세션
 from app.errors import AppError  # 공통 오류
 from app.pagination import Page  # page·page_size
+from app.schemas.common import PathId, QueryId  # 번호 칸 (DB 범위를 넘으면 422, #71)
 from app.schemas.movements import (  # 요청·응답 모양
     CorrectionCreate,
     MovementCreate,
@@ -26,7 +27,7 @@ def list_movements(
     user: CurrentUser,
     db: DB,
     page: Page,
-    product_id: Annotated[int | None, Query()] = None,  # 이 품목만 (비활성 품목의 이력도 볼 수 있다)
+    product_id: QueryId = None,  # 이 품목만 (비활성 품목의 이력도 볼 수 있다)
     movement_type: Annotated[MovementTypeFilter | None, Query()] = None,  # 이 유형만 (정정 CORRECTION 포함)
     date_from: Annotated[date | None, Query()] = None,  # 이 날짜부터 (포함)
     date_to: Annotated[date | None, Query()] = None,  # 이 날짜까지 (포함)
@@ -52,7 +53,7 @@ def create_movement(data: MovementCreate, user: CurrentUser, db: DB) -> dict:
 
 
 @router.post("/{movement_id}/corrections", status_code=201)  # 잘못 넣은 이력 정정 (원래 이력은 고치지 않는다)
-def create_correction(movement_id: int, data: CorrectionCreate, user: CurrentUser, db: DB) -> dict:
+def create_correction(movement_id: PathId, data: CorrectionCreate, user: CurrentUser, db: DB) -> dict:
     movement, stock_after = stock_service.create_correction(user.company_id, db, user.id, movement_id, data)  # 404·409·422
     db.commit()  # 요청 끝에 한 번만 확정 (잠금도 여기서 풀린다)
     body = MovementOut.model_validate(movement).model_dump(mode="json")  # 등록된 정정 이력

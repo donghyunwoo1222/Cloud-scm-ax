@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
 from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
 from app.db import DB  # 요청마다 DB 세션
 from app.pagination import Page  # page·page_size
+from app.schemas.common import PathId  # 번호 칸 (DB 범위를 넘으면 422, #71)
 from app.schemas.stock import StockOut  # 응답 모양
 from app.services import stock as stock_service  # 재고 업무 규칙
 
@@ -25,5 +26,5 @@ def list_stock(
 
 
 @router.get("/{product_id}")  # 품목 하나의 현재고
-def get_stock(product_id: int, user: CurrentUser, db: DB) -> dict:
+def get_stock(product_id: PathId, user: CurrentUser, db: DB) -> dict:
     return {"data": StockOut(**stock_service.get_stock(user.company_id, db, product_id)).model_dump(mode="json")}  # 다른 회사 404
