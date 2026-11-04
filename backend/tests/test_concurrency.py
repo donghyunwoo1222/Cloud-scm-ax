@@ -8,7 +8,7 @@ from sqlalchemy import func, select  # 개수 세기
 
 from app.clock import seoul_today  # 서울 기준 오늘
 from app.errors import AppError  # 업무 오류
-from app.models import Company, Product, Supplier, User  # 표
+from app.models import Company, Product, PurchaseOrder, Supplier, User  # 표
 from app.schemas.movements import CorrectionCreate  # 정정 요청 모양
 from app.schemas.purchase_orders import PurchaseOrderCreate  # 발주서 작성 요청 모양
 from app.schemas.users import UserUpdate  # 직원 수정 요청 모양
@@ -143,3 +143,41 @@ def test_concurrent_draft_creation_makes_one_draft(engine, committed_company):
     failures = [r for r in results if isinstance(r, Exception)]
     assert len(failures) == 7 and all(isinstance(e, AppError) and e.code == "DUPLICATE_DRAFT" for e in failures)
     assert len([r for r in results if isinstance(r, str)]) == 1  # 한 건만 발주번호를 받았다
+
+
+def committed_draft(engine, data) -> int:
+    """진짜로 commit 한 DRAFT 발주서 하나 → id (상태 변경 동시 요청 테스트용)."""
+    supplier_id = run_in_new_session(engine, lambda s: s.scalar(select(Supplier.id).where(Supplier.company_id == data["company_id"])))
+    request = PurchaseOrderCreate(supplier_id=supplier_id, items=[{"product_id": data["product_id"], "quantity": 5, "unit_price": 100}])
+    return run_in_new_session(engine, lambda s: po_service.create_order(data["company_id"], s, data["admin_id"], request).id)
+
+
+def status_call(engine, data, order_id, action):
+    """상태 변경 한 건을 새 연결로 (API 요청 하나와 같은 모양) → 바뀐 상태."""
+    return lambda: run_in_new_session(engine, lambda s: po_service.change_status(data["company_id"], s, data["admin_id"], order_id, action).status)
+
+
+def test_concurrent_approvals_apply_once(engine, committed_company):
+    """#34: 같은 발주서에 승인 8건을 동시에 보내도 1건만 성공, 나머지는 INVALID_STATUS (발주서 행 잠금)."""
+    data = committed_company
+    order_id = committed_draft(engine, data)
+    gate = hold_row_lock(engine, PurchaseOrder, order_id)  # 발주서 줄을 0.5초 잠가 8건이 확실히 겹치게
+    results = run_at_once(gate, *[delayed(status_call(engine, data, order_id, "approve")) for _ in range(8)])[1:]
+    assert results.count("APPROVED") == 1
+    assert all(isinstance(e, AppError) and e.code == "INVALID_STATUS" for e in results if e != "APPROVED")
+
+
+def test_concurrent_approve_and_cancel_serialized(engine, committed_company):
+    """#34: 같은 DRAFT 에 승인 4건·취소 4건을 동시에 보내면 한 줄로 처리된다.
+
+    취소는 APPROVED 에서도 되므로 가능한 결과는 두 가지뿐이다: 취소가 먼저(취소 1건만 성공) 또는 승인 1건 → 취소 1건.
+    어느 쪽이든 승인은 많아야 1건, 취소는 정확히 1건, 최종 상태는 CANCELLED. 잠금이 없으면 승인 여러 건이 함께 성공한다.
+    """
+    data = committed_company
+    order_id = committed_draft(engine, data)
+    gate = hold_row_lock(engine, PurchaseOrder, order_id)  # 발주서 줄을 0.5초 잠가 8건이 확실히 겹치게
+    calls = [status_call(engine, data, order_id, a) for a in ("approve", "cancel") * 4]  # 승인 4건, 취소 4건
+    results = run_at_once(gate, *[delayed(c) for c in calls])[1:]
+    assert results.count("APPROVED") <= 1 and results.count("CANCELLED") == 1
+    assert all(isinstance(e, AppError) and e.code == "INVALID_STATUS" for e in results if not isinstance(e, str))
+    assert run_in_new_session(engine, lambda s: s.get(PurchaseOrder, order_id).status) == "CANCELLED"

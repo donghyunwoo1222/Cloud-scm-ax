@@ -1,10 +1,10 @@
-"""발주서 경로 (#33: 작성·수정·조회). 관리자·담당자 모두 사용. 승인·발주·취소(#34)와 입고(#35)는 아직 없다."""
+"""발주서 경로: 작성·수정·조회(#33), 상태 변경 approve·order·cancel(#34). 승인만 관리자, 나머지는 둘 다. 입고(#35)는 아직 없다."""
 
 from typing import Annotated  # 타입에 부가 정보를 붙이는 도구
 
 from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
 
-from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
+from app.auth.deps import AdminUser, CurrentUser  # 관리자만 / 로그인 사용자 (#22·#23)
 from app.db import DB  # 요청마다 DB 세션
 from app.pagination import Page  # page·page_size
 from app.schemas.purchase_orders import PurchaseOrderCreate, PurchaseOrderUpdate  # 요청 모양
@@ -46,3 +46,25 @@ def update_order(order_id: int, data: PurchaseOrderUpdate, user: CurrentUser, db
     order = po_service.update_order(user.company_id, db, order_id, data)  # 404·409·422
     db.commit()  # 요청 끝에 한 번만 확정
     return one(user, db, order)
+
+
+def transition(order_id: int, user, db, action: str) -> dict:
+    """상태 변경 세 경로의 공통 부분: 바꾸고, 요청 끝에 한 번 확정하고, 바뀐 발주서를 돌려준다."""
+    order = po_service.change_status(user.company_id, db, user.id, order_id, action)  # 404·409
+    db.commit()  # 확정 (발주서 잠금도 여기서 풀린다)
+    return one(user, db, order)
+
+
+@router.post("/{order_id}/approve")  # DRAFT → APPROVED (관리자만, 담당자는 403 FORBIDDEN_ROLE)
+def approve_order(order_id: int, user: AdminUser, db: DB) -> dict:
+    return transition(order_id, user, db, "approve")
+
+
+@router.post("/{order_id}/order")  # APPROVED → ORDERED (공급업체에 발주했음 표시, 둘 다)
+def mark_ordered(order_id: int, user: CurrentUser, db: DB) -> dict:
+    return transition(order_id, user, db, "order")
+
+
+@router.post("/{order_id}/cancel")  # DRAFT·APPROVED·ORDERED → CANCELLED (입고 기록이 없을 때만, 둘 다)
+def cancel_order(order_id: int, user: CurrentUser, db: DB) -> dict:
+    return transition(order_id, user, db, "cancel")

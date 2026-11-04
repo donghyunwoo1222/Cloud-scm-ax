@@ -1,4 +1,4 @@
-"""발주서 작성·수정·조회 (F6, #33). 모든 함수는 company_id 를 첫 번째 인자로 받는다(R1).
+"""발주서 작성·수정·조회(#33)와 상태 변경 approve·order·cancel(#34) (F6). 모든 함수는 company_id 를 첫 번째 인자로 받는다(R1).
 
 저장 확정(commit)은 하지 않는다. API 경로 함수가 요청 끝에 한 번만 한다.
 """
@@ -108,6 +108,54 @@ def update_order(company_id: int, db: Session, order_id: int, data: PurchaseOrde
         setattr(order, field, value)
     db.flush()
     return order
+
+
+# 허용되는 상태 이동 표 (#34). 동작 → 출발할 수 있는 상태들. 여기 없는 이동은 409 INVALID_STATUS
+# RECEIVED 로의 이동은 입고(#35)가 누적 입고량을 보고 정한다
+TRANSITIONS = {
+    "approve": ({"DRAFT"}, "APPROVED"),  # 승인 (관리자만, 경로에서 검사)
+    "order": ({"APPROVED"}, "ORDERED"),  # 공급업체에 발주했음 표시
+    "cancel": ({"DRAFT", "APPROVED", "ORDERED"}, "CANCELLED"),  # 취소 (입고 기록이 한 번도 없을 때만)
+}
+
+
+def change_status(company_id: int, db: Session, user_id: int, order_id: int, action: str) -> PurchaseOrder:
+    """POST /purchase-orders/{id}/approve·order·cancel. 발주서 행을 잠근 뒤 현재 상태를 읽고 한 단계만 바꾼다.
+
+    잠금 덕분에 같은 발주서에 승인·취소가 동시에 와도 두 번째 요청은 첫 요청의 결과(바뀐 상태)를 보고 409 가 된다.
+    입고(#35)도 발주서를 먼저 잠그므로 취소와 입고가 겹치지 않는다(잠금 순서: 회사 → 발주서 → 품목).
+    """
+    order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # 발주서 잠금. 다른 회사·없는 id 는 404
+    sources, target = TRANSITIONS[action]  # 이 동작이 출발할 수 있는 상태, 도착 상태
+    if order.status not in sources:  # 예) DRAFT 에서 바로 order, RECEIVED·CANCELLED 에서 cancel
+        raise AppError(409, "INVALID_STATUS", f"{order.status} 상태의 발주서는 이 작업을 할 수 없습니다.", {"status": order.status})
+    if action == "approve":
+        check_active_for_approval(company_id, db, order)  # 비활성 업체·품목이 들어 있으면 409
+        order.approved_by, order.approved_at = user_id, func.now()  # 승인자·승인 시각 (상태 이력 표 대신 칸에 남긴다)
+    elif action == "order":
+        order.ordered_at = func.now()  # 발주함 표시 시각
+    else:
+        received = db.scalar(select(InventoryMovement.id).join(  # 이 발주서 줄에 연결된 입고(RECEIPT) 행이 하나라도 있는지
+            PurchaseOrderItem, PurchaseOrderItem.id == InventoryMovement.purchase_order_item_id).where(
+            PurchaseOrderItem.purchase_order_id == order.id, InventoryMovement.company_id == company_id,
+            InventoryMovement.movement_type == "RECEIPT").limit(1))
+        if received is not None:  # 입고 40 → 정정 40 으로 누적 입고량이 0 이어도 입고 기록이 있으면 막는다 (임시 확정)
+            raise AppError(409, "CANNOT_CANCEL_RECEIVED", "입고 기록이 있는 발주서는 취소할 수 없습니다.")
+        order.cancelled_at = func.now()  # 취소 시각
+    order.status = target  # 한 단계만 바꾼다
+    db.flush()  # DB 에 보낸다 (확정은 API 가 요청 끝에)
+    db.refresh(order)  # func.now() 로 넣은 시각을 실제 값으로 다시 읽는다
+    return order
+
+
+def check_active_for_approval(company_id: int, db: Session, order: PurchaseOrder) -> None:
+    """승인 전 검사: 공급업체나 줄의 품목 중 비활성이 있으면 409 INACTIVE_REFERENCE (DRAFT 동안 비활성이 된 경우)."""
+    if not db.get(Supplier, order.supplier_id).is_active:  # 발주서와 같은 회사 업체 (작성 때 검사)
+        raise inactive("supplier_id", "비활성 공급업체의 발주서는 승인할 수 없습니다. 공급업체를 다시 활성으로 바꾸거나 발주서를 취소하세요.")
+    skus = list(db.scalars(select(Product.sku).join(PurchaseOrderItem, PurchaseOrderItem.product_id == Product.id).where(
+        PurchaseOrderItem.purchase_order_id == order.id, Product.is_active.is_(False)).order_by(Product.sku)))  # 비활성 품목 SKU 들
+    if skus:
+        raise inactive("items", f"비활성 품목({', '.join(skus)})이 들어 있어 승인할 수 없습니다. 그 줄을 빼고 다시 승인하세요.")
 
 
 def get_order(company_id: int, db: Session, order_id: int) -> PurchaseOrder:
