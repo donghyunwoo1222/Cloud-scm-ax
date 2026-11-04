@@ -156,20 +156,20 @@
 {
   "data": {
     "items": [{
-      "product_id": 12, "product_name": "물티슈 10롤", "supplier_id": 3,
+      "product_id": 12, "product_sku": "WT-10", "product_name": "물티슈 10롤", "supplier_id": 3, "supplier_name": "한빛유통",
       "current_stock": 50, "in_transit": 0, "available": 50,
       "avg_daily_sales": 10, "lead_time_days": 5, "safety_stock": 20,
       "reorder_point": 70, "recommended_quantity": 160,
       "reason": "최근 30일 하루 평균 10개가 팔렸고 리드타임은 5일입니다. 리드타임 동안 50개가 필요하고 안전재고 20개를 더하면 70개입니다. 지금 가용재고는 50개라서 발주를 추천합니다. 추천 수량은 160개입니다."
     }],
     "excluded": [
-      { "product_id": 15, "product_name": "수건 5입", "code": "NO_SALES_30D", "message": "최근 30일 판매 없음" }
+      { "product_id": 15, "product_sku": "TW-5", "product_name": "수건 5입", "code": "NO_SALES_30D", "message": "최근 30일 판매 없음" }
     ]
   }
 }
 ```
 
-`excluded`에는 추천을 계산할 수 없는 품목과 이유 코드를 담는다: `MISSING_INFO`(S7, 기본 공급업체가 비활성, 메시지 "기본 공급업체가 비활성입니다. 품목 정보를 확인하세요"), `INSUFFICIENT_DATA`(S6, (오늘 − 첫 입출고 날짜) < 14일), `NO_SALES_30D`(S5). 여러 사유가 겹치면 MISSING\_INFO → INSUFFICIENT\_DATA → NO\_SALES\_30D 순서로 첫 번째 하나만 낸다(S14). 비활성 품목은 추천 목록에 나오지 않는다.
+`items`는 추천 대상(가용재고 ≤ 재주문점)만 최신 품목 먼저 담고, 충분한 품목은 어느 목록에도 넣지 않는다. 쪽 나누기는 하지 않는다(2026-11-04 사용자 결정, 모든 품목을 계산한 뒤 골라내므로). `avg_daily_sales`·`reorder_point`는 float다. `excluded`에는 추천을 계산할 수 없는 품목과 이유 코드를 담는다: `MISSING_INFO`(S7, 기본 공급업체가 비활성, 메시지 "기본 공급업체가 비활성입니다. 품목 정보를 확인하세요"), `INSUFFICIENT_DATA`(S6, (오늘 − 첫 입출고 날짜) < 14일), `NO_SALES_30D`(S5). 여러 사유가 겹치면 MISSING\_INFO → INSUFFICIENT\_DATA → NO\_SALES\_30D 순서로 첫 번째 하나만 낸다(S14). 비활성 품목은 추천 목록에 나오지 않는다.
 
 `avg_daily_sales`와 `reorder_point`는 소수 그대로 계산하고, `recommended_quantity`만 올림한 정수다. 예) 30일 판매 7, 리드타임 5, 안전재고 2, 가용재고 0 → 일평균 0.233…, 재주문점 3.17, 추천 수량 6.43 → 7(S12). 화면과 이유 문구에서는 일평균을 소수 첫째 자리까지 보여준다. 이유 문구는 AX 설계 문서의 문장 틀에 계산 숫자만 끼워 넣는다(확정, LLM은 C1).
 
