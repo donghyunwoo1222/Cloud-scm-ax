@@ -43,6 +43,8 @@ class MovementOut(BaseModel):
     purchase_order_item_id: int | None  # 발주 입고(와 그 정정)면 연결된 발주 품목
     created_by: int  # 등록한 사용자
     created_at: datetime  # 등록 시각
+    product_sku: str | None = None  # 품목 SKU (이력 조회에서만 채운다)
+    product_name: str | None = None  # 품목명 (이력 조회에서만 채운다)
 
 
 class CorrectionCreate(BaseModel):

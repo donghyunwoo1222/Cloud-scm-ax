@@ -15,6 +15,7 @@ from app.schemas.movements import (  # 요청·응답 모양
     MovementOut,
     MovementTypeFilter,
 )
+from app.services import products as products_service  # 품목 조회
 from app.services import stock as stock_service  # 재고 업무 규칙
 
 router = APIRouter(prefix="/inventory-movements")  # 이 파일의 경로는 모두 /inventory-movements 로 시작
@@ -33,7 +34,13 @@ def list_movements(
     if date_from and date_to and date_from > date_to:  # 거꾸로 된 기간은 빈 결과 대신 422 로 알려준다
         raise AppError(422, "VALIDATION_ERROR", "시작일은 종료일보다 늦을 수 없습니다.", [{"field": "date_from", "reason": "invalid"}])
     rows, meta = stock_service.list_movements(user.company_id, db, page, product_id, movement_type, date_from, date_to)
-    return {"data": [MovementOut.model_validate(m).model_dump(mode="json") for m in rows], "meta": meta}  # 정정 행은 reverses_movement_id 포함
+    products = {p.id: p for p in products_service.products_by_ids(user.company_id, db, {m.product_id for m in rows})}  # 품목명·SKU 를 한 번에
+    data = []
+    for m in rows:
+        out = MovementOut.model_validate(m)  # 이력 칸
+        out.product_sku, out.product_name = products[m.product_id].sku, products[m.product_id].name  # 품목 SKU·이름 덧붙이기
+        data.append(out.model_dump(mode="json"))
+    return {"data": data, "meta": meta}  # 정정 행은 reverses_movement_id 포함
 
 
 @router.post("", status_code=201)  # 직접 입고·출고·조정 등록

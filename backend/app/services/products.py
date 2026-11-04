@@ -35,6 +35,11 @@ def suppliers_of(company_id: int, db: Session, products: list[Product]) -> dict[
     return {s.id: s for s in rows}  # id → 공급업체
 
 
+def products_by_ids(company_id: int, db: Session, ids: set[int]) -> list[Product]:
+    """같은 회사 품목들을 한 번의 조회로 가져온다 (이력 목록의 품목명·SKU 용)."""
+    return list(db.scalars(scoped(company_id, Product).where(Product.id.in_(ids)))) if ids else []  # 빈 집합이면 조회 생략
+
+
 def get_product(company_id: int, db: Session, product_id: int) -> Product:
     return get_owned(company_id, db, Product, product_id)  # 다른 회사·없는 id 는 404
 
