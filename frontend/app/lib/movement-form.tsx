@@ -10,6 +10,7 @@ export const TYPE_LABEL: Record<string, string> = {
   RECEIPT: "입고", SALE: "판매", DISPOSAL: "폐기", OTHER_OUT: "기타 출고", ADJUSTMENT: "실사 조정", CORRECTION: "정정",
 }; // 유형 → 화면 이름 (CORRECTION 은 등록 폼에는 없고 이력 목록에서만 보인다)
 const CHANNELS = [["SMARTSTORE", "스마트스토어"], ["OWN_MALL", "자사몰"], ["OTHER", "기타"]]; // 판매 채널 선택지
+export const CHANNEL_LABEL: Record<string, string> = Object.fromEntries(CHANNELS); // 채널 코드 → 화면 이름 (이력 목록용)
 const LABELS = { product_id: "품목", quantity: "수량", direction: "방향", reason: "사유", sales_channel: "판매 채널", movement_date: "입출고일", memo: "메모" }; // 오류 details 칸 이름 → 화면 이름
 
 // 서울 기준 오늘 (YYYY-MM-DD). 서버도 서울 기준이라 브라우저 시간대와 상관없이 맞춘다

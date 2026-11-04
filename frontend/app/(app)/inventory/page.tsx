@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react"; // 폼 제�
 
 import { api, apiList, Meta } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
-import { TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
+import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
 
 // GET /api/v1/stock 의 한 행 (부족/정상 상태는 #39)
 type Stock = { product_id: number; sku: string; name: string; unit: string; safety_stock: number; is_active: boolean; current_stock: number };
@@ -156,10 +156,10 @@ export default function Page() {
               <td>#{m.id}</td>
               <td>{m.movement_date}</td>
               <td>{m.product_name} ({m.product_sku})</td>
-              <td>{TYPE_LABEL[m.movement_type] ?? m.movement_type}{m.reverses_movement_id !== null && ` (#${m.reverses_movement_id} 정정)`}</td>
-              {/* 정정 행은 어떤 이력을 바로잡았는지 번호로 보인다 */}
+              <td>{TYPE_LABEL[m.movement_type] ?? m.movement_type}{m.reverses_movement_id !== null && ` (#${m.reverses_movement_id})`}</td>
+              {/* 정정 행은 어떤 이력을 바로잡았는지 번호로 보인다 (예: 정정 (#2)) */}
               <td>{m.direction === "IN" ? "+" : "−"}{m.quantity}</td>
-              <td>{[m.sales_channel, m.reason, m.memo].filter(Boolean).join(" · ")}</td>
+              <td>{[m.sales_channel && CHANNEL_LABEL[m.sales_channel], m.reason, m.memo].filter(Boolean).join(" · ")}</td>
               <td>{m.movement_type !== "CORRECTION" && <button type="button" onClick={() => startCorrect(m)}>정정</button>}</td>
               {/* 정정 행에는 버튼을 숨긴다 (정정의 정정 금지) */}
             </tr>
