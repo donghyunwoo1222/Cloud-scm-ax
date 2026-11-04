@@ -14,7 +14,7 @@ class PageParams(BaseModel):
 
 
 def page_params(
-    page: Annotated[int, Query(ge=1)] = 1,  # 1 미만이면 422
+    page: Annotated[int, Query(ge=1, le=1_000_000)] = 1,  # 1 미만이면 422. 상한: (쪽-1)×쪽 크기가 DB 정수 범위를 넘지 않게 (#71)
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,  # 기본 20개, 한 번에 100개까지만 (너무 큰 요청 방지)
 ) -> PageParams:
     return PageParams(page=page, page_size=page_size)

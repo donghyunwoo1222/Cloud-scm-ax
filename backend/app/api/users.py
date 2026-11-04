@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
 from app.auth.deps import AdminUser  # 관리자만 통과 (#23)
 from app.db import DB  # 요청마다 DB 세션
 from app.pagination import Page  # page·page_size
+from app.schemas.common import PathId  # 번호 칸 (DB 범위를 넘으면 422, #71)
 from app.schemas.users import UserCreate, UserOut, UserUpdate  # 요청·응답 모양
 from app.services import users as users_service  # 업무 규칙
 
@@ -31,6 +32,6 @@ def create_user(data: UserCreate, admin: AdminUser, db: DB) -> dict:
 
 
 @router.patch("/{user_id}")  # 역할 변경·비활성
-def update_user(user_id: int, data: UserUpdate, admin: AdminUser, db: DB) -> dict:
+def update_user(user_id: PathId, data: UserUpdate, admin: AdminUser, db: DB) -> dict:
     user = users_service.update_user(admin.company_id, db, user_id, data)  # 다른 회사 404, 마지막 관리자 409
     return {"data": UserOut.model_validate(user).model_dump(mode="json")}

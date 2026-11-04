@@ -5,10 +5,14 @@ from typing import Annotated, Literal  # 타입에 검사를 덧붙이는 도구
 
 from pydantic import BaseModel, ConfigDict, Field  # 모양 정의·검사 도구
 
-from app.schemas.common import Memo, NonNegInt, PatchModel  # 공통 칸 타입·PATCH 규칙
+from app.schemas.common import (  # 공통 칸 타입(번호·수량·단가 상한 #71)·PATCH 규칙
+    Id,
+    Memo,
+    PatchModel,
+    Quantity,
+    Won,
+)
 
-PosInt = Annotated[int, Field(ge=1, strict=True)]  # 1 이상 정수만 (3.0·"3"·true 는 422)
-Id = Annotated[int, Field(strict=True)]  # 번호 칸 (정수만)
 PoStatus = Literal["DRAFT", "APPROVED", "ORDERED", "RECEIVED", "CANCELLED"]  # 목록 상태 필터 (그 밖의 값은 422)
 
 
@@ -16,8 +20,8 @@ class ItemIn(BaseModel):
     model_config = ConfigDict(extra="forbid")  # 모르는 칸(추천 근거 등 서버가 정하는 값)은 422
 
     product_id: Id  # 발주할 품목 (같은 회사, 활성 품목만 새로 넣을 수 있다)
-    quantity: PosInt  # 발주 수량 (1 이상)
-    unit_price: NonNegInt  # 발주 당시 단가 (원, 0 이상)
+    quantity: Quantity  # 발주 수량 (1~100만)
+    unit_price: Won  # 발주 당시 단가 (원, 0~1억)
 
 
 class PurchaseOrderCreate(BaseModel):
@@ -76,7 +80,7 @@ class ReceiptLine(BaseModel):
     model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422
 
     purchase_order_item_id: Id  # 입고할 발주 줄 (이 발주서의 줄만)
-    quantity: PosInt  # 이번에 들어온 수량 (1 이상)
+    quantity: Quantity  # 이번에 들어온 수량 (1~100만)
 
 
 class ReceiptCreate(BaseModel):

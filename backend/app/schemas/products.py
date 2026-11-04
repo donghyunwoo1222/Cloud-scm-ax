@@ -7,11 +7,16 @@ from pydantic import (  # 모양 정의·검사 도구
     AfterValidator,
     BaseModel,
     ConfigDict,
-    Field,
     StringConstraints,
 )
 
-from app.schemas.common import Name, NonNegInt, PatchModel  # 공통 칸 타입·PATCH 규칙
+from app.schemas.common import (  # 공통 칸 타입(번호·단가·안전재고 상한 #71)·PATCH 규칙
+    Id,
+    Name,
+    PatchModel,
+    SafetyStock,
+    Won,
+)
 
 Sku = Annotated[
     str,
@@ -19,16 +24,15 @@ Sku = Annotated[
     AfterValidator(str.upper),  # 대문자로 바꿔 저장·비교 (ts-bk-m → TS-BK-M)
 ]
 Unit = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]  # 단위: 개, 박스 등
-SupplierId = Annotated[int, Field(strict=True)]  # 기본 공급업체 id (정수만)
 
 
 class ProductCreate(BaseModel):
     sku: Sku  # 품목 코드 (회사 안에서 유일)
     name: Name  # 품목명
     unit: Unit  # 단위
-    unit_cost: NonNegInt  # 구매 단가 (원, 0 이상 정수)
-    safety_stock: NonNegInt = 0  # 안전재고 (0 이상 정수, 기본 0)
-    default_supplier_id: SupplierId  # 기본 공급업체 (필수, 같은 회사의 활성 업체만)
+    unit_cost: Won  # 구매 단가 (원, 0~1억)
+    safety_stock: SafetyStock = 0  # 안전재고 (0~100만, 기본 0)
+    default_supplier_id: Id  # 기본 공급업체 (필수, 같은 회사의 활성 업체만)
 
 
 class ProductUpdate(PatchModel):
@@ -39,9 +43,9 @@ class ProductUpdate(PatchModel):
     sku: Sku | None = None  # 품목 코드
     name: Name | None = None  # 품목명
     unit: Unit | None = None  # 단위
-    unit_cost: NonNegInt | None = None  # 단가
-    safety_stock: NonNegInt | None = None  # 안전재고
-    default_supplier_id: SupplierId | None = None  # 기본 공급업체
+    unit_cost: Won | None = None  # 단가
+    safety_stock: SafetyStock | None = None  # 안전재고
+    default_supplier_id: Id | None = None  # 기본 공급업체
     is_active: bool | None = None  # false: 비활성, true: 다시 활성
 
 

@@ -3,7 +3,9 @@
 from datetime import date, datetime  # 날짜·시각 칸
 from typing import Annotated, Literal  # 타입 검사, 정해진 값 중 하나
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints  # 모양 정의·검사 도구
+from pydantic import BaseModel, ConfigDict, StringConstraints  # 모양 정의·검사 도구
+
+from app.schemas.common import Id, Quantity  # 번호·수량 칸 (DB 범위·업무 상한, #71)
 
 # 이 경로로 넣을 수 있는 유형. CORRECTION 은 정정 경로(#30)로만 → 여기서 보내면 422
 MovementType = Literal["RECEIPT", "SALE", "DISPOSAL", "OTHER_OUT", "ADJUSTMENT"]
@@ -17,9 +19,9 @@ class MovementCreate(BaseModel):
     # 모르는 칸은 422. 특히 purchase_order_item_id(발주 입고는 #35 경로)를 보내 초과 입고 검사를 우회하지 못하게
     model_config = ConfigDict(extra="forbid")
 
-    product_id: Annotated[int, Field(strict=True)]  # 품목 (같은 회사 품목만, 비활성도 허용)
+    product_id: Id  # 품목 (같은 회사 품목만, 비활성도 허용)
     movement_type: MovementType  # 입고·출고 3종·조정
-    quantity: Annotated[int, Field(strict=True, ge=1)]  # 수량: 1 이상 정수 (늘고 줆은 유형·방향으로)
+    quantity: Quantity  # 수량: 1~100만 정수 (늘고 줆은 유형·방향으로)
     direction: Direction | None = None  # 조정(ADJUSTMENT)일 때만 필수, 나머지는 서버가 정한다
     movement_date: date | None = None  # 입출고일, 비우면 서울 기준 오늘. 미래 날짜는 422
     sales_channel: SalesChannel | None = None  # 판매(SALE)일 때만 필수, 나머지는 비움
@@ -52,5 +54,5 @@ class CorrectionCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422 (방향·품목을 바꿔 보내지 못하게)
 
-    quantity: Annotated[int, Field(strict=True, ge=1)]  # 정정 수량: 1 이상 정수 (예: 판매 100을 10으로 → 90)
+    quantity: Quantity  # 정정 수량: 1~100만 정수 (예: 판매 100을 10으로 → 90)
     reason: Reason  # 사유 필수 (예: "판매 10개를 100개로 잘못 입력")

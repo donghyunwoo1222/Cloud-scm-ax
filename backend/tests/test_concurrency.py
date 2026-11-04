@@ -3,12 +3,14 @@
 규칙을 지키는 코드가 잠금 없이도 한 번씩은 통과할 수 있으므로, 여러 건을 같은 순간에 보내 겹치게 만든다.
 """
 
+import time  # 잠깐 멈추기
+
 import pytest  # 테스트 도구
 from sqlalchemy import func, select  # 개수 세기
 
 from app.clock import seoul_today  # 서울 기준 오늘
 from app.errors import AppError  # 업무 오류
-from app.models import Company, Product, PurchaseOrder, PurchaseOrderItem, Supplier, User  # 표
+from app.models import Company, Product, PurchaseOrder, Supplier, User  # 표
 from app.schemas.movements import CorrectionCreate  # 정정 요청 모양
 from app.schemas.purchase_orders import (  # 발주서 작성·입고 요청 모양
     PurchaseOrderCreate,
@@ -20,34 +22,11 @@ from app.services import stock as stock_service  # 재고 (register_movement)
 from app.services import users as users_service  # 직원 계정 (LAST_ADMIN)
 from tests.concurrency import (  # 동시 요청 도구
     delayed,
-    delete_companies,
     hold_row_lock,
+    ordered_po,
     run_at_once,
     run_in_new_session,
 )
-
-
-@pytest.fixture
-def committed_company(engine):
-    """진짜로 commit 한 회사 하나(관리자 1명, 공급업체 1개, 품목 1개). 테스트가 끝나면 지운다."""
-    def create(session):
-        company = Company(name="동시성상사")
-        session.add(company)
-        session.flush()  # company.id 생성
-        admin = User(company_id=company.id, name="관리자0", email=f"admin0-{company.id}@concurrency.test",
-                     password_hash="x", role="ADMIN")  # 로그인은 하지 않으므로 해시는 아무 값
-        supplier = Supplier(company_id=company.id, name="동시성업체", lead_time_days=3)
-        session.add_all([admin, supplier])
-        session.flush()  # id 생성
-        product = Product(company_id=company.id, sku="CC-1", name="동시성품목", unit="개", unit_cost=1000,
-                          default_supplier_id=supplier.id)
-        session.add(product)
-        session.commit()  # 진짜 확정 (다른 연결에서도 보인다)
-        return {"company_id": company.id, "admin_id": admin.id, "product_id": product.id}
-
-    data = run_in_new_session(engine, create)
-    yield data
-    delete_companies(engine, [data["company_id"]])  # 테스트 데이터 정리
 
 
 def sell(engine, data, quantity):
@@ -103,6 +82,48 @@ def test_concurrent_admin_demotions_keep_one_admin(engine, committed_company):
     left = run_in_new_session(engine, lambda s: s.scalar(
         select(func.count()).select_from(User).where(User.company_id == data["company_id"], User.role == "ADMIN")))
     assert left == 1  # 관리자가 0명이 되지 않았다
+
+
+def test_stale_read_cannot_remove_last_admin(engine, committed_company, monkeypatch):
+    """#71 B (Codex 지적 순서): 관리자 A, 담당자 B 에서
+    ① B 비활성 요청이 B(담당자)를 읽고 멈춤 → ② B 를 관리자로 → ③ A 를 담당자로 → ④ ①이 이어서 B 비활성
+    이 차례대로 다 성공하면 활성 관리자가 0명이 된다. 회사 줄을 먼저 잠그고 B 를 다시 읽어야 막힌다.
+    """
+    data = committed_company
+    a_id = data["admin_id"]  # 관리자 A
+
+    def add_staff(session):
+        b = User(company_id=data["company_id"], name="담당자B", role="STAFF", password_hash="x",
+                 email=f"staff-b-{data['company_id']}@concurrency.test")
+        session.add(b)
+        session.flush()  # id 받기
+        return b.id
+
+    b_id = run_in_new_session(engine, add_staff)  # 담당자 B
+    real_get_owned = users_service.get_owned  # 원래 '행 하나 찾기'
+    paused = []  # ①이 이미 멈췄는지 (B 를 읽는 첫 요청만 멈춘다)
+
+    def get_owned_then_pause(company_id, db, model, row_id, *args, **kwargs):
+        row = real_get_owned(company_id, db, model, row_id, *args, **kwargs)  # 실제로 읽는다
+        if row_id == b_id and not paused:  # ① 요청이 B 를 읽은 직후
+            paused.append(True)
+            time.sleep(0.5)  # 문지기처럼 멈춰 ②③ 이 끼어들 틈을 만든다
+        return row
+
+    monkeypatch.setattr(users_service, "get_owned", get_owned_then_pause)  # users 서비스가 쓰는 찾기 함수를 바꿔 끼운다
+
+    def update(user_id, **change):
+        return lambda: run_in_new_session(engine, lambda s: users_service.update_user(
+            data["company_id"], s, user_id, UserUpdate(**change)).role)
+
+    run_at_once(
+        update(b_id, is_active=False),  # ① B 비활성 (읽고 0.5초 멈춤)
+        delayed(update(b_id, role="ADMIN"), 0.1),  # ② B 를 관리자로
+        delayed(update(a_id, role="STAFF"), 0.25),  # ③ A 를 담당자로 (②가 먼저 끝났으면 관리자가 2명이라 통과)
+    )
+    active_admins = run_in_new_session(engine, lambda s: s.scalar(select(func.count()).select_from(User).where(
+        User.company_id == data["company_id"], User.role == "ADMIN", User.is_active.is_(True))))
+    assert active_admins == 1  # 어떤 순서로 끝나든 활성 관리자가 0명이 되면 안 된다
 
 
 def test_concurrent_corrections_never_exceed_original(engine, committed_company):
@@ -184,17 +205,6 @@ def test_concurrent_approve_and_cancel_serialized(engine, committed_company):
     assert results.count("APPROVED") <= 1 and results.count("CANCELLED") == 1
     assert all(isinstance(e, AppError) and e.code == "INVALID_STATUS" for e in results if not isinstance(e, str))
     assert run_in_new_session(engine, lambda s: s.get(PurchaseOrder, order_id).status) == "CANCELLED"
-
-
-def ordered_po(engine, data, product_ids, quantity=100) -> tuple[int, list[int]]:
-    """진짜로 commit 한 ORDERED 발주서 하나 → (발주서 id, 줄 id 들 = product_ids 순서). 작성 → 승인 → 발주."""
-    supplier_id = run_in_new_session(engine, lambda s: s.scalar(select(Supplier.id).where(Supplier.company_id == data["company_id"])))
-    request = PurchaseOrderCreate(supplier_id=supplier_id, items=[{"product_id": p, "quantity": quantity, "unit_price": 100} for p in product_ids])
-    order_id = run_in_new_session(engine, lambda s: po_service.create_order(data["company_id"], s, data["admin_id"], request).id)
-    for action in ("approve", "order"):
-        run_in_new_session(engine, lambda s, a=action: po_service.change_status(data["company_id"], s, data["admin_id"], order_id, a))
-    items = run_in_new_session(engine, lambda s: {i.product_id: i.id for i in s.scalars(select(PurchaseOrderItem).where(PurchaseOrderItem.purchase_order_id == order_id))})
-    return order_id, [items[p] for p in product_ids]
 
 
 def receive_call(engine, data, order_id, lines):

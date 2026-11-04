@@ -19,6 +19,8 @@ from app.models import (  # 표 7개
     Supplier,
     User,
 )
+from app.schemas.purchase_orders import PurchaseOrderCreate  # 발주서 작성 요청 모양 (ordered_po)
+from app.services import purchase_orders as po_service  # 발주서 작성·상태 변경 (ordered_po)
 
 
 def run_at_once(*calls):
@@ -89,3 +91,14 @@ def delayed(call, seconds: float = 0.1):
         return call()
 
     return run
+
+
+def ordered_po(engine, data, product_ids, quantity=100) -> tuple[int, list[int]]:
+    """진짜로 commit 한 ORDERED 발주서 하나 → (발주서 id, 줄 id 들 = product_ids 순서). 작성 → 승인 → 발주."""
+    supplier_id = run_in_new_session(engine, lambda s: s.scalar(select(Supplier.id).where(Supplier.company_id == data["company_id"])))
+    request = PurchaseOrderCreate(supplier_id=supplier_id, items=[{"product_id": p, "quantity": quantity, "unit_price": 100} for p in product_ids])
+    order_id = run_in_new_session(engine, lambda s: po_service.create_order(data["company_id"], s, data["admin_id"], request).id)
+    for action in ("approve", "order"):
+        run_in_new_session(engine, lambda s, a=action: po_service.change_status(data["company_id"], s, data["admin_id"], order_id, a))
+    items = run_in_new_session(engine, lambda s: {i.product_id: i.id for i in s.scalars(select(PurchaseOrderItem).where(PurchaseOrderItem.purchase_order_id == order_id))})
+    return order_id, [items[p] for p in product_ids]

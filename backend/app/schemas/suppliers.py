@@ -5,9 +5,9 @@ from datetime import datetime  # 시각 칸
 from pydantic import BaseModel, ConfigDict  # 모양 정의, ORM 객체에서 읽기 설정
 
 from app.schemas.common import (  # 공통 칸 타입·PATCH 규칙
+    LeadTimeDays,
     Memo,
     Name,
-    NonNegInt,
     OptionalText,
     PatchModel,
 )
@@ -15,7 +15,7 @@ from app.schemas.common import (  # 공통 칸 타입·PATCH 규칙
 
 class SupplierCreate(BaseModel):
     name: Name  # 업체명 (필수, 앞뒤 공백 제거. 대소문자는 구분)
-    lead_time_days: NonNegInt  # 리드타임 일수 (필수, 0 이상 정수)
+    lead_time_days: LeadTimeDays  # 리드타임 일수 (필수, 0~365일)
     contact_name: OptionalText = None  # 담당자
     phone: OptionalText = None  # 연락처
     email: OptionalText = None  # 이메일 (로그인용이 아니라 형식 검사는 하지 않는다)
@@ -28,7 +28,7 @@ class SupplierUpdate(PatchModel):
     REQUIRED = ("name", "lead_time_days", "is_active")  # null 로 비울 수 없는 칸
 
     name: Name | None = None  # 업체명
-    lead_time_days: NonNegInt | None = None  # 리드타임
+    lead_time_days: LeadTimeDays | None = None  # 리드타임
     contact_name: OptionalText = None  # 담당자
     phone: OptionalText = None  # 연락처
     email: OptionalText = None  # 이메일

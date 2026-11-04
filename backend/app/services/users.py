@@ -37,17 +37,21 @@ def create_user(company_id: int, db: Session, data: UserCreate) -> User:
 
 
 def update_user(company_id: int, db: Session, user_id: int, data: UserUpdate) -> User:
-    """역할 변경·비활성·다시 활성. 마지막 활성 관리자를 잃게 되는 변경은 409 LAST_ADMIN."""
-    user = get_owned(company_id, db, User, user_id)  # 다른 회사 직원이면 404
+    """역할 변경·비활성·다시 활성. 마지막 활성 관리자를 잃게 되는 변경은 409 LAST_ADMIN.
+
+    회사 줄을 먼저 잠그고 그 뒤에 대상 직원을 읽는다. 잠금 전에 읽은 값으로 검사하면, 기다리는 동안 다른 요청이
+    그 직원을 관리자로 올린 것을 모르고 지나가 활성 관리자가 0명이 될 수 있다(#71, Codex 지적).
+    """
+    db.get(Company, company_id, with_for_update=True)  # 회사 줄 잠금: 이 회사의 직원 변경은 한 번에 하나씩 (잠금 순서: 회사가 처음)
+    user = get_owned(company_id, db, User, user_id)  # 잠근 뒤에 읽어야 먼저 끝난 변경이 보인다. 다른 회사 직원이면 404
     loses_admin = user.role == "ADMIN" and user.is_active and (data.role == "STAFF" or data.is_active is False)  # 활성 관리자가 한 명 줄어드는 변경인가
     if loses_admin:
-        db.get(Company, company_id, with_for_update=True)  # 회사 줄을 잠가, 두 관리자가 동시에 서로를 내려도 한 명씩 차례로 검사되게 한다
         active_admins = db.scalar(  # 지금 회사의 활성 관리자 수
             select(func.count()).select_from(
                 scoped(company_id, User).where(User.role == "ADMIN", User.is_active.is_(True)).subquery()
             )
         )
-        if active_admins <= 1:  # 이 사람이 마지막 활성 관리자면 (잠금은 요청이 끝나 세션이 닫힐 때 풀린다)
+        if active_admins <= 1:  # 이 사람이 마지막 활성 관리자면 (잠금은 세션이 닫힐 때 풀린다)
             raise AppError(409, "LAST_ADMIN", "회사에는 활성 관리자가 최소 1명 있어야 합니다.")
     if data.role is not None:  # 역할을 보냈으면
         user.role = data.role
