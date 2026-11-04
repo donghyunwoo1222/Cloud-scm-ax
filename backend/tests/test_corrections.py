@@ -79,6 +79,18 @@ def test_correct_adjustment(client, world, products):
     assert response.json()["data"]["stock_after"] == 97  # 100 − 30 + 27
 
 
+def test_increase_adjustment_correction_cannot_make_stock_negative(client, world, products):
+    """증가 조정 +30 → 판매 25(남은 5) → 조정 정정 27 이면 재고 −22 가 되므로 409 (정정 방향 OUT 도 잠금·음수 검사를 거친다)."""
+    login_as(client)
+    adj_id = move(client, products["a"], "ADJUSTMENT", 30, direction="IN", reason="실사 차이")  # 재고 30
+    move(client, products["a"], "SALE", 25)  # 재고 5
+    response = correct(client, adj_id, 27)
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "INSUFFICIENT_STOCK"
+    assert response.json()["error"]["details"] == {"current_stock": 5, "requested": 27}
+    assert correct(client, adj_id, 5).json()["data"]["stock_after"] == 0  # 남은 재고만큼은 정정된다
+
+
 def test_inactive_product_correction_allowed(client, world, products):
     """비활성 품목이어도 정정은 허용한다."""
     login_as(client)
