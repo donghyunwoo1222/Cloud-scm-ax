@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints  # 모양 �
 
 # 이 경로로 넣을 수 있는 유형. CORRECTION 은 정정 경로(#30)로만 → 여기서 보내면 422
 MovementType = Literal["RECEIPT", "SALE", "DISPOSAL", "OTHER_OUT", "ADJUSTMENT"]
+MovementTypeFilter = Literal["RECEIPT", "SALE", "DISPOSAL", "OTHER_OUT", "ADJUSTMENT", "CORRECTION"]  # 조회 필터는 정정도 허용
 Direction = Literal["IN", "OUT"]  # 늘림·줄임
 SalesChannel = Literal["SMARTSTORE", "OWN_MALL", "OTHER"]  # 판매 채널
 Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]  # 사유: 공백만은 안 됨

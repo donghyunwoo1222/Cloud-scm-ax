@@ -1,13 +1,39 @@
 """입출고 등록·정정 경로 (F4). 관리자·담당자 모두 사용. 이력 수정·삭제 경로는 없다(잘못 넣은 건 정정으로)."""
 
-from fastapi import APIRouter  # 라우터
+from datetime import date  # 기간 칸
+from typing import Annotated  # 타입에 부가 정보를 붙이는 도구
+
+from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
 
 from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
 from app.db import DB  # 요청마다 DB 세션
-from app.schemas.movements import CorrectionCreate, MovementCreate, MovementOut  # 요청·응답 모양
+from app.errors import AppError  # 공통 오류
+from app.pagination import Page  # page·page_size
+from app.schemas.movements import (  # 요청·응답 모양
+    CorrectionCreate,
+    MovementCreate,
+    MovementOut,
+    MovementTypeFilter,
+)
 from app.services import stock as stock_service  # 재고 업무 규칙
 
 router = APIRouter(prefix="/inventory-movements")  # 이 파일의 경로는 모두 /inventory-movements 로 시작
+
+
+@router.get("")  # 이력 조회 (읽기만)
+def list_movements(
+    user: CurrentUser,
+    db: DB,
+    page: Page,
+    product_id: Annotated[int | None, Query()] = None,  # 이 품목만 (비활성 품목의 이력도 볼 수 있다)
+    movement_type: Annotated[MovementTypeFilter | None, Query()] = None,  # 이 유형만 (정정 CORRECTION 포함)
+    date_from: Annotated[date | None, Query()] = None,  # 이 날짜부터 (포함)
+    date_to: Annotated[date | None, Query()] = None,  # 이 날짜까지 (포함)
+) -> dict:
+    if date_from and date_to and date_from > date_to:  # 거꾸로 된 기간은 빈 결과 대신 422 로 알려준다
+        raise AppError(422, "VALIDATION_ERROR", "시작일은 종료일보다 늦을 수 없습니다.", [{"field": "date_from", "reason": "invalid"}])
+    rows, meta = stock_service.list_movements(user.company_id, db, page, product_id, movement_type, date_from, date_to)
+    return {"data": [MovementOut.model_validate(m).model_dump(mode="json") for m in rows], "meta": meta}  # 정정 행은 reverses_movement_id 포함
 
 
 @router.post("", status_code=201)  # 직접 입고·출고·조정 등록
