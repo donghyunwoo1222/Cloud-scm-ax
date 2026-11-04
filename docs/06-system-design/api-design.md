@@ -128,9 +128,13 @@
 
 한 트랜잭션에서 품목별 입고 이력(RECEIPT)을 쌓고, 누적 입고량을 계산해 발주 상태를 정한다. 부분 입고면 ORDERED 유지, 모든 품목이 다 찬 뒤에만 RECEIVED다. 누적 입고량이 발주 수량을 넘으면 409 `OVER_RECEIPT`, 상태가 ORDERED가 아니면 409 `INVALID_STATUS`로 막는다. 누적 입고량은 연결된 RECEIPT 합계에서 연결된 CORRECTION 합계를 뺀 값이다. 품목이나 공급업체가 비활성이 되었어도 이미 ORDERED인 발주의 입고는 허용한다. 응답에는 갱신된 발주 상태와 품목별 누적 입고량을 담는다.
 
+행 잠금 순서는 회사 → 발주서 → 품목이고, 여러 품목은 품목 번호 순으로 잠근다(교착 방지, PROGRESS.md의 행 잠금 순서).
+
 ### 4) 발주 상태 변경: approve · order · cancel
 
 세 경로 모두 요청 본문이 없다. 서버가 현재 상태를 보고 허용되는 한 단계만 바꾼다(DRAFT→APPROVED→ORDERED). 그 밖의 요청은 409 `INVALID_STATUS`, 담당자가 approve를 부르면 403 `FORBIDDEN_ROLE`(S11), 입고 이력이 있는 발주의 cancel은 409 `CANNOT_CANCEL_RECEIVED`이다(입고 후 전부 정정해 누적 입고량이 0이어도 RECEIPT 기록이 있으면 마찬가지, 임시 확정). 비활성 공급업체나 비활성 품목이 든 DRAFT를 approve하면 409 `INACTIVE_REFERENCE`이다. 마지막 상태 변경은 모두 한 번에 하나씩만 되도록 서버가 현재 상태를 읽고 갱신하는 조건을 한 구문에서 검사한다(두 명이 동시에 눌러도 한 번만 반영).
+
+상태 변경이 다른 행을 함께 잠가야 하면 회사 → 발주서 → 품목 순서를 지킨다(PROGRESS.md의 행 잠금 순서).
 
 ### 5) 발주 추천 조회: GET /recommendations
 
