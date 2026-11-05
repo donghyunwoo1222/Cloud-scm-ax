@@ -7,6 +7,7 @@ import { Suspense, useEffect, useState } from "react"; // 처음 한 번 실행,
 import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, Pager, useList } from "../../../lib/list"; // 목록 공통 부품
 import { fmtDate, PurchaseOrder, STATUS_LABEL } from "../../../lib/po"; // 발주서 모양·상태 이름·날짜 표시
+import { StatusBadge } from "../../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/suppliers/{id} 중 이 화면이 쓰는 칸
@@ -30,15 +31,16 @@ function Detail() {
       <ErrorText error={error} />
       {supplier && (
         <p>
-          리드타임 {supplier.lead_time_days}일 · 담당자 {supplier.contact_name ?? "-"} · 연락처 {supplier.phone ?? "-"} · 이메일 {supplier.email ?? "-"} · {supplier.is_active ? "활성" : "비활성"}
+          리드타임 {supplier.lead_time_days}일 · 담당자 {supplier.contact_name ?? "-"} · 연락처 {supplier.phone ?? "-"} · 이메일 {supplier.email ?? "-"} · {supplier.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}
         </p>
       )}
 
       <h2 style={S.sectionTitle}>발주 이력</h2>
       <ErrorText error={list.error} />
+      <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>발주번호</th><th>상태</th><th>품목</th><th>발주 수량</th><th>단가(원)</th><th>약속 납기</th><th>실제 입고일</th></tr>
+          <tr style={S.headRow}><th>발주번호</th><th>상태</th><th>품목</th><th style={S.num}>발주 수량</th><th style={S.num}>단가(원)</th><th>약속 납기</th><th>실제 입고일</th></tr>
         </thead>
         <tbody>
           {list.rows.flatMap((o) =>
@@ -48,16 +50,17 @@ function Detail() {
                 <td>{index === 0 ? <Link href={`/purchase-orders/${o.id}`}>{o.po_number}</Link> : ""}</td>
                 <td>{index === 0 ? STATUS_LABEL[o.status] : ""}</td>
                 <td>{i.product_sku} · {i.product_name}</td>
-                <td>{i.quantity}</td>
-                <td>{i.unit_price}</td>
-                <td>{index === 0 ? (o.due_date ?? "-") : ""}</td>
-                <td>{index === 0 ? fmtDate(o.received_at) : ""}</td>
+                <td style={S.num}>{i.quantity}</td>
+                <td style={S.num}>{i.unit_price}</td>
+                <td style={S.nowrap}>{index === 0 ? (o.due_date ?? "-") : ""}</td>
+                <td style={S.nowrap}>{index === 0 ? fmtDate(o.received_at) : ""}</td>
               </tr>
             )),
           )}
         </tbody>
       </table>
-      {list.meta?.total === 0 && <p>이 공급업체의 발주 이력이 없습니다.</p>}
+      </div>
+      {list.meta?.total === 0 && <p style={S.empty}>이 공급업체의 발주 이력이 없습니다.</p>}
       {/* 빈 목록 안내 */}
       <Pager meta={list.meta} onPage={list.setPage} />
     </section>

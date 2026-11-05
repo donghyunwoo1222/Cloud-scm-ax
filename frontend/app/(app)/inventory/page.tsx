@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react"; // 
 import { api, apiList, Meta } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
+import { STOCK_BADGE, StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/stock 의 한 행 (상태는 추천 계산과 같은 기준, #76)
@@ -45,6 +46,7 @@ export default function Page() {
   const [notice, setNotice] = useState(""); // 정정 성공 안내
   const [busy, setBusy] = useState(false); // 정정 등록 중이면 버튼을 잠근다
   const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
+  const historyTitle = useRef<HTMLHeadingElement>(null); // "입출고 이력" 제목 (이력 보기를 누르면 여기로 이동)
 
   useEffect(() => {
     // shortcut: 품목 100개까지만 선택지로 불러온다(서버 page_size 최대). 100개를 넘으면 검색형 선택 상자로 바꾼다
@@ -74,6 +76,16 @@ export default function Page() {
   function filter(set: (v: string) => void, value: string) {
     set(value);
     setPage(1);
+  }
+
+  // 이 품목의 이력 보기: 이력을 품목으로 거르고 "입출고 이력" 제목으로 화면과 포커스를 옮긴다
+  function showHistory(id: number) {
+    filter(setProductId, String(id));
+    const title = historyTitle.current;
+    if (!title) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches; // OS 의 "움직임 줄이기" 설정이 켜져 있으면 스르륵 대신 바로 이동
+    title.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); // 아래로 스르륵 내려간다
+    title.focus({ preventScroll: true }); // 키보드·낭독기 사용자도 이력 영역으로 따라오게 (스크롤은 위에서 이미 했다)
   }
 
   function startCorrect(m: Movement) {
@@ -115,33 +127,36 @@ export default function Page() {
         {/* 상태를 고르면 서버가 회사 전체에서 거른 뒤 쪽을 나눈다. 비활성 품목은 상태가 없어 나오지 않는다 */}
       </div>
       <ErrorText error={stock.error} />
+      <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>품목명</th><th>SKU</th><th>현재고</th><th>발주 진행 중</th><th>안전재고</th><th>상태</th><th></th></tr>
+          <tr style={S.headRow}><th>품목명</th><th>SKU</th><th style={S.num}>현재고</th><th style={S.num}>발주 진행 중</th><th style={S.num}>안전재고</th><th>상태</th><th></th></tr>
         </thead>
         <tbody>
           {stock.rows.map((s) => (
             <tr key={s.product_id} style={bodyRow(s.is_active)}>
               <td>{s.name}{!s.is_active && " (비활성)"}</td>
               <td>{s.sku}</td>
-              <td>{s.current_stock} {s.unit}</td>
-              <td>{s.in_transit}</td>
-              <td>{s.safety_stock}</td>
+              <td style={S.num}>{s.current_stock} {s.unit}</td>
+              <td style={S.num}>{s.in_transit}</td>
+              <td style={S.num}>{s.safety_stock}</td>
               <td title={s.status_reason?.message}>
-                {s.status === "SHORTAGE" ? <strong style={S.error}>부족</strong> : s.status ? STATUS_LABEL[s.status] : "-"}
-                {s.status_reason && <div><small>{s.status_reason.message}</small></div>}
+                {s.status ? <StatusBadge kind={STOCK_BADGE[s.status].kind}>{STOCK_BADGE[s.status].label}</StatusBadge> : "-"}
+                {s.status_reason && <span style={S.sub}>{s.status_reason.message}</span>}
                 {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 판단 불가는 이유를 작게 보인다. 비활성은 "-" */}
               </td>
-              <td><button type="button" onClick={() => filter(setProductId, String(s.product_id))}>이력 보기</button></td>
+              <td><button type="button" onClick={() => showHistory(s.product_id)}>이력 보기</button></td>
               {/* 아래 이력을 이 품목으로 거른다 */}
             </tr>
           ))}
         </tbody>
       </table>
-      {stock.meta?.total === 0 && <p>{status ? "이 상태의 품목이 없습니다." : "품목이 없습니다. 품목을 먼저 등록하세요."}</p>}
+      </div>
+      {stock.meta?.total === 0 && <p style={S.empty}>{status ? "이 상태의 품목이 없습니다." : "품목이 없습니다. 품목을 먼저 등록하세요."}</p>}
       <Pager meta={stock.meta} onPage={stock.setPage} />
 
-      <h2 style={S.sectionTitle}>입출고 이력</h2>
+      <h2 ref={historyTitle} tabIndex={-1} style={S.sectionTitle}>입출고 이력</h2>
+      {/* tabIndex -1: 키 이동 순서에는 넣지 않고, 코드로만 포커스를 줄 수 있게 */}
       <div style={S.toolbar}>
         {/* 필터: 품목·유형·기간 */}
         <label>품목
@@ -176,19 +191,20 @@ export default function Page() {
         </form>
       )}
 
+      <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>번호</th><th>입출고일</th><th>품목</th><th>유형</th><th>수량</th><th>사유·채널·메모</th><th></th></tr>
+          <tr style={S.headRow}><th>번호</th><th>입출고일</th><th>품목</th><th>유형</th><th style={S.num}>수량</th><th>사유·채널·메모</th><th></th></tr>
         </thead>
         <tbody>
           {rows.map((m) => (
             <tr key={m.id} style={S.row}>
               <td>#{m.id}</td>
-              <td>{m.movement_date}</td>
+              <td style={S.nowrap}>{m.movement_date}</td>
               <td>{m.product_name} ({m.product_sku})</td>
               <td>{TYPE_LABEL[m.movement_type] ?? m.movement_type}{m.reverses_movement_id !== null && ` (#${m.reverses_movement_id})`}</td>
               {/* 정정 행은 어떤 이력을 바로잡았는지 번호로 보인다 (예: 정정 (#2)) */}
-              <td>{m.direction === "IN" ? "+" : "−"}{m.quantity}</td>
+              <td style={S.num}>{m.direction === "IN" ? "+" : "−"}{m.quantity}</td>
               <td>{[m.sales_channel && CHANNEL_LABEL[m.sales_channel], m.reason, m.memo].filter(Boolean).join(" · ")}</td>
               <td>{m.movement_type !== "CORRECTION" && <button type="button" onClick={() => startCorrect(m)}>정정</button>}</td>
               {/* 정정 행에는 버튼을 숨긴다 (정정의 정정 금지) */}
@@ -196,7 +212,8 @@ export default function Page() {
           ))}
         </tbody>
       </table>
-      {meta?.total === 0 && <p>조건에 맞는 이력이 없습니다.</p>}
+      </div>
+      {meta?.total === 0 && <p style={S.empty}>조건에 맞는 이력이 없습니다.</p>}
       <Pager meta={meta} onPage={setPage} />
     </section>
   );

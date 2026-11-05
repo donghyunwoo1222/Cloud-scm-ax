@@ -12,7 +12,7 @@ export const TYPE_LABEL: Record<string, string> = {
 }; // 유형 → 화면 이름 (CORRECTION 은 등록 폼에는 없고 이력 목록에서만 보인다)
 const CHANNELS = [["SMARTSTORE", "스마트스토어"], ["OWN_MALL", "자사몰"], ["OTHER", "기타"]]; // 판매 채널 선택지
 export const CHANNEL_LABEL: Record<string, string> = Object.fromEntries(CHANNELS); // 채널 코드 → 화면 이름 (이력 목록용)
-const LABELS = { product_id: "품목", quantity: "수량", direction: "방향", reason: "사유", sales_channel: "판매 채널", movement_date: "입출고일", memo: "메모" }; // 오류 details 칸 이름 → 화면 이름
+const LABELS = { product_id: "품목", quantity: "수량", direction: "방향", reason: "사유", sales_channel: "판매 채널", movement_date: "일자", memo: "메모" }; // 오류 details 칸 이름 → 화면 이름 (movement_date 는 폼 안에서 "입고일"/"출고일"로 덮어쓴다)
 
 // 서울 기준 오늘 (YYYY-MM-DD). 서버도 서울 기준이라 브라우저 시간대와 상관없이 맞춘다
 export const seoulToday = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
@@ -21,6 +21,8 @@ type ProductOption = { id: number; sku: string; name: string; is_active: boolean
 
 // 입출고 등록 폼. types 로 이 화면에서 고를 수 있는 유형을 정한다 (입고 화면은 입고만, 출고 화면은 나머지)
 export function MovementForm({ types }: { types: MovementType[] }) {
+  const dateLabel = types.length === 1 && types[0] === "RECEIPT" ? "입고일" : "출고일"; // 입고 화면은 "입고일", 출고 화면은 "출고일" (서버 칸 이름은 그대로 movement_date)
+  const labels = { ...LABELS, movement_date: dateLabel }; // 오류 문장의 칸 이름도 같은 글자로
   const [products, setProducts] = useState<ProductOption[]>([]); // 품목 선택지 (비활성 포함: 비활성 품목도 입고·출고·조정은 허용, 데이터 원칙 8)
   const [productId, setProductId] = useState(""); // 고른 품목
   const [type, setType] = useState<MovementType>(types[0]); // 고른 유형
@@ -122,7 +124,7 @@ export function MovementForm({ types }: { types: MovementType[] }) {
       )}
       <label>수량* <input type="number" min={1} step={1} value={quantity} onChange={(e) => setQuantity(e.target.value)} /></label>
       <label>
-        입출고일
+        {dateLabel}
         <input type="date" max={today || undefined} value={date} onChange={(e) => setDate(e.target.value)} />
         {/* 오늘 이후는 고를 수 없다 (서버도 막는다) */}
       </label>
@@ -130,7 +132,7 @@ export function MovementForm({ types }: { types: MovementType[] }) {
       <label>메모 <input value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
       <button type="submit" disabled={busy}>{busy ? "등록 중…" : "등록"}</button>
       <div style={S.fullRow}>
-        <ErrorText error={error} labels={LABELS} />
+        <ErrorText error={error} labels={labels} />
         {done && <p role="status" style={S.ok}>{done}</p>}
       </div>
     </form>

@@ -23,10 +23,11 @@ export const S = {
   topbar: { display: "flex", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", gap: "var(--space-md)", padding: "12px var(--space-lg)", background: "var(--color-card)", borderBottom: "1px solid var(--color-border)", fontSize: "var(--text-sm)", color: "var(--color-muted-foreground)" }, // 상단 바: 내 정보·로그아웃
   main: { padding: "var(--space-lg)", maxWidth: 1360, width: "100%" }, // 본문 여백 (display 를 주지 않는다: hidden 속성이 먹어야 한다)
   pad2: { padding: "var(--space-xl)" }, // 안내 문구 여백
-  loginPage: { padding: "48px", maxWidth: 360 }, // 로그인 화면 틀
+  loginPage: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-xl)", width: "100%", maxWidth: 380, margin: "10vh auto 0" }, // 로그인 화면 틀: 가운데 흰 카드
 
   // 카드·제목·안내
   card: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)" }, // 흰 카드 상자
+  sectionCard: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)", marginTop: "var(--space-md)" }, // 화면 안에서 항목마다 쌓는 흰 카드 (대시보드)
   sectionTitle: { marginTop: "var(--space-xl)" }, // 화면 안의 두 번째 제목
   hint: { color: "var(--color-muted-foreground)" }, // 화면 설명·보조 글자
   empty: { padding: "var(--space-lg)", textAlign: "center", color: "var(--color-muted-foreground)" }, // 목록이 비었을 때 안내
@@ -41,10 +42,23 @@ export const S = {
   num: { textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }, // 숫자 칸: 오른쪽 정렬 + 숫자 폭 같게 (머리 칸에도 같이 쓴다)
   dim: { color: "var(--color-muted-foreground)" }, // 덜 중요한 숫자 (계산 재료)
   key: { fontWeight: 700 }, // 판단에 쓰는 핵심 숫자
+  numInput: { width: 84, textAlign: "right", fontVariantNumeric: "tabular-nums" }, // 숫자 입력칸 (수량): 오른쪽 정렬
+  groupHead: { textAlign: "center", fontSize: "var(--text-xs)", background: "var(--color-hover)" }, // 열 묶음 줄의 칸 ("재고", "판단 기준" 등)
+  groupStart: { borderLeft: "1px solid var(--color-border)" }, // 묶음이 시작되는 칸 왼쪽 구분선
+  nowrap: { whiteSpace: "nowrap" }, // 칸 글자가 두 줄로 꺾이지 않게 (예: "발주 필요", 날짜)
+  midCol: { minWidth: 120 }, // 품목명·업체명 칸의 최소 폭 (이름이 한 글자씩 꺾이지 않게)
+  wideCol: { minWidth: 260 }, // 긴 문장 칸(이유 등)의 최소 폭. 줄바꿈은 그대로 두고 칸이 너무 좁아지는 것만 막는다
+  sub: { display: "block", fontSize: "var(--text-xs)", color: "var(--color-muted-foreground)", fontWeight: 400 }, // 칸 안의 보조 글자 (예: 품목 아래 SKU)
   selectedRow: { background: "var(--color-selected)" }, // 체크한 줄
   selectedMark: { boxShadow: "inset 3px 0 0 var(--color-primary)" }, // 체크한 줄의 첫 칸 왼쪽 파란 세로줄
 
-  // 상태 배지 (글자 + SVG 아이콘과 함께 쓴다)
+  // 링크를 파란 주요 버튼 모양으로 (예: 발주서 작성). 화면 이동은 링크라 <a> 를 그대로 쓰고 모양만 버튼으로 입힌다
+  linkButton: { display: "inline-flex", alignItems: "center", minHeight: 36, padding: "0 14px", borderRadius: "var(--radius-sm)", background: "var(--color-primary)", color: "var(--color-on-primary)", fontWeight: 500 },
+
+  // 링크를 흰 보조 버튼 모양으로 (예: 수정, 취소). 옆의 <button> 과 같은 높이·테두리
+  linkButtonGhost: { display: "inline-flex", alignItems: "center", minHeight: 36, padding: "0 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-border-strong)", background: "var(--color-card)", color: "var(--color-foreground)", fontWeight: 500 },
+
+  // 상태 배지 (글자 + SVG 아이콘과 함께 쓴다. 부품은 lib/status-badge.tsx 의 StatusBadge)
   badgeDanger: { ...badgeBase, color: "var(--color-destructive)", background: "var(--color-destructive-bg)" }, // 부족·품절 위험
   badgeOk: { ...badgeBase, color: "var(--color-ok)", background: "var(--color-ok-bg)" }, // 정상
   badgeUnknown: { ...badgeBase, color: "var(--color-unknown)", background: "var(--color-unknown-bg)" }, // 판단 불가
@@ -66,7 +80,7 @@ export const S = {
   pager: { display: "flex", gap: "12px", alignItems: "center", marginTop: "12px" }, // 쪽 이동 줄
 } satisfies Record<string, CSSProperties>;
 
-// 비활성 행은 흐리게 (활성이면 그냥 본문 줄)
+// 비활성 행은 보조 글자색으로 낮춘다 (활성이면 그냥 본문 줄). 투명도(opacity)로 흐리면 글자 대비가 4.5:1 아래로 떨어져 색을 바꾼다
 export function bodyRow(isActive: boolean): CSSProperties {
-  return { ...S.row, opacity: isActive ? 1 : 0.5 };
+  return isActive ? S.row : { ...S.row, color: "var(--color-muted-foreground)" };
 }

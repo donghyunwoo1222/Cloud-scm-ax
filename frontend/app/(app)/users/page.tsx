@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react"; // 폼 제출, 상태
 import { api } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { Me, ROLE_LABEL, useMe } from "../../lib/me"; // 내 정보·역할 한글 이름
+import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/users 의 한 행 (비밀번호 해시는 서버가 아예 보내지 않는다)
@@ -97,6 +98,7 @@ function UsersAdmin({ me }: { me: Me }) {
       <ListControls includeInactive={list.includeInactive} onToggleInactive={list.toggleInactive} />
       {/* 검색창 없이 "비활성 포함"만 */}
       <ErrorText error={list.error} />
+      <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}>
@@ -117,8 +119,8 @@ function UsersAdmin({ me }: { me: Me }) {
                   <option value="STAFF">{ROLE_LABEL.STAFF}</option>
                 </select>
               </td>
-              <td>{u.is_active ? "활성" : "비활성"}</td>
-              <td>
+              <td style={S.nowrap}>{u.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}</td>
+              <td style={S.nowrap}>
                 {u.is_active
                   ? <button type="button" onClick={() => update(u, { is_active: false })}>비활성</button>
                   : <button type="button" onClick={() => update(u, { is_active: true })}>다시 활성</button>}
@@ -127,6 +129,7 @@ function UsersAdmin({ me }: { me: Me }) {
           ))}
         </tbody>
       </table>
+      </div>
       <Pager meta={list.meta} onPage={list.setPage} />
     </section>
   );

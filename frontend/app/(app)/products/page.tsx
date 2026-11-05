@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react"; // 폼 제출, 처음 �
 
 import { api, apiList } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
+import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/products 의 한 행 (재고 숫자는 없다, #31)
@@ -144,10 +145,11 @@ export default function ProductsPage() {
 
       <ListControls placeholder="SKU·품목명 검색" includeInactive={list.includeInactive} onSearch={list.search} onToggleInactive={list.toggleInactive} />
       <ErrorText error={list.error} />
+      <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}>
-            <th>SKU</th><th>품목명</th><th>단위</th><th>단가</th><th>안전재고</th><th>기본 공급업체</th><th>리드타임</th><th>상태</th><th></th>
+            <th>SKU</th><th>품목명</th><th>단위</th><th style={S.num}>단가</th><th style={S.num}>안전재고</th><th>기본 공급업체</th><th style={S.num}>리드타임</th><th>상태</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -157,13 +159,13 @@ export default function ProductsPage() {
               <td>{p.sku}</td>
               <td>{p.name}</td>
               <td>{p.unit}</td>
-              <td>{p.unit_cost.toLocaleString()}원</td>
+              <td style={S.num}>{p.unit_cost.toLocaleString()}원</td>
               {/* 5000 → 5,000원 */}
-              <td>{p.safety_stock}</td>
+              <td style={S.num}>{p.safety_stock}</td>
               <td>{p.default_supplier.name}</td>
-              <td>{p.default_supplier.lead_time_days}일</td>
-              <td>{p.is_active ? "활성" : "비활성"}</td>
-              <td>
+              <td style={S.num}>{p.default_supplier.lead_time_days}일</td>
+              <td style={S.nowrap}>{p.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}</td>
+              <td style={S.nowrap}>
                 <button type="button" onClick={() => startEdit(p)}>수정</button>{" "}
                 {p.is_active
                   ? <button type="button" onClick={() => setActive(p, false)}>비활성</button>
@@ -173,7 +175,8 @@ export default function ProductsPage() {
           ))}
         </tbody>
       </table>
-      {list.meta?.total === 0 && <p>{list.includeInactive ? "품목이 없습니다." : "활성 품목이 없습니다."}</p>}
+      </div>
+      {list.meta?.total === 0 && <p style={S.empty}>{list.includeInactive ? "품목이 없습니다." : "활성 품목이 없습니다."}</p>}
       <Pager meta={list.meta} onPage={list.setPage} />
     </section>
   );

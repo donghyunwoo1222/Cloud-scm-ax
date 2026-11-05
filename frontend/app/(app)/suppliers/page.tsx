@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react"; // 폼 제출, 상태
 
 import { api } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
+import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/suppliers 의 한 행
@@ -109,10 +110,11 @@ export default function SuppliersPage() {
 
       <ListControls placeholder="업체명 검색" includeInactive={list.includeInactive} onSearch={list.search} onToggleInactive={list.toggleInactive} />
       <ErrorText error={list.error} />
+      <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}>
-            <th>업체명</th><th>리드타임</th><th>담당자</th><th>연락처</th><th>상태</th><th></th>
+            <th>업체명</th><th style={S.num}>리드타임</th><th>담당자</th><th>연락처</th><th>상태</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -120,11 +122,11 @@ export default function SuppliersPage() {
             <tr key={s.id} style={bodyRow(s.is_active)}>
               {/* 비활성 행은 흐리게 */}
               <td><Link href={`/suppliers/${s.id}`}>{s.name}</Link></td>
-              <td>{s.lead_time_days}일</td>
+              <td style={S.num}>{s.lead_time_days}일</td>
               <td>{s.contact_name ?? "-"}</td>
-              <td>{s.phone ?? "-"}</td>
-              <td>{s.is_active ? "활성" : "비활성"}</td>
-              <td>
+              <td style={S.nowrap}>{s.phone ?? "-"}</td>
+              <td style={S.nowrap}>{s.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}</td>
+              <td style={S.nowrap}>
                 <button type="button" onClick={() => startEdit(s)}>수정</button>{" "}
                 {s.is_active
                   ? <button type="button" onClick={() => setActive(s, false)}>비활성</button>
@@ -134,7 +136,8 @@ export default function SuppliersPage() {
           ))}
         </tbody>
       </table>
-      {list.meta?.total === 0 && <p>{list.includeInactive ? "공급업체가 없습니다." : "활성 공급업체가 없습니다."}</p>}
+      </div>
+      {list.meta?.total === 0 && <p style={S.empty}>{list.includeInactive ? "공급업체가 없습니다." : "활성 공급업체가 없습니다."}</p>}
       {/* 빈 목록 안내 */}
       <Pager meta={list.meta} onPage={list.setPage} />
     </section>
