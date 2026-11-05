@@ -158,6 +158,36 @@ textarea:disabled {
   color: var(--color-muted-foreground);
 }
 
+/* 폼 항목: 라벨 글자가 위, 입력칸이 아래 (예: "수량*" 아래에 칸, 그 아래 "현재고 N개").
+   체크박스·라디오 라벨은 글자 옆에 두므로 제외. 줄 안에서는 150~320px 사이로 남는 폭을 나눠 갖는다
+   (150px: 1440px 화면에서 항목 6개 + 등록 버튼이 한 줄에 들어가는 폭. 6 × 150 + 간격 + 버튼 ≈ 1,060px < 본문 약 1,150px) */
+label:has(> :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea)) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  flex: 1 1 150px;
+  max-width: 320px;
+  min-width: 0;
+}
+
+label > :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  width: 100%;
+}
+
+/* 입력 항목이 있는 줄의 버튼(또는 버튼 묶음): 내용 크기만큼만, 라벨 한 줄만큼 내려 입력칸과 높이를 맞춘다
+   (21px = 글자 14px × 줄 높이 1.5, 여기에 라벨과 칸 사이 간격을 더한다) */
+:has(> label > :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea))
+  > :is(button, div:has(> button)) {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-top: calc(var(--text-base) * 1.5 + var(--space-xs));
+}
+
+/* 표 위아래 여백: 안내 문장·빈 목록 문장과 머리 줄이 붙지 않게 */
+table {
+  margin: var(--space-md) 0;
+}
+
 /* 표: 머리 줄은 연한 바탕, 줄마다 아래 구분선, 마우스를 올린 줄은 살짝 칠한다 */
 th,
 td {

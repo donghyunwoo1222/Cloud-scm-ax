@@ -9,6 +9,9 @@ const badgeBase: CSSProperties = {
   borderRadius: "var(--radius-full)", fontSize: "var(--text-xs)", fontWeight: 500, whiteSpace: "nowrap",
 };
 
+// 입력 항목 줄: 항목 사이 16px, 위쪽 기준 정렬(한 항목 아래에 "현재고 N개" 가 생겨도 옆 라벨이 밀리지 않는다), 넘치면 다음 줄로
+const fieldRow: CSSProperties = { display: "flex", flexWrap: "wrap", gap: "var(--space-md)", alignItems: "flex-start", margin: "var(--space-md) 0" };
+
 // 여러 화면이 같이 쓰는 스타일 이름 → 값
 export const S = {
   // 레이아웃 (로그인 후 화면: 왼쪽 사이드 메뉴 + 오른쪽 상단 바·본문)
@@ -48,13 +51,13 @@ export const S = {
   badgeInfo: { ...badgeBase, color: "var(--color-info)", background: "var(--color-info-bg)" }, // 발주 필요
 
   // 폼
-  formGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "var(--space-sm)", alignItems: "end", margin: "var(--space-md) 0" }, // 입력 칸들을 격자로 늘어놓는 폼
-  formGridWide: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "var(--space-sm)", alignItems: "end", margin: "var(--space-md) 0" }, // 칸이 조금 넓은 폼(입출고 등록)
+  formGrid: fieldRow, // 입력 항목을 가로로 늘어놓는 폼 (항목 폭·버튼 위치는 globals.css 의 label·button 규칙)
+  formGridWide: fieldRow, // 입출고 등록 폼 (예전엔 칸이 조금 넓었다. 지금은 항목이 남는 폭을 나눠 가져 따로 둘 필요가 없다)
   formStack: { display: "grid", gap: "12px", marginTop: "var(--space-lg)" }, // 세로로 쌓는 폼(로그인)
-  fullRow: { gridColumn: "1 / -1" }, // 격자에서 한 줄을 통째로 차지
+  fullRow: { gridColumn: "1 / -1", flexBasis: "100%" }, // 폼 줄에서 한 줄을 통째로 차지 (오류·완료 문장)
   buttons: { display: "flex", gap: "var(--space-sm)" }, // 버튼 가로 나열
-  toolbar: { display: "flex", gap: "var(--space-sm)", flexWrap: "wrap", alignItems: "end", margin: "var(--space-md) 0" }, // 필터 줄
-  panel: { display: "flex", gap: "var(--space-sm)", flexWrap: "wrap", alignItems: "end", padding: "12px", background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", margin: "var(--space-sm) 0" }, // 테두리 있는 작은 폼 상자
+  toolbar: { display: "flex", gap: "var(--space-md)", flexWrap: "wrap", alignItems: "flex-start", margin: "var(--space-md) 0" }, // 필터 줄 (위쪽 기준 정렬)
+  panel: { display: "flex", gap: "var(--space-md)", flexWrap: "wrap", alignItems: "flex-start", padding: "12px", background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", margin: "var(--space-sm) 0" }, // 테두리 있는 작은 폼 상자
   basisFull: { flexBasis: "100%" }, // 상자 안에서 한 줄 차지
   block: { display: "block" }, // 이름 글자 아래에 선택 상자를 줄바꿈해 놓기
   blockFull: { display: "block", width: "100%" }, // 줄바꿈 + 가로 꽉 채움 입력칸
