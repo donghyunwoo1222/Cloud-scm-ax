@@ -6,6 +6,7 @@ export type PoItem = {
   product_id: number; // 품목 번호
   product_sku: string; // 품목 SKU
   product_name: string; // 품목명
+  unit: string; // 입고 현황에 붙일 품목 단위 (예: 개, 박스)
   quantity: number; // 발주 수량
   unit_price: number; // 발주 단가(원)
   received_quantity: number; // 누적 입고량 (입고 − 입고 정정)
@@ -39,6 +40,16 @@ export const PO_LABELS = {
 };
 
 export const totalQuantity = (order: PurchaseOrder) => order.items.reduce((sum, i) => sum + i.quantity, 0); // 줄 수량 합계 (예: 100 + 50 → 150)
+
+export const lineAmount = (item: PoItem) => BigInt(item.quantity) * BigInt(item.unit_price); // 발주 당시 단가를 곱해 원 단위까지 정확히 계산한다
+export const totalAmount = (order: PurchaseOrder) => order.items.reduce((sum, item) => sum + lineAmount(item), BigInt(0)); // 모든 품목 금액을 큰 정수로 더한다
+
+// 화면에서 한 번 구한 서울 날짜와 약속 납기를 비교한다.
+export function overdueDays(order: Pick<PurchaseOrder, "status" | "due_date">, today: string): number {
+  if (order.status !== "ORDERED" || !order.due_date || !today) return 0; // 발주함 상태이고 두 날짜를 모두 알 때만 계산한다
+  const elapsed = Date.parse(today) - Date.parse(order.due_date); // 날짜 전용 문자열을 같은 UTC 자정으로 읽어 달력상의 차이를 구한다
+  return Math.max(0, elapsed / 86_400_000); // 하루의 밀리초로 나누고 당일과 미래는 0으로 표시한다
+}
 
 // 시각(UTC ISO 문자열)을 서울 날짜·시각 글자로 (없으면 "-")
 export const fmtTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) : "-");

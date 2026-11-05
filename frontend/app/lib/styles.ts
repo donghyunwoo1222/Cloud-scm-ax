@@ -30,6 +30,17 @@ export const S = {
   card: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)" }, // 흰 카드 상자
   sectionCard: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)", marginTop: "var(--space-md)" }, // 화면 안에서 항목마다 쌓는 흰 카드 (대시보드)
   sectionTitle: { marginTop: "var(--space-xl)" }, // 화면 안의 두 번째 제목
+  detailHeader: { display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "var(--space-sm)", marginBottom: "var(--space-md)" }, // 상세 제목과 목록 링크를 양쪽에 두고 좁으면 줄바꿈
+  detailTitle: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-sm)" }, // 발주번호와 상태 배지를 같이 읽도록 배치
+  detailFacts: { display: "flex", flexWrap: "wrap", gap: "var(--space-md) var(--space-xl)", margin: 0 }, // 공급업체와 약속 납기를 같은 줄에 두되 좁으면 아래로
+  detailLabel: { color: "var(--color-muted-foreground)", fontSize: "var(--text-sm)" }, // 핵심 값 위의 작은 항목 이름
+  detailValue: { margin: 0, fontSize: "var(--text-lg)", fontWeight: 700, overflowWrap: "anywhere" }, // 값은 크게 보여주고 긴 업체명도 카드 안에서 줄바꿈
+  detailMeta: { marginTop: "var(--space-md)", paddingTop: "var(--space-sm)", borderTop: "1px solid var(--color-border)", color: "var(--color-muted-foreground)", fontSize: "var(--text-sm)", overflowWrap: "anywhere" }, // 기록과 메모를 구분선 아래에 배치
+  detailHistory: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 11rem), 1fr))", gap: "var(--space-sm)", margin: 0 }, // 기록을 같은 너비의 칸에 두고 화면이 좁으면 칸을 아래로 보낸다
+  detailHistoryCell: { padding: "var(--space-sm) var(--space-md)", borderRadius: "var(--radius-sm)", background: "var(--color-hover)" }, // 연한 배경으로 승인·발주·입고 기록을 구분한다
+  detailHistoryValue: { margin: "var(--space-xs) 0 0", color: "var(--color-foreground)", fontWeight: 500 }, // 항목명 아래 날짜나 메모를 본문색으로 강조한다
+  detailMemo: { margin: "var(--space-md) 0 0", paddingInline: "var(--space-md)" }, // 메모는 날짜 칸 아래에서 가로 폭 전체를 쓴다
+
   // 대시보드 숫자 카드 (#92)
   kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "var(--space-md)", marginTop: "var(--space-md)" }, // 카드 줄: 칸이 모자라면 다음 줄로 (160px: 768px 화면에서도 3장이 한 줄)
   kpiCard: { display: "flex", flexDirection: "column", gap: "var(--space-xs)", minWidth: 0, background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)", color: "var(--color-foreground)" }, // 숫자 카드 상자 (링크여도 글자는 본문색, 강조는 hover 테두리)
