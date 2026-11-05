@@ -190,8 +190,11 @@ export default function Page() {
                       <td className={styles.numericColumn} style={{ ...S.num, ...cell }}>
                         {draft ? (
                           <>{/* 편집 칸 없이 서버에 저장된 초안 수량을 보여 준다 */}
-                            {draft.quantity}<span style={S.sub}>초안 수량</span>
-                            {draft.quantity !== i.recommended_quantity && <span style={S.sub}>추천 {i.recommended_quantity}</span>}
+                            <span className={styles.draftQuantity}>{/* 상태와 저장된 수량을 한 줄에서 읽는다 */}
+                              <StatusBadge kind="unknown" icon="draft">초안</StatusBadge>{/* 연필 아이콘으로 작성 중인 수량임을 나타낸다 */}
+                              <strong>{draft.quantity}</strong>{/* 수량을 가장 먼저 볼 수 있도록 강조한다 */}
+                            </span>
+                            {draft.quantity !== i.recommended_quantity && <span style={S.sub}>추천 <strong>{i.recommended_quantity}</strong></span>}{/* 초안 수량과 다를 때 추천값을 함께 보여 준다 */}
                           </>
                         ) : (
                           <>{/* 선택 가능한 품목만 수량을 고칠 수 있고 추천 수량은 서버 값이다 */}

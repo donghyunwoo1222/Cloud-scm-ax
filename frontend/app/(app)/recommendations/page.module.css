@@ -3,6 +3,14 @@
   padding-inline-end: clamp(var(--space-md), 3vw, calc(var(--space-lg) + var(--space-md))); /* 좁은 화면에서는 여백을 줄인다 */
 }
 
+/* 초안 수량과 상태 배지를 묶고 오른쪽 정렬은 숫자 열의 규칙을 따른다. */
+.draftQuantity {
+  display: inline-flex; /* 작은 배지와 큰 숫자를 같은 줄에 표시한다 */
+  align-items: center; /* 배지를 수량 숫자의 높이에 맞춘다 */
+  gap: var(--space-sm); /* 배지와 수량을 구분할 여백을 둔다 */
+  font-size: var(--text-lg); /* 저장된 수량을 보조 정보보다 크게 표시한다 */
+}
+
 /* 선택 칸에서 체크박스 주위도 누를 수 있게 한다. */
 .pickTarget {
   display: inline-grid; /* 클릭 영역 전체에서 체크박스를 가운데에 둔다 */
