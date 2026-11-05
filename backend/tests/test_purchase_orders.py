@@ -201,3 +201,60 @@ def test_company_isolation(client, world, data):
 def test_requires_login(client, world, data):
     assert client.get(URL).status_code == 401
     assert client.post(URL, json={}).status_code == 401
+
+
+# ----- 품목 단위 unit (#93) -----
+OLD_FIELDS = {"id", "product_id", "product_sku", "product_name", "quantity", "unit_price", "recommended_quantity", "recommendation_reason", "received_quantity"}  # unit 추가 전부터 있던 칸
+
+
+def test_item_unit_in_create_patch_get_and_old_fields_kept(client, world, data, session):
+    """생성·수정·상세·목록 응답 모두 품목 단위를 담고, 기존 칸은 그대로다."""
+    data["p2"].unit = "박스"  # 단위가 다른 품목
+    session.commit()
+    login_as(client)
+    created = client.post(URL, json=body(world, line(data["p1"], 10), line(data["p2"], 5))).json()["data"]
+    units = lambda d: {i["product_sku"]: i["unit"] for i in d["items"]}  # SKU → 단위
+    assert units(created) == {"P1": "개", "P2": "박스"}
+    patched = client.patch(f"{URL}/{created['id']}", json={"items": [line(data["p2"], 7)]}).json()["data"]
+    assert units(patched) == {"P2": "박스"}
+    assert units(client.get(f"{URL}/{created['id']}").json()["data"]) == {"P2": "박스"}
+    assert units(client.get(URL).json()["data"][0]) == {"P2": "박스"}
+    item = patched["items"][0]
+    assert OLD_FIELDS <= set(item) and set(item) == OLD_FIELDS | {"unit"}  # 기존 칸 전부 + unit 하나만 늘었다
+    assert (item["quantity"], item["unit_price"], item["received_quantity"], item["recommended_quantity"]) == (7, 800, 0, None)  # 값도 그대로
+
+
+def test_item_unit_comes_from_own_company_product(client, world, data, session):
+    """다른 회사 품목의 단위가 섞이지 않는다 (같은 SKU 라도 자기 회사 품목 값)."""
+    mine = add_product(session, world, "a", "SAME")
+    mine.unit = "개"
+    other = add_product(session, world, "b", "SAME")
+    other.unit = "롤"  # 다른 회사의 같은 SKU
+    session.commit()
+    login_as(client)
+    d = client.post(URL, json=body(world, line(mine, 1))).json()["data"]
+    assert d["items"][0]["unit"] == "개"
+    login_as(client, "staff@b.test")
+    assert client.get(f"{URL}/{d['id']}").status_code == 404  # 다른 회사는 발주서 자체를 못 본다
+
+
+def test_query_count_same_for_3_and_30_items(client, world, data, session, engine):
+    """발주 줄 3개와 30개의 쿼리 횟수가 같다 (줄마다 단위를 따로 묻지 않는다, N+1 없음)."""
+    from sqlalchemy import event  # SQL 실행 감시 도구
+
+    def count_queries(n):
+        products = [add_product(session, world, "a", f"U{n}-{k}") for k in range(n)]  # 품목 n개
+        session.commit()
+        login_as(client)
+        po = client.post(URL, json=body(world, *[line(p, 1) for p in products])).json()["data"]
+        seen = []  # 실행된 SQL
+        listener = lambda *args: seen.append(args[2])  # before_cursor_execute 의 SQL 문장
+        event.listen(engine, "before_cursor_execute", listener)
+        try:
+            assert client.get(f"{URL}/{po['id']}").status_code == 200
+        finally:
+            event.remove(engine, "before_cursor_execute", listener)
+        client.post(f"{URL}/{po['id']}/cancel")  # 같은 공급업체의 DRAFT 는 1장뿐이라 정리한다
+        return len(seen)
+
+    assert count_queries(3) == count_queries(30)
