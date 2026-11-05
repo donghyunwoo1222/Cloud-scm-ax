@@ -70,7 +70,7 @@ export default function Page() {
   // 보낼 줄: 고른 품목 중 지금 목록에 있고 작성 중 초안에 없는 것 (초안에 있는 줄은 체크를 막아 두었다)
   const selected = (items ?? []).filter((i) => checked[i.product_id] && !drafts[i.product_id]);
   const supplierCount = new Set(selected.map((i) => i.supplier_id)).size; // 같은 업체의 품목은 여러 개 골라도 업체 한 곳으로 센다
-  const linkedDrafts = new Set(result.map((o) => o.id)); // 성공 안내에 있는 발주서 링크는 표에서 반복하지 않는다
+  const linkedDrafts = new Set<number>(); // 초안 상세 링크를 표에 먼저 배치하고 안내에서는 중복을 피한다
   const quantityOf = (i: Item) => qty[i.product_id] ?? String(i.recommended_quantity); // 고친 값, 없으면 추천 수량
 
   async function createDrafts() {
@@ -232,7 +232,8 @@ export default function Page() {
         <div role="status" style={S.ok}>
           {result.map((o) => (
             <p key={o.id}>
-              <Link href={`/purchase-orders/${o.id}`}>{o.po_number}</Link> ({o.supplier_name}){" "}
+              {/* 표에 초안 행이 없을 때만 성공 안내에서 상세 링크를 제공한다 */}
+              {linkedDrafts.has(o.id) ? o.po_number : <Link href={"/purchase-orders/" + o.id}>{o.po_number}</Link>} ({o.supplier_name}){" "}
               {o.created ? "발주서 초안을 새로 만들었습니다." : "기존 초안에 추가했습니다."}
             </p>
           ))}
