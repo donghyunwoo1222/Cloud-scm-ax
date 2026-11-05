@@ -30,6 +30,13 @@ export const S = {
   card: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)" }, // 흰 카드 상자
   sectionCard: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)", marginTop: "var(--space-md)" }, // 화면 안에서 항목마다 쌓는 흰 카드 (대시보드)
   sectionTitle: { marginTop: "var(--space-xl)" }, // 화면 안의 두 번째 제목
+  detailHeader: { display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "var(--space-sm)", marginBottom: "var(--space-md)" }, // 상세 제목과 목록 링크를 양쪽에 두고 좁으면 줄바꿈
+  detailTitle: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-sm)" }, // 발주번호와 상태 배지를 같이 읽도록 배치
+  detailFacts: { display: "flex", flexWrap: "wrap", gap: "var(--space-md) var(--space-xl)", margin: 0 }, // 공급업체와 약속 납기를 같은 줄에 두되 좁으면 아래로
+  detailLabel: { color: "var(--color-muted-foreground)", fontSize: "var(--text-sm)" }, // 핵심 값 위의 작은 항목 이름
+  detailValue: { margin: 0, fontSize: "var(--text-lg)", fontWeight: 700, overflowWrap: "anywhere" }, // 값은 크게 보여주고 긴 업체명도 카드 안에서 줄바꿈
+  detailMeta: { marginTop: "var(--space-md)", paddingTop: "var(--space-sm)", borderTop: "1px solid var(--color-border)", color: "var(--color-muted-foreground)", fontSize: "var(--text-sm)", overflowWrap: "anywhere" }, // 기록과 메모를 구분선 아래에 배치
+  detailHistory: { display: "flex", flexWrap: "wrap", gap: "var(--space-xs) var(--space-md)" }, // 각 기록을 날짜와 함께 묶고 공간이 부족하면 다음 줄에 표시
   hint: { color: "var(--color-muted-foreground)" }, // 화면 설명·보조 글자
   empty: { padding: "var(--space-lg)", textAlign: "center", color: "var(--color-muted-foreground)" }, // 목록이 비었을 때 안내
   error: { color: "var(--color-destructive)" }, // 오류 문장

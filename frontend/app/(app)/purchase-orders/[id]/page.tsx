@@ -8,7 +8,8 @@ import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { useMe } from "../../../lib/me"; // 내 역할 (승인 버튼은 관리자에게만)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { fmtDate, fmtTime, PO_LABELS, PurchaseOrder, STATUS_LABEL } from "../../../lib/po"; // 발주서 모양·이름·시각 표시
+import { fmtDate, fmtTime, lineAmount, overdueDays, PO_LABELS, PurchaseOrder, totalAmount } from "../../../lib/po"; // 발주서 모양·날짜·금액 계산
+import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 
 // 상태별로 누를 수 있는 버튼: [서버 동사 경로, 버튼 이름]. 승인은 관리자만 (서버도 403 으로 막는다)
@@ -86,39 +87,85 @@ function Detail() {
 
   const buttons = (ACTIONS[order.status] ?? []).filter(([action]) => action !== "approve" || me?.role === "ADMIN"); // 담당자에게는 승인 버튼을 숨긴다
   const staffDraft = order.status === "DRAFT" && me?.role !== "ADMIN"; // 담당자가 본 작성 중 발주서
+  const delay = overdueDays(order, today); // 입고일에 쓰는 서울 오늘 날짜로 납기 지연도 판단한다
 
   return (
     <section>
-      <h1>발주서 {order.po_number}</h1>
-      <p><Link href="/purchase-orders">목록</Link></p>
-      <p>공급업체: <Link href={`/suppliers/${order.supplier_id}`}>{order.supplier_name}</Link> · 상태: {STATUS_LABEL[order.status]} · 약속 납기: {order.due_date ?? "-"}</p>
-      <p>메모: {order.memo ?? "-"}</p>
-      <p>승인: {fmtTime(order.approved_at)} · 발주함 표시: {fmtTime(order.ordered_at)} · 입고 완료(실제 입고일): {fmtDate(order.received_at)}</p>
-      {order.cancelled_at && <p>취소: {fmtTime(order.cancelled_at)}</p>}
+      <header style={S.detailHeader}>
+        {/* 발주번호와 상태는 제목 줄에 함께 보여준다. */}
+        <div style={S.detailTitle}>
+          <h1 style={{ margin: 0 }}>발주서 {order.po_number}</h1>
+          <PurchaseOrderStatusBadge status={order.status} />
+        </div>
+        <Link href="/purchase-orders" style={S.linkButtonGhost}>발주 목록</Link>
+      </header>
+      <div style={S.card}>
+        {/* 공급업체와 약속 납기를 항목 이름과 값으로 읽을 수 있게 묶는다. */}
+        <dl style={S.detailFacts}>
+          <div>
+            <dt style={S.detailLabel}>공급업체</dt>
+            <dd style={S.detailValue}><Link href={`/suppliers/${order.supplier_id}`}>{order.supplier_name}</Link></dd>
+          </div>
+          <div>
+            <dt style={S.detailLabel}>약속 납기</dt>
+            <dd style={{ ...S.detailValue, ...S.detailTitle }}>
+              {order.due_date ?? "납기 미정"}{/* 약속한 날짜가 없으면 미정으로 표시한다. */}
+              {delay > 0 && <StatusBadge kind="danger">납기 {delay.toLocaleString("ko-KR")}일 지연</StatusBadge>}
+            </dd>
+          </div>
+        </dl>
+        {/* 상태 변경 기록과 메모는 핵심 정보 아래에 모은다. */}
+        <div style={S.detailMeta}>
+          <p style={S.detailHistory}>
+            <span>승인: {fmtTime(order.approved_at)}</span>
+            <span>발주함 표시: {fmtTime(order.ordered_at)}</span>
+            <span>입고 완료(실제 입고일): {fmtDate(order.received_at)}</span>
+            {order.cancelled_at && <span>취소: {fmtTime(order.cancelled_at)}</span>}
+          </p>
+          <p>메모: {order.memo ?? "-"}</p>
+        </div>
+      </div>
 
       <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}>
-            <th>SKU</th><th>품목</th><th style={S.num}>단가(원)</th><th style={S.num}>발주 수량</th><th style={S.num}>누적 입고량</th><th style={S.num}>남은 수량</th>
+            {/* 수량·단가·금액과 입고 현황을 품목별로 나란히 배치한다. */}
+            <th>SKU</th><th>품목</th><th style={S.num}>단가(원)</th><th style={S.num}>발주 수량</th><th style={S.num}>금액(원)</th><th style={S.num}>입고 현황</th>
             {receiving && <th style={S.num}>이번 입고</th>}
           </tr>
         </thead>
         <tbody>
-          {order.items.map((i) => (
-            <tr key={i.id} style={S.row}>
-              <td style={S.nowrap}>{i.product_sku}</td>
-              <td>{i.product_name}</td>
-              <td style={S.num}>{i.unit_price}</td>
-              <td style={S.num}>{i.quantity}</td>
-              <td style={S.num}>{i.received_quantity}</td>
-              <td style={S.num}>{i.quantity - i.received_quantity}</td>
-              {receiving && (
-                <td style={S.num}><input type="number" style={S.numInput} value={qty[i.id] ?? ""} onChange={(e) => setQty({ ...qty, [i.id]: e.target.value })} aria-label={`${i.product_name} 이번 입고 수량`} /></td>
-              )}
-            </tr>
-          ))}
+          {order.items.map((i) => {
+            const remaining = i.quantity - i.received_quantity; // 발주 수량에서 누적 입고량을 빼 남은 수량을 구한다
+            const ordered = i.quantity.toLocaleString("ko-KR"); // 발주 수량과 입고 현황에 같은 쉼표 표기를 쓴다
+            return (
+              <tr key={i.id} style={S.row}>
+                <td style={S.nowrap}>{i.product_sku}</td>
+                <td style={S.midCol}>{i.product_name}</td>
+                {/* 발주서에 저장된 단가로 이 줄의 발주 금액을 표시한다. */}
+                <td style={S.num}>{i.unit_price.toLocaleString("ko-KR")}</td>
+                <td style={S.num}>{ordered}{i.unit}</td>
+                <td style={S.num}>{lineAmount(i).toLocaleString("ko-KR")}</td>
+                <td style={S.num}>
+                  {/* 품목마다 실제 단위를 붙여 누적 입고와 남은 수량을 보여준다. */}
+                  {remaining === 0 ? "전량 입고" : `${i.received_quantity.toLocaleString("ko-KR")} / ${ordered}${i.unit} 입고 · ${remaining.toLocaleString("ko-KR")}${i.unit} 남음`}
+                </td>
+                {receiving && (
+                  <td style={S.num}><input type="number" style={S.numInput} value={qty[i.id] ?? ""} onChange={(e) => setQty({ ...qty, [i.id]: e.target.value })} aria-label={`${i.product_name} 이번 입고 수량`} /></td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
+        <tfoot>
+          {/* 합계는 모든 품목을 포함하며, 각 줄의 금액과 같은 열에 맞춘다. */}
+          <tr>
+            <th scope="row" colSpan={4} style={S.num}>발주 금액 합계</th>
+            <td style={{ ...S.num, ...S.key }}>{totalAmount(order).toLocaleString("ko-KR")}원</td>
+            <td colSpan={receiving ? 2 : 1} />
+          </tr>
+        </tfoot>
       </table>
       </div>
 
