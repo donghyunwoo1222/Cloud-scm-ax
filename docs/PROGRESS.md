@@ -2,11 +2,11 @@
 
 작업을 시작하기 전에 이 파일을 먼저 읽는다. PR을 만들 때 "지금 위치"와 "정해진 공통 규칙"을 갱신하고, 보고한 "꼭 알기"를 "꼭 알기 모음"에 추가한다(CLAUDE.md §7).
 
-마지막 갱신: 2026-11-05 (#90 이력 조회 백엔드)
+마지막 갱신: 2026-11-05 (#89 디자인 다듬기 1차, #90 이력 조회 백엔드)
 
 ## 지금 위치
 
-마지막으로 머지한 PR은 #87(2026-11-05)이다. 구현 PR과 닫힌 이슈는 아래와 같다.
+마지막으로 머지한 PR은 #91(2026-11-05)이다. 구현 PR과 닫힌 이슈는 아래와 같다.
 
 | PR | 닫힌 이슈 | 내용 |
 | --- | --- | --- |
@@ -40,8 +40,9 @@
 | #80 | #76 | [6주차-6] 재고 부족·과잉 표시 (`GET /stock` 상태·필터, `GET /dashboard` 부족·과잉, 재고 현황·대시보드 화면) |
 | #85 | #84 | [6주차-9] Codex 교차 검증 반영: 조회 한 시점 읽기, 초안은 잠근 뒤 검사·계산, 품목 검사 N+1, 오늘 판매 테스트 |
 | #87 | #86 (PR 1/2) | [7주차-5] 디자인 PR 1: 토큰(globals.css), 공통 스타일(styles.ts), 사이드 메뉴 레이아웃, Noto Sans KR, 다크 모드 제거, design-system/cloud-scm/MASTER.md. 화면별 적용은 PR 2 |
-| (PR 리뷰 대기) | #86 (PR 2/2) | [7주차-5] 디자인 PR 2: 화면별 적용(추천·대시보드·재고·발주·입출고·공급업체·품목·로그인·사용자). 숫자 열 오른쪽 정렬, 상태 배지(SVG), 표 가로 스크롤 상자, 빈 목록 안내, 링크 버튼, 입고일/출고일 라벨 |
-| (PR 리뷰 대기) | #90 (백엔드, Refs) | [7주차-7] 이력 조회 `GET /inventory-movements`: 유형 여러 개(`movement_type` 반복) + 등록순 정렬(`sort=registered`). 프런트(최근 이력 표시)는 이 PR 머지 뒤 별도 PR |
+| #88 | #86 (PR 2/2) | [7주차-5] 디자인 PR 2: 화면별 적용(추천·대시보드·재고·발주·입출고·공급업체·품목·로그인·사용자). 숫자 열 오른쪽 정렬, 상태 배지(SVG), 표 가로 스크롤 상자, 빈 목록 안내, 링크 버튼, 입고일/출고일 라벨 |
+| #91 | #89 | [7주차-6] 디자인 다듬기 1차: 추천 이유 한 줄 요약 + 자세히, 좁은 화면(768·1024·1280) 줄바꿈·가로 스크롤·사이드 메뉴 폭 |
+| (PR #96 리뷰 대기) | #90 (백엔드, Refs) | [7주차-7] 이력 조회 `GET /inventory-movements`: 유형 여러 개(`movement_type` 반복) + 등록순 정렬(`sort=registered`). 프런트(최근 이력 표시)는 이 PR 머지 뒤 별도 PR |
 
 4주차(#29~#32)는 모두 머지해 완료했다.
 
@@ -110,7 +111,7 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 - 발주 프론트(#36): 화면은 `purchase-orders/`(목록·`new`·`[id]`·`[id]/edit`)와 `suppliers/[id]`(발주 이력). 타입·상태 이름·시각 표시는 `lib/po.ts`, 작성·수정 폼 하나는 `lib/po-form.tsx`(수정은 items 전체 교체). 주소의 번호를 읽는 화면은 `useParams` 를 쓰므로 Next.js 16 빌드를 위해 `Suspense` 로 감싼다. 상태 버튼 표는 상세 화면의 `ACTIONS`(승인은 관리자에게만 보임, 서버도 403). 입고 폼은 수량을 적은 줄만 보내고 실패해도 입력값을 지우지 않는다. 입고 정정은 #36 범위가 아니라 재고 화면(#32)에 있다
 - 목록 API 추가(#36): `GET /purchase-orders?status=`(DRAFT·APPROVED·ORDERED·RECEIVED·CANCELLED, 그 밖의 값은 422)를 `supplier_id` 와 함께 쓸 수 있다. 목록 부품 `useList(basePath, filters)` 에 추가 조건 인자를 넣었다
 - 스타일(#36): 인라인 style 은 `frontend/app/lib/styles.ts` 의 `S`·`bodyRow` 한 곳에 모았다(기존 화면도 교체, 모양은 그대로). 새 화면도 여기서 가져다 쓴다
-- 디자인(#86): 규칙의 기준은 `design-system/cloud-scm/MASTER.md`(맨 위 "Cloud SCM 조정" 절이 자동 생성 내용보다 우선, ui-ux-pro-max 스킬로 생성). 색·간격·글자 크기·모서리는 `globals.css` 의 `:root` 토큰(`var(--color-…)`, `--space-…`, `--text-…`)만 쓰고 화면 코드에 색 값을 직접 쓰지 않는다. 버튼(제출 버튼은 파랑)·입력칸·표 칸(th·td)·제목(h1·h2)·포커스 테두리는 `globals.css` 가 태그 단위로 입힌다. 숫자 칸 `S.num`(오른쪽 정렬 + tabular-nums), 상태 배지 `S.badgeDanger/Ok/Unknown/Info`(색 + 글자 + SVG, 이모지 금지), 카드 `S.card`, 선택 줄 `S.selectedRow`·`S.selectedMark`, 빈 목록 `S.empty`. 폼 줄(`S.formGrid`·`formGridWide`·`toolbar`·`panel`)은 flex-wrap + 위쪽 정렬 + 16px 간격이고, 입력칸이 든 `label`은 globals.css가 "글자 위·칸 아래"(폭 150~320px)로, 같은 줄의 버튼은 내용 크기 + 입력칸 높이에 맞춘다(화면 파일은 그대로). 표는 위아래 16px 여백. 레이아웃은 왼쪽 사이드 메뉴(현재 메뉴는 `aria-current="page"`, 주소를 읽는 `SideNav` 는 Suspense 로 감싼다) + 상단 바. 폰트는 `next/font/google` 의 Noto Sans KR(빌드 때 내려받음, 새 의존성 없음). 다크 모드 없음. 새 라이브러리(Tailwind·shadcn·아이콘·차트) 추가 금지. 화면 적용(PR 2): 상태는 `lib/status-badge.tsx` 의 `StatusBadge`(종류 danger·ok·unknown·info, 재고 상태 코드는 `STOCK_BADGE`)로 그린다. 활성/비활성도 품목·공급업체(목록·상세)·사용자 모두 같은 배지(ok·unknown). 발주 상태(작성 중·승인됨 등)는 아직 글자만(MASTER.md에 색 규칙 없음). 숫자 열은 머리 칸·본문 칸 모두 `S.num`, 표는 `S.tableBox`(가로 스크롤 상자)로 감싼다. 빈 목록은 `S.empty`, 설명 글은 `S.hint`, 칸 안 보조 글자는 `S.sub`, 링크를 버튼 모양으로는 `S.linkButton`(파랑)·`S.linkButtonGhost`(흰색). 비활성 행(`bodyRow`)은 투명도 대신 보조 글자색(투명도 0.5는 대비 4.5:1 미달). 입출고 폼의 날짜 라벨은 입고 화면 "입고일", 출고 화면 "출고일". 로그인은 가운데 흰 카드. 사이드 메뉴는 화면 폭 800px 이상에서 고정(`.sidebar` sticky, `html·body` 는 `overflow-x: clip` — hidden 이면 body 가 스크롤 상자가 돼 sticky 가 먹지 않는다). 재고 현황의 "이력 보기"는 이력을 거른 뒤 "입출고 이력" 제목으로 부드럽게(smooth) 스크롤하고 포커스를 준다(OS "움직임 줄이기"가 켜져 있으면 바로 이동. 개발용 브라우저 창에서는 smooth 가 움직이지 않아 애니메이션 자체는 실제 브라우저에서 확인해야 한다). 회원가입 화면은 아직 없다(회사 가입은 API만)
+- 디자인(#86): 규칙의 기준은 `design-system/cloud-scm/MASTER.md`(맨 위 "Cloud SCM 조정" 절이 자동 생성 내용보다 우선, ui-ux-pro-max 스킬로 생성). 색·간격·글자 크기·모서리는 `globals.css` 의 `:root` 토큰(`var(--color-…)`, `--space-…`, `--text-…`)만 쓰고 화면 코드에 색 값을 직접 쓰지 않는다. 버튼(제출 버튼은 파랑)·입력칸·표 칸(th·td)·제목(h1·h2)·포커스 테두리는 `globals.css` 가 태그 단위로 입힌다. 숫자 칸 `S.num`(오른쪽 정렬 + tabular-nums), 상태 배지 `S.badgeDanger/Ok/Unknown/Info`(색 + 글자 + SVG, 이모지 금지), 카드 `S.card`, 선택 줄 `S.selectedRow`·`S.selectedMark`, 빈 목록 `S.empty`. 폼 줄(`S.formGrid`·`formGridWide`·`toolbar`·`panel`)은 flex-wrap + 위쪽 정렬 + 16px 간격이고, 입력칸이 든 `label`은 globals.css가 "글자 위·칸 아래"(폭 150~320px)로, 같은 줄의 버튼은 내용 크기 + 입력칸 높이에 맞춘다(화면 파일은 그대로). 표는 위아래 16px 여백. 레이아웃은 왼쪽 사이드 메뉴(현재 메뉴는 `aria-current="page"`, 주소를 읽는 `SideNav` 는 Suspense 로 감싼다) + 상단 바. 폰트는 `next/font/google` 의 Noto Sans KR(빌드 때 내려받음, 새 의존성 없음). 다크 모드 없음. 새 라이브러리(Tailwind·shadcn·아이콘·차트) 추가 금지. 화면 적용(PR 2): 상태는 `lib/status-badge.tsx` 의 `StatusBadge`(종류 danger·ok·unknown·info, 재고 상태 코드는 `STOCK_BADGE`)로 그린다. 활성/비활성도 품목·공급업체(목록·상세)·사용자 모두 같은 배지(ok·unknown). 발주 상태(작성 중·승인됨 등)는 아직 글자만(MASTER.md에 색 규칙 없음). 숫자 열은 머리 칸·본문 칸 모두 `S.num`, 표는 `S.tableBox`(가로 스크롤 상자)로 감싼다. 빈 목록은 `S.empty`, 설명 글은 `S.hint`, 칸 안 보조 글자는 `S.sub`, 링크를 버튼 모양으로는 `S.linkButton`(파랑)·`S.linkButtonGhost`(흰색). 비활성 행(`bodyRow`)은 투명도 대신 보조 글자색(투명도 0.5는 대비 4.5:1 미달). 입출고 폼의 날짜 라벨은 입고 화면 "입고일", 출고 화면 "출고일". 로그인은 가운데 흰 카드. 사이드 메뉴는 화면 폭 730px 이상에서 고정(`.sidebar` sticky, 폭 220px·1100px 이하 168px·730px 미만은 본문 위로 쌓임, `html·body` 는 `overflow-x: clip` — hidden 이면 body 가 스크롤 상자가 돼 sticky 가 먹지 않는다). 좁은 화면 규칙(#89): 한글은 띄어쓰기에서만 줄바꿈(`body { word-break: keep-all }`), 버튼·배지·SKU는 줄바꿈하지 않는다(`button`·`S.nowrap`·`S.sub`), 표는 최소 폭(`S.table` 640px, 칸 12개인 추천 표 `S.tableWide` 1180px)을 두고 부족하면 `S.tableBox` 안에서 가로 스크롤. 추천 이유는 `<details className="reason">`(접힌 상태 "가용 N ≤ 재주문점 M → K개 추천" + 자세히, 펼치면 서버 전체 문장, 스타일은 globals.css). 재고 현황의 "이력 보기"는 이력을 거른 뒤 "입출고 이력" 제목으로 부드럽게(smooth) 스크롤하고 포커스를 준다(OS "움직임 줄이기"가 켜져 있으면 바로 이동. 개발용 브라우저 창에서는 smooth 가 움직이지 않아 애니메이션 자체는 실제 브라우저에서 확인해야 한다). 회원가입 화면은 아직 없다(회사 가입은 API만)
 - 대시보드(#37, `GET /dashboard`, `app/services/dashboard.py`): 읽기 전용이라 commit 하지 않고 쿼리는 품목 수와 무관하게 5번 안팎. 진행 중 발주 = DRAFT·APPROVED·ORDERED 건수 + 입고 예정(ORDERED 줄의 발주 수량 − `received_quantities`). 이번 달 입출고 = 서울 기준 1일~오늘, 정정은 원래 이력의 유형에서 뺀 순수량(정정 날짜 = 원래 날짜), 조정 제외. 부족·과잉은 만들지 않았다(추천 공식과 한 곳에서 계산하려고, #76에서 붙인다). 화면은 `dashboard/page.tsx` 하나
 - 장기재고 기준(임시값, 인터뷰 후 재검토): 활성 품목, 현재고 > 0, 첫 입출고가 60일 이상 전(60일 이내 신규 품목 제외), 마지막 순판매일(SALE − 정정)이 오늘 − 60일보다 이전이거나 판매 없음. 정확히 60일 전 판매는 장기재고 아님. 상수 `DEAD_STOCK_DAYS` 한 곳. 과잉재고 기준(임시값, 2026-11-04 사용자 선택): 현재고 ≥ 일평균 판매량 × 90일, 판매가 있는 품목만. 구현은 #76
 - 화면 수정(#73): 제출 버튼은 `busy` 상태(버튼 잠금·"등록 중…")와 `useRef`(`sending`)를 함께 쓴다. 상태값은 다음 화면 갱신 뒤에야 바뀌어 아주 빠른 더블클릭을 못 막기 때문이다. 입출고 폼·발주 입고 폼·정정 폼에 적용했고 승인·발주함·취소 버튼은 서버가 상태로 막아 두었다. 입출고 등록의 품목 선택은 비활성 품목도 "(비활성)" 표시와 함께 보여 준다(데이터 원칙 8). 발주서 작성은 그대로 활성만. 레이아웃은 `/me` 가 401 이 아닌 이유로 실패하면 오류 문장과 "다시 시도" 버튼을 보여 준다(401 은 로그인 화면으로)

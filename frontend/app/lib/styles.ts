@@ -16,7 +16,7 @@ const fieldRow: CSSProperties = { display: "flex", flexWrap: "wrap", gap: "var(-
 export const S = {
   // 레이아웃 (로그인 후 화면: 왼쪽 사이드 메뉴 + 오른쪽 상단 바·본문)
   shell: { display: "flex", flexWrap: "wrap", flex: 1 }, // 메뉴와 본문을 가로로. 좁은 화면에서는 메뉴가 위로 쌓인다
-  sidebar: { flex: "1 1 220px", maxWidth: 240, background: "var(--color-card)", borderRight: "1px solid var(--color-border)", padding: "var(--space-md) 12px" }, // 사이드 메뉴 상자
+  sidebar: { background: "var(--color-card)", borderRight: "1px solid var(--color-border)" }, // 사이드 메뉴 상자 (폭·여백·고정은 화면 폭마다 달라 globals.css 의 .sidebar)
   brand: { fontWeight: 700, fontSize: "var(--text-lg)", padding: "var(--space-xs) 12px var(--space-md)" }, // 메뉴 위 서비스 이름
   sideNav: { display: "flex", flexDirection: "column", gap: 2 }, // 메뉴 링크 세로 나열 (모양은 globals.css 의 .side-nav)
   content: { flex: "999 1 560px", minWidth: 0, display: "flex", flexDirection: "column" }, // 메뉴 오른쪽 전체 (표가 넓어도 화면 밖으로 밀지 않게 minWidth 0)
@@ -35,7 +35,8 @@ export const S = {
   ok: { color: "var(--color-ok)" }, // 성공 문장
 
   // 표
-  table: { width: "100%", borderCollapse: "collapse" }, // 표: 가로 꽉 채우고 칸 사이 틈 없앰 (칸 모양은 globals.css 의 th·td)
+  table: { width: "100%", minWidth: 640, borderCollapse: "collapse" }, // 최소 폭 640px: 이보다 좁으면 칸을 짜부라뜨리지 않고 가로 스크롤 상자 안에서 스크롤된다
+  tableWide: { width: "100%", minWidth: 1180, borderCollapse: "collapse" }, // 칸이 12개인 추천 표 등: 최소 폭 1180px // 표: 가로 꽉 채우고 칸 사이 틈 없앰 (칸 모양은 globals.css 의 th·td)
   tableBox: { overflowX: "auto" }, // 표가 화면보다 넓으면 이 상자 안에서만 가로 스크롤
   headRow: { textAlign: "left" }, // 표 머리 줄: 글자 열은 왼쪽 정렬
   row: {}, // 표 본문 줄 (구분선은 globals.css 의 td 가 그린다)
@@ -47,16 +48,16 @@ export const S = {
   groupStart: { borderLeft: "1px solid var(--color-border)" }, // 묶음이 시작되는 칸 왼쪽 구분선
   nowrap: { whiteSpace: "nowrap" }, // 칸 글자가 두 줄로 꺾이지 않게 (예: "발주 필요", 날짜)
   midCol: { minWidth: 120 }, // 품목명·업체명 칸의 최소 폭 (이름이 한 글자씩 꺾이지 않게)
-  wideCol: { minWidth: 260 }, // 긴 문장 칸(이유 등)의 최소 폭. 줄바꿈은 그대로 두고 칸이 너무 좁아지는 것만 막는다
-  sub: { display: "block", fontSize: "var(--text-xs)", color: "var(--color-muted-foreground)", fontWeight: 400 }, // 칸 안의 보조 글자 (예: 품목 아래 SKU)
+  wideCol: { minWidth: 300 }, // 이유 칸의 최소 폭: 한 줄 요약("가용 50 ≤ 재주문점 50 → 140개 추천")과 "자세히"가 한 줄에 들어가는 폭. 펼친 전체 문장은 줄바꿈된다
+  sub: { display: "block", fontSize: "var(--text-xs)", color: "var(--color-muted-foreground)", fontWeight: 400, whiteSpace: "nowrap" }, // 칸 안의 보조 글자 (예: 품목 아래 SKU)
   selectedRow: { background: "var(--color-selected)" }, // 체크한 줄
   selectedMark: { boxShadow: "inset 3px 0 0 var(--color-primary)" }, // 체크한 줄의 첫 칸 왼쪽 파란 세로줄
 
   // 링크를 파란 주요 버튼 모양으로 (예: 발주서 작성). 화면 이동은 링크라 <a> 를 그대로 쓰고 모양만 버튼으로 입힌다
-  linkButton: { display: "inline-flex", alignItems: "center", minHeight: 36, padding: "0 14px", borderRadius: "var(--radius-sm)", background: "var(--color-primary)", color: "var(--color-on-primary)", fontWeight: 500 },
+  linkButton: { display: "inline-flex", alignItems: "center", minHeight: 36, padding: "0 14px", borderRadius: "var(--radius-sm)", background: "var(--color-primary)", color: "var(--color-on-primary)", fontWeight: 500, whiteSpace: "nowrap" },
 
   // 링크를 흰 보조 버튼 모양으로 (예: 수정, 취소). 옆의 <button> 과 같은 높이·테두리
-  linkButtonGhost: { display: "inline-flex", alignItems: "center", minHeight: 36, padding: "0 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-border-strong)", background: "var(--color-card)", color: "var(--color-foreground)", fontWeight: 500 },
+  linkButtonGhost: { display: "inline-flex", alignItems: "center", minHeight: 36, padding: "0 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-border-strong)", background: "var(--color-card)", color: "var(--color-foreground)", fontWeight: 500, whiteSpace: "nowrap" },
 
   // 상태 배지 (글자 + SVG 아이콘과 함께 쓴다. 부품은 lib/status-badge.tsx 의 StatusBadge)
   badgeDanger: { ...badgeBase, color: "var(--color-destructive)", background: "var(--color-destructive-bg)" }, // 부족·품절 위험

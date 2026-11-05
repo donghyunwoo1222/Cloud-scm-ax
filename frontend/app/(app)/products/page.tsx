@@ -156,7 +156,7 @@ export default function ProductsPage() {
           {list.rows.map((p) => (
             <tr key={p.id} style={bodyRow(p.is_active)}>
               {/* 비활성 행은 흐리게 */}
-              <td>{p.sku}</td>
+              <td style={S.nowrap}>{p.sku}</td>
               <td>{p.name}</td>
               <td>{p.unit}</td>
               <td style={S.num}>{p.unit_cost.toLocaleString()}원</td>
