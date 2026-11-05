@@ -15,8 +15,13 @@
   cursor: inherit; /* 체크박스와 주변의 마우스 표시를 통일한다 */
 }
 
-.pickTarget:has(> input:disabled) {
-  cursor: not-allowed; /* 이미 초안에 든 품목의 선택 잠금을 표시한다 */
+.locked {
+  display: inline-flex; /* 자물쇠와 글자를 함께 표시한다 */
+  align-items: center; /* 자물쇠와 글자의 높이를 맞춘다 */
+  gap: var(--space-xs); /* 자물쇠가 글자에 붙지 않게 한다 */
+  color: var(--color-muted-foreground); /* 선택 불가 상태에는 보조 글자색을 쓴다 */
+  font-size: var(--text-xs); /* 상태 표시의 크기를 다른 보조 글자와 맞춘다 */
+  white-space: nowrap; /* 선택 불가가 두 줄로 갈라지지 않게 한다 */
 }
 
 /* 근거 버튼에 공통 포커스 테두리를 유지한다. */
@@ -40,4 +45,43 @@
 
 .evidenceToggle:hover .evidenceAction {
   text-decoration: underline; /* 마우스를 올리면 펼칠 수 있음을 보여 준다 */
+}
+
+/* 펼친 근거를 표의 다른 행과 구별하되 배경색과 제목을 함께 쓴다. */
+.evidencePanel {
+  padding: var(--space-md); /* 제목과 값 주변에 읽기 여백을 준다 */
+  border-inline-start: 3px solid var(--color-primary); /* 근거의 시작을 선으로도 표시한다 */
+  border-radius: var(--radius-sm); /* 기존 입력칸과 같은 모서리 크기 */
+  background: var(--color-muted); /* 본문 및 선택 행과 구별되는 배경 */
+}
+
+.evidenceTitle {
+  margin: 0; /* 제목 위의 기본 여백을 없앤다 */
+  font-size: var(--text-sm); /* 표 본문과 비슷한 크기로 표시한다 */
+  overflow-wrap: anywhere; /* 긴 품목명은 상자 안에서 줄을 바꾼다 */
+}
+
+.evidenceFacts {
+  display: flex; /* 계산에 쓰인 값을 가로로 읽는다 */
+  flex-wrap: wrap; /* 공간이 좁으면 항목 단위로 다음 줄에 보낸다 */
+  gap: var(--space-xs) var(--space-lg); /* 항목 사이의 간격을 맞춘다 */
+  margin: var(--space-sm) 0 0; /* 제목과 계산 숫자를 구분한다 */
+}
+
+.evidenceFacts > div {
+  display: flex; /* 각 이름 옆에 해당 숫자를 붙인다 */
+  justify-content: space-between; /* 숫자는 각 항목의 오른쪽에 둔다 */
+  gap: var(--space-sm); /* 이름과 숫자 사이 여백 */
+  min-inline-size: 8rem; /* 짧은 이름도 비슷한 폭으로 정렬한다 */
+  color: var(--color-muted-foreground); /* 계산 재료는 핵심 열보다 덜 강조한다 */
+}
+
+.evidenceFacts dd {
+  margin: 0; /* 정의 목록의 기본 들여쓰기를 없앤다 */
+}
+
+.evidenceReason {
+  margin: var(--space-sm) 0 0; /* 계산 재료 아래에 전체 이유를 붙인다 */
+  max-inline-size: 90ch; /* 넓은 화면에서도 이유 문장이 지나치게 길어지지 않게 한다 */
+  overflow-wrap: anywhere; /* 긴 문자열이 상자 폭을 늘리지 않게 한다 */
 }
