@@ -135,9 +135,9 @@ export default function Page() {
                 <th scope="col" style={S.midCol}>품목</th>{/* 품목명과 근거 요약 */}
                 <th scope="col" style={S.midCol}>공급업체</th>{/* 공급업체명과 리드타임 */}
                 <th scope="col">상태</th>{/* 품절 위험과 발주 필요 */}
-                <th scope="col" style={S.num}>가용재고</th>{/* 숫자 머리 칸도 오른쪽 정렬 */}
-                <th scope="col" style={S.num}>재주문점</th>{/* 가용재고와 비교할 기준 */}
-                <th scope="col" style={S.num}>발주 수량</th>{/* 서버 추천 수량과 입력값 */}
+                <th scope="col" className={styles.numericColumn} style={S.num}>가용재고</th>{/* 숫자 머리 칸도 오른쪽 정렬 */}
+                <th scope="col" className={styles.numericColumn} style={S.num}>재주문점</th>{/* 가용재고와 비교할 기준 */}
+                <th scope="col" className={styles.numericColumn} style={S.num}>발주 수량</th>{/* 서버 추천 수량과 입력값 */}
               </tr>
             </thead>
             <tbody>
@@ -185,9 +185,9 @@ export default function Page() {
                         {cover <= i.lead_time_days ? <StatusBadge kind="danger">품절 위험</StatusBadge> : <StatusBadge kind="info">발주 필요</StatusBadge>}
                         {draft && <span style={S.sub}>초안 작성 중 ({linkDraft ? <Link href={"/purchase-orders/" + draft.id}>{draft.po_number}</Link> : draft.po_number})</span>}
                       </td>
-                      <td style={{ ...S.num, ...S.key, ...cell }}>{i.available}</td>{/* 서버의 가용재고 */}
-                      <td style={{ ...S.num, ...S.key, ...cell }}>{fmt(i.reorder_point)}</td>{/* 서버의 재주문점 */}
-                      <td style={{ ...S.num, ...cell }}>
+                      <td className={styles.numericColumn} style={{ ...S.num, ...S.key, ...cell }}>{i.available}</td>{/* 서버의 가용재고 */}
+                      <td className={styles.numericColumn} style={{ ...S.num, ...S.key, ...cell }}>{fmt(i.reorder_point)}</td>{/* 서버의 재주문점 */}
+                      <td className={styles.numericColumn} style={{ ...S.num, ...cell }}>
                         {draft ? (
                           <>{/* 편집 칸 없이 서버에 저장된 초안 수량을 보여 준다 */}
                             {draft.quantity}<span style={S.sub}>초안 수량</span>

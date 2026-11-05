@@ -1,3 +1,8 @@
+/* 숫자 열의 머리와 본문에 같은 여백을 줘 오른쪽 정렬선을 안쪽으로 옮긴다. */
+.numericColumn {
+  padding-inline-end: clamp(var(--space-md), 3vw, calc(var(--space-lg) + var(--space-md))); /* 좁은 화면에서는 여백을 줄인다 */
+}
+
 /* 선택 칸에서 체크박스 주위도 누를 수 있게 한다. */
 .pickTarget {
   display: inline-grid; /* 클릭 영역 전체에서 체크박스를 가운데에 둔다 */
@@ -64,20 +69,29 @@
 .evidenceFacts {
   display: flex; /* 계산에 쓰인 값을 가로로 읽는다 */
   flex-wrap: wrap; /* 공간이 좁으면 항목 단위로 다음 줄에 보낸다 */
-  gap: var(--space-xs) var(--space-lg); /* 항목 사이의 간격을 맞춘다 */
+  gap: var(--space-sm); /* 타일 사이의 간격을 맞춘다 */
   margin: var(--space-sm) 0 0; /* 제목과 계산 숫자를 구분한다 */
 }
 
 .evidenceFacts > div {
-  display: flex; /* 각 이름 옆에 해당 숫자를 붙인다 */
+  display: flex; /* 타일 안에 이름과 숫자를 한 줄로 둔다 */
+  align-items: baseline; /* 글자 크기가 달라도 읽는 기준선을 맞춘다 */
   justify-content: space-between; /* 숫자는 각 항목의 오른쪽에 둔다 */
   gap: var(--space-sm); /* 이름과 숫자 사이 여백 */
   min-inline-size: 8rem; /* 짧은 이름도 비슷한 폭으로 정렬한다 */
-  color: var(--color-muted-foreground); /* 계산 재료는 핵심 열보다 덜 강조한다 */
+  padding: var(--space-xs) var(--space-sm); /* 지표 네 개를 작은 타일로 보여 준다 */
+  border: 1px solid var(--color-border-strong); /* 인접한 타일의 경계를 표시한다 */
+  border-radius: var(--radius-sm); /* 근거 상자와 같은 모서리를 쓴다 */
+  background: var(--color-card); /* 근거 영역의 옅은 파란 배경과 구분한다 */
+  color: var(--color-muted-foreground); /* 지표 이름은 보조 글자색을 쓴다 */
+  font-size: var(--text-xs); /* 이름은 숫자보다 작게 표시한다 */
 }
 
 .evidenceFacts dd {
   margin: 0; /* 정의 목록의 기본 들여쓰기를 없앤다 */
+  color: var(--color-foreground); /* 값은 본문색으로 더 선명하게 표시한다 */
+  font-size: var(--text-sm); /* 값을 이름보다 크게 표시한다 */
+  font-weight: 700; /* 계산 재료를 훑을 때 값이 먼저 눈에 들어오게 한다 */
 }
 
 .evidenceReason {
