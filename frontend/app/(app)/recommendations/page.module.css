@@ -1,0 +1,22 @@
+/* 근거 버튼에 공통 포커스 테두리를 유지한다. */
+.evidenceToggle {
+  display: flex; /* 요약과 자세히를 한 줄에 둔다 */
+  align-items: center; /* 요약과 토글 글자의 높이를 맞춘다 */
+  gap: var(--space-xs); /* 요약과 동작 문구 사이를 띄운다 */
+  min-height: 28px; /* 글자 위아래도 눌러서 펼칠 수 있게 한다 */
+  padding: 0; /* 품목 이름과 왼쪽 시작점을 맞춘다 */
+  border: 0; /* 초안 만들기 버튼과 시각적 우선순위를 구분한다 */
+  background: transparent; /* 선택 행의 배경색이 보이게 한다 */
+  color: var(--color-muted-foreground); /* 요약은 보조 글자색을 쓴다 */
+  font-size: var(--text-xs); /* 품목 이름보다 작은 크기로 읽힌다 */
+  font-variant-numeric: tabular-nums; /* 요약 속 숫자의 폭을 맞춘다 */
+  white-space: nowrap; /* 짧은 판단 요약을 한 줄로 유지한다 */
+}
+
+.evidenceAction {
+  color: var(--color-link); /* 펼치기 동작을 요약 문구와 구분한다 */
+}
+
+.evidenceToggle:hover .evidenceAction {
+  text-decoration: underline; /* 마우스를 올리면 펼칠 수 있음을 보여 준다 */
+}

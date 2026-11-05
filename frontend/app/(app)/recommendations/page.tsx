@@ -1,13 +1,14 @@
 "use client"; // 체크·수량 입력·버튼을 다루는 화면이라 브라우저에서 실행
 
 import Link from "next/link"; // 발주서 상세 링크
-import { useCallback, useEffect, useRef, useState } from "react"; // 불러오기 함수 고정, 처음 한 번 실행, 즉시 확인용 ref, 상태
+import { Fragment, useCallback, useEffect, useRef, useState } from "react"; // 표 행 묶기, 목록 불러오기, 중복 제출 방지, 화면 상태
 
 import { ApiError, api, apiList } from "../../lib/api"; // 공통 API 호출 함수·오류 종류
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
 import { PO_LABELS, PurchaseOrder } from "../../lib/po"; // 오류 칸 이름·발주서 모양
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S } from "../../lib/styles"; // 화면 공통 스타일
+import styles from "./page.module.css"; // 추천 화면 근거 버튼 스타일
 
 // GET /api/v1/recommendations 응답의 추천 한 줄 (backend/app/services/recommendations.py)
 type Item = {
@@ -17,15 +18,10 @@ type Item = {
   avg_daily_sales: number; lead_time_days: number; safety_stock: number; // 일평균(소수), 리드타임, 안전재고
   reorder_point: number; recommended_quantity: number; reason: string; // 재주문점(소수), 추천 수량, 이유 문구
 };
-type Excluded = { product_id: number; product_sku: string; product_name: string; code: string; message: string }; // 추천을 계산하지 않은 품목
+type Excluded = { product_id: number; product_sku: string; product_name: string; message: string }; // 서버가 제외 사유 문장까지 내려준다
 type Draft = { id: number; po_number: string }; // 품목이 들어 있는 작성 중 발주서
 type Created = PurchaseOrder & { created: boolean }; // 초안 만들기 응답 한 장 (created: 새로 만들었는지)
 
-const EXCLUDED_TEXT: Record<string, string> = {
-  MISSING_INFO: "기본 공급업체가 비활성입니다. 품목 정보에서 공급업체를 확인하세요.",
-  INSUFFICIENT_DATA: "첫 입출고 기록이 14일이 안 돼 아직 계산할 수 없습니다.",
-  NO_SALES_30D: "최근 30일 판매가 없어 추천하지 않습니다.",
-}; // 제외 코드 → 사람이 읽을 문장
 const REASON_TEXT: Record<string, string> = {
   ENOUGH_STOCK: "지금은 재고가 충분합니다", INSUFFICIENT_DATA: "기록이 14일이 안 됩니다", NO_SALES_30D: "최근 30일 판매가 없습니다",
 }; // NOT_RECOMMENDED 의 품목별 사유 → 문장
@@ -41,6 +37,7 @@ export default function Page() {
   const [drafts, setDrafts] = useState<Record<number, Draft>>({}); // 품목 id → 그 품목이 든 작성 중 발주서
   const [loadError, setLoadError] = useState<unknown>(null); // 목록 불러오기 오류
   const [checked, setChecked] = useState<Record<number, boolean>>({}); // 품목 id → 골랐는지
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({}); // 품목 id → 근거를 펼쳤는지
   const [qty, setQty] = useState<Record<number, string>>({}); // 품목 id → 사용자가 고친 수량 (안 고쳤으면 없음 → 추천 수량)
   const [busy, setBusy] = useState(false); // 만드는 중이면 버튼 잠금·글자 변경
   const sending = useRef(false); // 상태값은 다음 화면 갱신 뒤에야 바뀌어 더블클릭을 못 막으므로 즉시 바뀌는 ref 로 한 번 더 막는다
@@ -70,6 +67,8 @@ export default function Page() {
 
   // 보낼 줄: 고른 품목 중 지금 목록에 있고 작성 중 초안에 없는 것 (초안에 있는 줄은 체크를 막아 두었다)
   const selected = (items ?? []).filter((i) => checked[i.product_id] && !drafts[i.product_id]);
+  const supplierCount = new Set(selected.map((i) => i.supplier_id)).size; // 같은 업체의 품목은 여러 개 골라도 업체 한 곳으로 센다
+  const linkedDrafts = new Set(result.map((o) => o.id)); // 성공 안내에 있는 발주서 링크는 표에서 반복하지 않는다
   const quantityOf = (i: Item) => qty[i.product_id] ?? String(i.recommended_quantity); // 고친 값, 없으면 추천 수량
 
   async function createDrafts() {
@@ -108,84 +107,93 @@ export default function Page() {
       <h1>발주 추천</h1>
       <p style={S.hint}>최근 30일 판매를 기준으로 지금 발주가 필요한 품목입니다. 고른 품목은 공급업체별 발주서 초안(작성 중)으로 만들어지고, 승인은 발주 화면에서 합니다.</p>
 
-      {items.length === 0 ? <p style={S.empty}>지금 발주가 필요한 품목이 없습니다.</p> : (
-        <div style={S.tableBox}>
-          {/* 표가 화면보다 넓으면 이 상자 안에서만 가로로 스크롤된다 */}
-        <table style={S.tableWide}>
-          <thead>
-            <tr style={S.headRow}>
-              <th colSpan={3} />
-              <th colSpan={3} style={{ ...S.groupHead, ...S.groupStart }}>재고</th>
-              <th colSpan={3} style={{ ...S.groupHead, ...S.groupStart }}>판단 기준</th>
-              <th colSpan={3} style={{ ...S.groupHead, ...S.groupStart }}>추천</th>
-              {/* 열 묶음 줄: 숫자가 많아 한눈에 안 들어오는 것을 줄인다 */}
-            </tr>
-            <tr style={S.headRow}>
-              <th>선택</th><th style={S.midCol}>품목</th><th style={S.midCol}>공급업체</th>
-              <th style={{ ...S.num, ...S.groupStart }}>현재고</th><th style={S.num}>발주 진행 중</th><th style={S.num}>가용재고</th>
-              <th style={{ ...S.num, ...S.groupStart }}>일평균 판매</th><th style={S.num}>재고 커버 일수</th><th style={S.num}>재주문점</th>
-              <th style={S.groupStart}>상태</th><th style={S.num}>발주 수량</th><th>이유</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((i) => {
-              const draft = drafts[i.product_id]; // 이미 작성 중 초안에 든 품목이면 그 발주서
-              const cover = i.current_stock / i.avg_daily_sales; // 재고 커버 일수 = 현재고 ÷ 일평균 (예: 50 ÷ 10 = 5일). 추천 목록은 판매가 있는 품목만이라 0으로 나누지 않는다
-              const picked = !draft && !!checked[i.product_id]; // 체크한 줄이면 연한 파랑으로 강조
-              const cell = picked ? S.selectedRow : undefined; // 줄 전체를 칠하려고 칸마다 같은 배경을 준다
-              return (
-                <tr key={i.product_id} style={S.row}>
-                  <td style={picked ? { ...S.selectedRow, ...S.selectedMark } : undefined}>
-                    <input type="checkbox" aria-label={`${i.product_sku} 선택`} disabled={!!draft}
-                      checked={picked}
-                      onChange={(e) => setChecked({ ...checked, [i.product_id]: e.target.checked })} />
-                    {/* 초안에 이미 든 품목은 고를 수 없다 (서버도 DUPLICATE_ITEM 으로 막는다) */}
-                  </td>
-                  <td style={cell}>{i.product_name}<span style={S.sub}>{i.product_sku}</span></td>
-                  <td style={cell}>{i.supplier_name}<span style={S.sub}>리드타임 {i.lead_time_days}일</span></td>
-                  {/* 덜 중요한 계산 재료 숫자는 회색, 판단에 쓰는 가용재고·재주문점(가용재고 ≤ 재주문점이 추천 조건)만 굵게 */}
-                  <td style={{ ...S.num, ...S.dim, ...S.groupStart, ...cell }}>{i.current_stock}</td>
-                  <td style={{ ...S.num, ...S.dim, ...cell }}>{i.in_transit}</td>
-                  <td style={{ ...S.num, ...S.key, ...cell }}>{i.available}</td>
-                  <td style={{ ...S.num, ...S.dim, ...S.groupStart, ...cell }}>{fmt(i.avg_daily_sales)}</td>
-                  <td style={{ ...S.num, ...S.dim, ...cell }}>{fmt(cover)}일</td>
-                  <td style={{ ...S.num, ...S.key, ...cell }}>{fmt(i.reorder_point)}</td>
-                  <td style={{ ...S.nowrap, ...S.groupStart, ...cell }}>
-                    {cover <= i.lead_time_days ? <StatusBadge kind="danger">품절 위험</StatusBadge> : <StatusBadge kind="info">발주 필요</StatusBadge>}
-                    {/* 품절 위험: 지금 재고로 버티는 날이 리드타임 이하 (예: 5일 ≤ 5일). 그 밖은 가용재고 ≤ 재주문점이라 발주 필요 */}
-                    {draft && <span style={{ ...S.sub, marginTop: 4 }}>초안 작성 중 (<Link href={`/purchase-orders/${draft.id}`}>{draft.po_number}</Link>)</span>}
-                  </td>
-                  <td style={{ ...S.num, ...cell }}>
-                    <input type="number" min={1} max={1_000_000} step={1} aria-label={`${i.product_sku} 발주 수량`} disabled={!!draft}
-                      style={S.numInput} value={quantityOf(i)} onChange={(e) => setQty({ ...qty, [i.product_id]: e.target.value })} />
-                    <span style={S.sub}>추천 {i.recommended_quantity}</span>
-                    {/* 기본값은 추천 수량, 사용자가 고칠 수 있다 */}
-                  </td>
-                  <td style={{ ...S.wideCol, ...cell }}>
-                    <details className="reason">
-                      {/* 접힌 상태: 화면에 이미 있는 값(가용재고·재주문점·추천 수량)으로 만든 한 줄 요약. 펼치면 서버가 준 전체 문장 */}
-                      <summary>
-                        <span style={S.nowrap}>가용 {i.available} ≤ 재주문점 {fmt(i.reorder_point)} → {i.recommended_quantity}개 추천</span>
-                        <span className="more"><span className="when-closed">자세히</span><span className="when-open">접기</span></span>
-                      </summary>
-                      <p>{i.reason}</p>
-                    </details>
-                  </td>
-                  {/* 이유 전체 문장은 서버가 준 그대로 (백엔드 문장 틀은 바꾸지 않는다) */}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        </div>
-      )}
-
+      {/* 선택 요약과 작업 버튼은 표의 가로 스크롤 밖에 둔다 */}
       {items.length > 0 && (
-        <div style={S.toolbar}>
-          <button type="button" onClick={createDrafts} disabled={busy || selected.length === 0 || selected.length > MAX_ITEMS}>
-            {busy ? "만드는 중…" : `발주서 초안 만들기 (${selected.length}개)`}
+        <form style={{ ...S.toolbar, alignItems: "center" }} onSubmit={(e) => { e.preventDefault(); void createDrafts(); }}>
+          <span role="status" style={S.num}>{selected.length}품목 선택 · 공급업체 {supplierCount}곳</span>
+          {/* 기존 제출 제한과 처리 중 잠금을 유지한다 */}
+          <button type="submit" disabled={busy || selected.length === 0 || selected.length > MAX_ITEMS}>
+            {busy ? "만드는 중…" : "발주서 초안 만들기"}
           </button>
           {selected.length > MAX_ITEMS && <span style={S.error}>한 번에 {MAX_ITEMS}개까지 만들 수 있습니다. 선택을 줄여 주세요.</span>}
+        </form>
+      )}
+
+      {items.length === 0 ? <p style={S.empty}>지금 발주가 필요한 품목이 없습니다.</p> : (
+        <div style={S.tableBox}>
+          {/* 좁은 화면에서는 이 상자 안에서만 가로로 스크롤한다 */}
+          <table style={S.table}>
+            <thead>
+              <tr style={S.headRow}>
+                <th scope="col">선택</th>{/* 초안에 넣을 품목 선택 */}
+                <th scope="col" style={S.midCol}>품목</th>{/* 품목명과 근거 요약 */}
+                <th scope="col" style={S.midCol}>공급업체</th>{/* 공급업체명과 리드타임 */}
+                <th scope="col">상태</th>{/* 품절 위험과 발주 필요 */}
+                <th scope="col" style={S.num}>가용재고</th>{/* 숫자 머리 칸도 오른쪽 정렬 */}
+                <th scope="col" style={S.num}>재주문점</th>{/* 가용재고와 비교할 기준 */}
+                <th scope="col" style={S.num}>발주 수량</th>{/* 서버 추천 수량과 입력값 */}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((i) => {
+                const draft = drafts[i.product_id]; // 작성 중인 초안에 이미 들어 있는 품목인지 확인한다
+                const linkDraft = draft && !linkedDrafts.has(draft.id); // 같은 초안은 처음 보이는 곳에서만 연결한다
+                if (linkDraft) linkedDrafts.add(draft.id); // 같은 초안의 다음 품목에서는 번호만 표시한다
+                const cover = i.current_stock / i.avg_daily_sales; // 기존 표시용 커버 일수 계산 (판매가 있는 품목만 추천된다)
+                const picked = !draft && !!checked[i.product_id]; // 초안에 이미 든 품목은 선택할 수 없다
+                const cell = picked ? S.selectedRow : undefined; // 선택한 품목은 본문과 펼친 근거의 배경을 강조한다
+                const open = !!expanded[i.product_id]; // 현재 품목의 근거 열림 상태
+                const evidenceId = "recommendation-evidence-" + i.product_id; // 버튼과 펼쳐진 근거를 연결한다
+                return (
+                  <Fragment key={i.product_id}>
+                    <tr style={S.row}>
+                      <td style={picked ? { ...S.selectedRow, ...S.selectedMark } : undefined}>
+                        {/* 선택한 줄의 첫 칸에는 기존 파란 세로줄을 표시한다 */}
+                        <input type="checkbox" aria-label={i.product_sku + " 선택"} disabled={!!draft}
+                          checked={picked}
+                          onChange={(e) => setChecked({ ...checked, [i.product_id]: e.target.checked })} />
+                      </td>
+                      <td style={cell}>
+                        {i.product_name}<span style={S.sub}>{i.product_sku}</span>
+                        {/* 접힌 상태에서도 서버가 준 두 숫자로 짧은 판단 근거를 보여 준다 */}
+                        <button type="button" className={styles.evidenceToggle} aria-expanded={open} aria-controls={evidenceId}
+                          onClick={() => setExpanded((previous) => ({ ...previous, [i.product_id]: !previous[i.product_id] }))}>
+                          <span>가용 {i.available} ≤ 재주문점 {fmt(i.reorder_point)}</span>
+                          <span className={styles.evidenceAction}>{open ? "접기" : "자세히"}</span>
+                        </button>
+                      </td>
+                      <td style={cell}>{i.supplier_name}<span style={S.sub}>리드타임 {i.lead_time_days}일</span></td>
+                      <td style={{ ...S.nowrap, ...cell }}>
+                        {/* 기존 표시 기준을 유지한다. 커버 일수가 리드타임 이하면 품절 위험이다 */}
+                        {cover <= i.lead_time_days ? <StatusBadge kind="danger">품절 위험</StatusBadge> : <StatusBadge kind="info">발주 필요</StatusBadge>}
+                        {draft && <span style={S.sub}>초안 작성 중 ({linkDraft ? <Link href={"/purchase-orders/" + draft.id}>{draft.po_number}</Link> : draft.po_number})</span>}
+                      </td>
+                      <td style={{ ...S.num, ...S.key, ...cell }}>{i.available}</td>{/* 서버의 가용재고 */}
+                      <td style={{ ...S.num, ...S.key, ...cell }}>{fmt(i.reorder_point)}</td>{/* 서버의 재주문점 */}
+                      <td style={{ ...S.num, ...cell }}>
+                        {/* 입력 기본값과 아래 추천 표시는 모두 서버 추천 수량을 쓴다 */}
+                        <input type="number" min={1} max={1_000_000} step={1} aria-label={i.product_sku + " 발주 수량"} disabled={!!draft}
+                          style={S.numInput} value={quantityOf(i)} onChange={(e) => setQty({ ...qty, [i.product_id]: e.target.value })} />
+                        <span style={S.sub}>추천 {i.recommended_quantity}</span>
+                      </td>
+                    </tr>
+                    {/* 접으면 표에서 숨기고, 펼치면 해당 품목 바로 아래 전체 폭을 쓴다 */}
+                    <tr id={evidenceId} hidden={!open}>
+                      <td colSpan={7} style={cell}>
+                        <dl style={S.detailHistory}>
+                          <div style={S.detailHistoryCell}><dt>현재고</dt><dd style={{ ...S.detailHistoryValue, ...S.num }}>{i.current_stock}</dd></div>
+                          <div style={S.detailHistoryCell}><dt>발주 진행 중</dt><dd style={{ ...S.detailHistoryValue, ...S.num }}>{i.in_transit}</dd></div>
+                          <div style={S.detailHistoryCell}><dt>일평균 판매</dt><dd style={{ ...S.detailHistoryValue, ...S.num }}>{fmt(i.avg_daily_sales)}</dd></div>
+                          <div style={S.detailHistoryCell}><dt>재고 커버 일수</dt><dd style={{ ...S.detailHistoryValue, ...S.num }}>{fmt(cover)}일</dd></div>
+                        </dl>
+                        <p style={S.detailMemo}>{i.reason}</p>{/* 서버의 전체 이유를 그대로 보여 준다 */}
+                      </td>
+                    </tr>
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -199,7 +207,7 @@ export default function Page() {
           ))}
         </div>
       )}
-      <DraftError error={error} onReload={() => { setError(null); load(); }} />
+      <DraftError error={error} linkedDrafts={linkedDrafts} onReload={() => { setError(null); load(); }} />
       {/* 새로고침하면 지난 오류 문장은 지운다 (체크·수량은 그대로) */}
 
       <h2 style={S.sectionTitle}>추천에서 제외된 품목</h2>
@@ -212,8 +220,7 @@ export default function Page() {
               <tr key={e.product_id} style={S.row}>
                 <td>{e.product_name}<span style={S.sub}>{e.product_sku}</span></td>
                 <td style={S.nowrap}><StatusBadge kind="unknown">판단 불가</StatusBadge></td>
-                <td>{EXCLUDED_TEXT[e.code] ?? e.message}</td>
-                {/* 모르는 코드면 서버 문장 그대로 */}
+                <td>{e.message}</td>{/* 제외 사유는 서버 문장을 그대로 보여 준다 */}
               </tr>
             ))}
           </tbody>
@@ -225,7 +232,7 @@ export default function Page() {
 }
 
 // 초안 만들기 오류 표시: 코드별로 안내를 덧붙이고, 그 밖은 서버 문장 그대로
-function DraftError({ error, onReload }: { error: unknown; onReload: () => void }) {
+function DraftError({ error, linkedDrafts, onReload }: { error: unknown; linkedDrafts: ReadonlySet<number>; onReload: () => void }) {
   if (!(error instanceof ApiError)) return <ErrorText error={error} />; // 오류 없음(null) 또는 알 수 없는 오류
   if (error.code === "NOT_RECOMMENDED" && Array.isArray(error.details)) return (
     <div role="alert" style={S.error}>
@@ -239,7 +246,7 @@ function DraftError({ error, onReload }: { error: unknown; onReload: () => void 
   const order = error.details as { purchase_order_id?: number; po_number?: string } | null; // DUPLICATE_ITEM 이면 기존 초안 정보
   if (error.code === "DUPLICATE_ITEM" && order?.purchase_order_id) return (
     <p role="alert" style={S.error}>
-      {error.message} <Link href={`/purchase-orders/${order.purchase_order_id}`}>{order.po_number} 열기</Link>
+      {error.message} {!linkedDrafts.has(order.purchase_order_id) && <Link href={"/purchase-orders/" + order.purchase_order_id}>{order.po_number} 열기</Link>}{/* 표에 이미 같은 링크가 있으면 안내만 표시한다 */}
     </p>
   ); // 이미 초안에 든 품목 (같은 요청을 두 번 보낸 경우 포함)
   return <ErrorText error={error} labels={PO_LABELS} />; // INACTIVE_REFERENCE·422 등: 서버 문장 그대로
