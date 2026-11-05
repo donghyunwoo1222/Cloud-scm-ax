@@ -40,7 +40,7 @@
 | F1 | GET /users, POST /users, PATCH /users/{id} | 직원 목록, 이메일·임시 비밀번호로 계정 생성, 역할·비활성 변경 | 관리자 |
 | F2 공급업체 | GET /suppliers, POST /suppliers | 목록(비활성 제외·포함 선택), 등록(리드타임 0 이상 정수) | 둘 다 |
 | F2 | GET /suppliers/{id}, PATCH /suppliers/{id} | 상세, 수정·비활성 | 둘 다 |
-| F3 품목 | GET /products, POST /products | 목록, 등록(기본 공급업체 필수) | 둘 다 |
+| F3 품목 | GET /products, POST /products | 목록(`default_supplier_id`로 기본 공급업체 필터), 등록(기본 공급업체 필수) | 둘 다 |
 | F3 | GET /products/{id}, PATCH /products/{id} | 상세, 수정·비활성 | 둘 다 |
 | F4 입출고 | POST /inventory-movements | 직접 입고, 출고(판매·폐기·기타), 재고 조정 등록. movement\_type으로 구분 | 둘 다 |
 | F4 | POST /inventory-movements/{id}/corrections | 잘못 넣은 이력 {id}를 정정(CORRECTION 등록) | 둘 다 |

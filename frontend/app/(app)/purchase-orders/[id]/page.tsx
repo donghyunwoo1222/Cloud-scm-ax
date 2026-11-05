@@ -156,7 +156,7 @@ function Detail() {
       </div>
 
       {/* 모든 상태의 품목 표에 같은 정렬 조작부를 표시한다. */}
-      <div style={S.detailTableToolbar}>
+      <div style={S.tableToolbar}>{/* 품목 표들과 같은 도구막대 스타일을 사용한다. */}
         {/* 발주함 상태에서는 필터 두 개를 붙이고 눌린 상태를 화면 읽기 도구에도 전달한다. */}
         {orderedStatus && (
           <div role="group" aria-label="품목 보기" style={S.detailFilterGroup}>

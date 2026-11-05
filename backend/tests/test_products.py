@@ -155,6 +155,33 @@ def test_list_paging_filter_search(client, world, b_product):
     assert search("B-001") == []  # 다른 회사 품목은 검색에도 없다
 
 
+def test_list_default_supplier_before_paging(client, world, session, b_product):
+    """선택한 업체와 검색·활성 조건을 적용한 뒤 쪽을 나누고 다른 회사 품목은 제외한다."""
+    company_id = world["a_company"].id  # 로그인할 회사의 번호
+    supplier = Supplier(company_id=company_id, name="비활성 업체", lead_time_days=2, is_active=False)  # 과거에 연결된 업체
+    session.add(supplier)  # 업체를 테스트 트랜잭션에 추가한다
+    session.flush()  # 업체 번호를 만든다
+    session.add_all([  # 선택 업체 2개를 먼저, 다른 업체 1개를 최신으로 넣는다
+        Product(company_id=company_id, sku="FILTER-A", name="필터 품목", unit="개", unit_cost=100, default_supplier_id=supplier.id),
+        Product(company_id=company_id, sku="FILTER-B", name="필터 품목", unit="개", unit_cost=100, default_supplier_id=supplier.id, is_active=False),
+        Product(company_id=company_id, sku="FILTER-C", name="필터 품목", unit="개", unit_cost=100, default_supplier_id=world["a_supplier"].id),
+    ])
+    session.commit()  # 테스트 끝에 되돌리는 세이브포인트까지만 확정한다
+    login_as(client)  # A 회사로 로그인한다
+    params = {"default_supplier_id": supplier.id, "page_size": 1, "q": "필터"}  # 활성 품목만 기본값으로 조회한다
+    first = client.get(URL, params=params).json()  # 비활성 업체에 연결된 활성 품목은 나온다
+    assert [p["sku"] for p in first["data"]] == ["FILTER-A"]  # 최신의 다른 업체 품목은 쪽을 나누기 전에 빠진다
+    assert first["meta"] == {"page": 1, "page_size": 1, "total": 1}  # 개수도 같은 조건을 쓴다
+
+    second = client.get(URL, params={**params, "page": 2, "include_inactive": True}).json()  # 비활성 포함으로 둘째 쪽을 읽는다
+    assert [p["sku"] for p in second["data"]] == ["FILTER-A"]  # 첫째 쪽은 더 최근에 추가한 비활성 품목이다
+    assert second["meta"]["total"] == 2  # 같은 업체의 활성·비활성 품목만 센다
+    searched = client.get(URL, params={**params, "q": "FILTER-B", "include_inactive": True}).json()  # 검색어도 함께 적용한다
+    assert [p["sku"] for p in searched["data"]] == ["FILTER-B"]  # SKU와 업체가 모두 일치한다
+    foreign = client.get(URL, params={"default_supplier_id": world["b_supplier"].id}).json()  # B 회사 공급업체 번호를 보낸다
+    assert foreign["data"] == [] and foreign["meta"]["total"] == 0  # 다른 회사 품목의 행과 개수 모두 감춘다
+
+
 # ----- 로그인 -----
 def test_anonymous_is_401(client, world):
     """로그인 안 함 → 401."""

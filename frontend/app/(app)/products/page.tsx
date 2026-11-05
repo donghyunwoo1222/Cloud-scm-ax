@@ -18,7 +18,7 @@ type Product = {
   is_active: boolean; // 활성 여부
   default_supplier: { id: number; name: string; lead_time_days: number }; // 기본 공급업체 요약
 };
-type SupplierOption = { id: number; name: string; lead_time_days: number }; // 선택 상자에 쓸 공급업체
+type SupplierOption = { id: number; name: string; lead_time_days: number; is_active: boolean }; // 활성·비활성 공급업체 선택지
 
 // 폼 입력값 (모두 글자로 다루고 보낼 때 바꾼다)
 const EMPTY = { sku: "", name: "", unit: "", unit_cost: "", safety_stock: "0", default_supplier_id: "" };
@@ -50,16 +50,28 @@ function changedFields(next: ReturnType<typeof toBody>, before: ReturnType<typeo
 
 // 품목 화면 (주소 /products): 목록 + 등록·수정 폼 + 비활성·다시 활성
 export default function ProductsPage() {
-  const list = useList<Product>("/products"); // 목록 상태 (20개씩, 최신순, SKU·품목명 검색, 비활성 포함)
-  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]); // 기본 공급업체 선택지 (활성 업체만)
+  const [supplierId, setSupplierId] = useState(""); // 품목 목록에서 선택한 기본 공급업체, 빈 값이면 전체
+  const list = useList<Product>("/products", { default_supplier_id: supplierId }); // 검색·활성·업체 조건을 서버 쪽 나누기에 함께 보낸다
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]); // 목록 필터에 쓸 활성·비활성 공급업체
   const [form, setForm] = useState<Form>(EMPTY); // 폼 입력값
   const [editing, setEditing] = useState<Product | null>(null); // 수정 중인 품목 (null 이면 새 등록)
   const [error, setError] = useState<unknown>(null); // 저장·버튼 오류
 
   useEffect(() => {
-    // 선택 상자에는 활성 공급업체만 (서버 목록의 기본값이 활성만이다)
-    // shortcut: 활성 업체 100개까지만 불러온다(서버 page_size 최대). 업체가 100개를 넘으면 검색형 선택 상자로 바꾼다
-    apiList<SupplierOption>("/suppliers?page_size=100").then((r) => setSuppliers(r.data)).catch(setError);
+    let active = true; // 화면을 닫으면 더 불러오거나 상태를 갱신하지 않는다
+    async function loadSuppliers() { // 비활성 업체에 연결된 기존 품목도 찾을 수 있게 전체 업체를 모은다
+      const options: SupplierOption[] = []; // 서버에서 가져온 공급업체를 한 배열에 모은다
+      let page = 1; // 공급업체 목록은 첫 쪽부터 읽는다
+      while (active) { // 선택지에 100번째 이후 업체도 포함한다
+        const result = await apiList<SupplierOption>(`/suppliers?page_size=100&include_inactive=true&page=${page}`); // 비활성 포함 목록 한 쪽
+        options.push(...result.data); // 이번 쪽의 업체를 뒤에 붙인다
+        if (page * result.meta.page_size >= result.meta.total) break; // 전체 개수만큼 읽었으면 멈춘다
+        page += 1; // 다음 쪽으로 이동한다
+      } // 모든 선택지를 모은다
+      if (active) setSuppliers(options); // 화면이 열려 있을 때만 선택지를 바꾼다
+    } // 공급업체 목록 불러오기를 정의한다
+    loadSuppliers().catch((e) => { if (active) setError(e); }); // 공급업체를 못 불러오면 기존 오류 영역에 표시한다
+    return () => { active = false; }; // 화면을 닫으면 남은 요청 결과를 무시한다
   }, []);
 
   function set(field: keyof Form, value: string) {
@@ -111,7 +123,8 @@ export default function ProductsPage() {
   }
 
   // 수정 중인 품목의 기본 공급업체가 비활성이라 선택지에 없으면, 지금 값으로 한 줄 보여준다 (새로 고를 수는 없음)
-  const currentMissing = editing && !suppliers.some((s) => s.id === editing.default_supplier.id) ? editing.default_supplier : null;
+  const activeSuppliers = suppliers.filter((s) => s.is_active); // 등록·수정 폼에서 새로 고를 수 있는 업체만 남긴다
+  const currentMissing = editing && !activeSuppliers.some((s) => s.id === editing.default_supplier.id) ? editing.default_supplier : null; // 기존 연결은 수정 폼에 보여준다
 
   return (
     <section>
@@ -129,7 +142,7 @@ export default function ProductsPage() {
           <select value={form.default_supplier_id} onChange={(e) => set("default_supplier_id", e.target.value)} style={S.block}>
             <option value="">선택하세요</option>
             {currentMissing && <option value={currentMissing.id}>{currentMissing.name} (비활성, 현재 값)</option>}
-            {suppliers.map((s) => (
+            {activeSuppliers.map((s) => ( // 새 연결은 활성 공급업체만 가능하다
               <option key={s.id} value={s.id}>
                 {s.name} (리드타임 {s.lead_time_days}일)
               </option>
@@ -143,10 +156,19 @@ export default function ProductsPage() {
       </form>
       <ErrorText error={error} labels={LABELS} />
 
-      <ListControls placeholder="SKU·품목명 검색" includeInactive={list.includeInactive} onSearch={list.search} onToggleInactive={list.toggleInactive} />
+      {/* 검색·기본 공급업체·비활성 포함을 표 위 한 줄에 묶는다. */}
+      <ListControls placeholder="SKU·품목명 검색" includeInactive={list.includeInactive} onSearch={list.search} onToggleInactive={list.toggleInactive}
+        tableFilter={(
+          // 업체를 바꾸면 첫 쪽으로 이동해 새 조건의 결과를 표시한다.
+          <select aria-label="기본 공급업체 필터" style={{ maxWidth: "100%" }} value={supplierId} onChange={(event) => { setSupplierId(event.target.value); list.setPage(1); }}>
+            <option value="">전체 공급업체</option>{/* 기본값은 업체를 제한하지 않는다. */}
+            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}{s.is_active ? "" : " (비활성)"}</option>)}{/* 기존 품목을 찾을 수 있도록 비활성 업체도 보여준다. */}
+          </select>
+        )}
+      />
       <ErrorText error={list.error} />
       <div style={S.tableBox}>
-      <table style={S.table}>
+      <table style={{ ...S.table, marginTop: 0 }}>
         <thead>
           <tr style={S.headRow}>
             <th>SKU</th><th>품목명</th><th>단위</th><th style={S.num}>단가</th><th style={S.num}>안전재고</th><th>기본 공급업체</th><th style={S.num}>리드타임</th><th>상태</th><th></th>
@@ -176,7 +198,7 @@ export default function ProductsPage() {
         </tbody>
       </table>
       </div>
-      {list.meta?.total === 0 && <p style={S.empty}>{list.includeInactive ? "품목이 없습니다." : "활성 품목이 없습니다."}</p>}
+      {list.meta?.total === 0 && <p style={S.empty}>조건에 맞는 품목이 없습니다.</p>}{/* 검색이나 필터 결과가 없을 때 안내한다. */}
       <Pager meta={list.meta} onPage={list.setPage} />
     </section>
   );
