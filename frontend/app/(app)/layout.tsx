@@ -1,14 +1,14 @@
 "use client"; // 로그인 확인·메뉴·로그아웃을 브라우저에서 처리
 
 import Link from "next/link"; // 화면 이동 링크
-import { useRouter } from "next/navigation"; // 로그아웃 후 이동
-import { ReactNode, useEffect, useState } from "react"; // 자식 화면 타입, 처음 한 번 실행, 상태
+import { usePathname, useRouter } from "next/navigation"; // 지금 주소(현재 메뉴 표시), 로그아웃 후 이동
+import { ReactNode, Suspense, useEffect, useState } from "react"; // 자식 화면 타입, 주소 읽는 부품 감싸기, 처음 한 번 실행, 상태
 
 import { ApiError, api } from "../lib/api"; // 공통 API 호출 함수·오류 종류
 import { Me, MeContext, ROLE_LABEL } from "../lib/me"; // 내 정보 모양·공유 상자·역할 이름
 import { S } from "../lib/styles"; // 화면 공통 스타일
 
-// 상단 메뉴. adminOnly 는 관리자에게만 "보이게" 하는 표시일 뿐이다.
+// 사이드 메뉴. adminOnly 는 관리자에게만 "보이게" 하는 표시일 뿐이다.
 // 메뉴를 숨기는 건 편의이고, 실제 권한은 서버가 검사한다(담당자가 주소를 직접 쳐도 API 가 403 을 준다).
 const MENU = [
   { href: "/dashboard", label: "대시보드" },
@@ -22,7 +22,7 @@ const MENU = [
   { href: "/users", label: "사용자 관리", adminOnly: true },
 ];
 
-// 로그인 후 화면들(app/(app)/ 아래)을 감싸는 틀: 로그인 확인 → 상단 바 → 각 화면
+// 로그인 후 화면들(app/(app)/ 아래)을 감싸는 틀: 로그인 확인 → 사이드 메뉴·상단 바 → 각 화면
 export default function AppLayout({ children }: { children: ReactNode }) {
   const router = useRouter(); // 로그아웃 후 이동
   const [me, setMe] = useState<Me | null>(null); // 내 정보 (불러오기 전에는 null)
@@ -57,28 +57,49 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </div>
       )}
       {/* 로그인 확인 전 안내 */}
-      {me && (
-      <header style={S.header}>
-        <nav style={S.nav}>
-          {MENU.filter((item) => !item.adminOnly || me.role === "ADMIN").map((item) => (
-            <Link key={item.href} href={item.href}>
-              {item.label}
-            </Link>
-          ))}
-          {/* 관리자 전용 메뉴는 관리자에게만 보인다 (편의일 뿐, 권한은 서버가 검사) */}
-        </nav>
-        <span style={S.pushRight}>
-          {me.name} · {me.company.name} · {ROLE_LABEL[me.role]}
-        </span>
-        {/* 내 이름·회사명·역할 */}
-        <button type="button" onClick={logout}>
-          로그아웃
-        </button>
-      </header>
-      )}
-      <main hidden={!me} style={S.main}>{children}</main>
-      {/* 각 화면 내용. 로그인 확인 전에도 그려 두되(Next.js 가 화면 구조를 미리 검사할 수 있게) 확인 전까지는 숨긴다.
-          데이터는 화면이 아니라 서버가 지킨다: 로그인 안 한 상태의 API 호출은 401 → 로그인 화면 */}
+      <div style={S.shell}>
+        {me && (
+        <aside style={S.sidebar}>
+          <div style={S.brand}>Cloud SCM</div>
+          <Suspense fallback={null}>
+            <SideNav isAdmin={me.role === "ADMIN"} />
+          </Suspense>
+          {/* 지금 주소를 읽는 부품은 Suspense 로 감싸야 Next.js 16 빌드가 된다 */}
+        </aside>
+        )}
+        <div style={S.content}>
+          {me && (
+          <header style={S.topbar}>
+            <span>
+              {me.name} · {me.company.name} · {ROLE_LABEL[me.role]}
+            </span>
+            {/* 내 이름·회사명·역할 */}
+            <button type="button" onClick={logout}>
+              로그아웃
+            </button>
+          </header>
+          )}
+          <main hidden={!me} style={S.main}>{children}</main>
+          {/* 각 화면 내용. 로그인 확인 전에도 그려 두되(Next.js 가 화면 구조를 미리 검사할 수 있게) 확인 전까지는 숨긴다.
+              데이터는 화면이 아니라 서버가 지킨다: 로그인 안 한 상태의 API 호출은 401 → 로그인 화면 */}
+        </div>
+      </div>
     </MeContext.Provider>
+  );
+}
+
+// 사이드 메뉴 링크 목록. 지금 화면의 메뉴에 aria-current="page" 를 달아 표시한다(색은 globals.css 의 .side-nav)
+function SideNav({ isAdmin }: { isAdmin: boolean }) {
+  const pathname = usePathname(); // 지금 주소 (예: /purchase-orders/3 → "발주" 메뉴를 현재 메뉴로)
+  return (
+    <nav className="side-nav" aria-label="주 메뉴" style={S.sideNav}>
+      {MENU.filter((item) => !item.adminOnly || isAdmin).map((item) => (
+        <Link key={item.href} href={item.href}
+          aria-current={pathname === item.href || pathname.startsWith(`${item.href}/`) ? "page" : undefined}>
+          {item.label}
+        </Link>
+      ))}
+      {/* 관리자 전용 메뉴는 관리자에게만 보인다 (편의일 뿐, 권한은 서버가 검사) */}
+    </nav>
   );
 }

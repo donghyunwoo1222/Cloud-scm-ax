@@ -1,13 +1,57 @@
+/* 디자인 토큰과 기본 모양. 규칙의 기준은 design-system/cloud-scm/MASTER.md ("Cloud SCM 조정" 절이 우선).
+   화면 코드에는 색 값을 직접 쓰지 않고 여기 변수(var(--…))만 쓴다. 다크 모드는 지원하지 않는다. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* 색 */
+  --color-primary: #2563eb; /* 파란 포인트: 주요 버튼, 포커스 테두리 */
+  --color-primary-hover: #1d4ed8; /* 주요 버튼에 마우스를 올렸을 때 */
+  --color-on-primary: #ffffff; /* 파란 바탕 위 글자 */
+  --color-background: #f8fafc; /* 화면 바탕 */
+  --color-card: #ffffff; /* 카드·메뉴·입력칸 바탕 */
+  --color-foreground: #1e293b; /* 본문 글자 */
+  --color-muted: #e9eff8; /* 표 머리 줄 바탕 */
+  --color-muted-foreground: #475569; /* 보조 글자 (흰 바탕 대비 7.6:1) */
+  --color-border: #e2e8f0; /* 카드·표 구분선 */
+  --color-border-strong: #cbd5e1; /* 입력칸·보조 버튼 테두리 */
+  --color-hover: #f1f5f9; /* 표 줄·메뉴에 마우스를 올렸을 때 */
+  --color-selected: #eff6ff; /* 체크한 줄, 지금 보고 있는 메뉴 */
+  --color-link: #1d4ed8; /* 링크 글자 */
+  --color-destructive: #b91c1c; /* 오류·부족 글자 (위험색 글자는 이 값, 대비 4.5:1 이상) */
+  --color-destructive-bg: #fef2f2;
+  --color-ok: #15803d; /* 성공·정상 글자 */
+  --color-ok-bg: #f0fdf4;
+  --color-unknown: #475569; /* 판단 불가 글자 */
+  --color-unknown-bg: #f1f5f9;
+  --color-info: #1d4ed8; /* 발주 필요 글자 */
+  --color-info-bg: #dbeafe;
+
+  /* 간격 (업무 화면은 xs~lg 를 주로 쓴다) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* 글자 크기 */
+  --text-xs: 12px; /* 보조 설명, 배지 */
+  --text-sm: 13px; /* 표 */
+  --text-base: 14px; /* 본문 */
+  --text-lg: 16px; /* 카드 제목(h2) */
+  --text-xl: 22px; /* 화면 제목(h1) */
+
+  /* 모서리·그림자 */
+  --radius-sm: 6px; /* 버튼·입력칸 */
+  --radius-md: 8px; /* 카드 */
+  --radius-full: 999px; /* 배지 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+
+  /* 폰트: Noto Sans KR 은 app/layout.tsx 에서 next/font 로 불러와 --font-noto-sans-kr 에 넣는다 */
+  --font-sans: var(--font-noto-sans-kr), Pretendard, -apple-system, "Malgun Gothic", sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
 }
 
 html {
@@ -24,26 +68,161 @@ body {
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--color-foreground);
+  background: var(--color-background);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+/* 제목 */
+h1 {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  margin-bottom: var(--space-sm);
+}
+
+h2 {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  margin-bottom: var(--space-sm);
 }
 
 a {
-  color: inherit;
+  color: var(--color-link);
   text-decoration: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+a:hover {
+  text-decoration: underline;
+}
+
+/* 키보드(Tab)로 옮겨 다닐 때 지금 위치가 보이게 */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* 버튼: 기본은 흰 보조 버튼, 제출(type="submit") 버튼은 파란 주요 버튼 */
+button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-card);
+  color: var(--color-foreground);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms, border-color 150ms;
+}
+
+button:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+button[type="submit"] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+button[type="submit"]:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* 입력칸·선택 상자 (체크박스·라디오는 브라우저 기본 모양) */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-card);
+  color: var(--color-foreground);
+  font: inherit;
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background: var(--color-hover);
+  color: var(--color-muted-foreground);
+}
+
+/* 폼 항목: 라벨 글자가 위, 입력칸이 아래 (예: "수량*" 아래에 칸, 그 아래 "현재고 N개").
+   체크박스·라디오 라벨은 글자 옆에 두므로 제외. 줄 안에서는 150~320px 사이로 남는 폭을 나눠 갖는다
+   (150px: 1440px 화면에서 항목 6개 + 등록 버튼이 한 줄에 들어가는 폭. 6 × 150 + 간격 + 버튼 ≈ 1,060px < 본문 약 1,150px) */
+label:has(> :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea)) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  flex: 1 1 150px;
+  max-width: 320px;
+  min-width: 0;
+}
+
+label > :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  width: 100%;
+}
+
+/* 입력 항목이 있는 줄의 버튼(또는 버튼 묶음): 내용 크기만큼만, 라벨 한 줄만큼 내려 입력칸과 높이를 맞춘다
+   (21px = 글자 14px × 줄 높이 1.5, 여기에 라벨과 칸 사이 간격을 더한다) */
+:has(> label > :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea))
+  > :is(button, div:has(> button)) {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-top: calc(var(--text-base) * 1.5 + var(--space-xs));
+}
+
+/* 표 위아래 여백: 안내 문장·빈 목록 문장과 머리 줄이 붙지 않게 */
+table {
+  margin: var(--space-md) 0;
+}
+
+/* 표: 머리 줄은 연한 바탕, 줄마다 아래 구분선, 마우스를 올린 줄은 살짝 칠한다 */
+th,
+td {
+  padding: var(--space-sm) 10px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+  vertical-align: top;
+}
+
+th {
+  background: var(--color-muted);
+  color: var(--color-muted-foreground);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+tbody tr:hover {
+  background: var(--color-hover);
+}
+
+/* 사이드 메뉴 링크 (마우스·현재 화면 표시는 인라인 스타일로 못 하므로 여기 둔다) */
+.side-nav a {
+  display: block;
+  padding: var(--space-sm) 12px;
+  border-radius: var(--radius-sm);
+  color: var(--color-foreground);
+}
+
+.side-nav a:hover {
+  background: var(--color-hover);
+  text-decoration: none;
+}
+
+.side-nav a[aria-current="page"] {
+  background: var(--color-selected);
+  color: var(--color-link);
+  font-weight: 500;
 }
