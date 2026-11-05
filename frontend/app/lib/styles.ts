@@ -40,6 +40,12 @@ export const S = {
   detailHistoryCell: { padding: "var(--space-sm) var(--space-md)", borderRadius: "var(--radius-sm)", background: "var(--color-hover)" }, // 연한 배경으로 승인·발주·입고 기록을 구분한다
   detailHistoryValue: { margin: "var(--space-xs) 0 0", color: "var(--color-foreground)", fontWeight: 500 }, // 항목명 아래 날짜나 메모를 본문색으로 강조한다
   detailMemo: { margin: "var(--space-md) 0 0", paddingInline: "var(--space-md)" }, // 메모는 날짜 칸 아래에서 가로 폭 전체를 쓴다
+  detailTableToolbar: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-sm) var(--space-md)", marginTop: "var(--space-md)", padding: "var(--space-sm) var(--space-md)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md) var(--radius-md) 0 0", background: "var(--color-card)" }, // 표에 붙는 조작부를 만들고 자리가 부족하면 다음 줄로 보낸다
+  detailFilterGroup: { display: "flex", flexWrap: "wrap", gap: "var(--space-xs)", padding: "var(--space-xs)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)" }, // 필터 두 버튼을 하나의 테두리 안에 묶는다
+  detailFilterButton: { display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", minHeight: 28, paddingInline: "var(--space-sm)", border: 0, outlineOffset: -2 }, // 체크와 글자를 나란히 두고 키보드 테두리를 버튼 안쪽에 표시한다
+  detailFilterSelected: { background: "var(--color-selected)", color: "var(--color-link)", fontWeight: 700 }, // 현재 선택은 배경과 굵은 글자로 강조한다
+  detailTableCount: { margin: 0, marginInlineStart: "auto", fontSize: "var(--text-sm)", color: "var(--color-muted-foreground)" }, // 표시 개수는 남는 공간의 오른쪽 끝에 둔다
+  receiptDateField: { maxWidth: "12rem" }, // 입고일 입력이 날짜에 필요한 너비만 차지하게 한다
 
   // 대시보드 숫자 카드 (#92)
   kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "var(--space-md)", marginTop: "var(--space-md)" }, // 카드 줄: 칸이 모자라면 다음 줄로 (160px: 768px 화면에서도 3장이 한 줄)

@@ -8,7 +8,7 @@ import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { useMe } from "../../../lib/me"; // 내 역할 (승인 버튼은 관리자에게만)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { fmtDate, fmtTime, lineAmount, overdueDays, PO_LABELS, PurchaseOrder, totalAmount } from "../../../lib/po"; // 발주서 모양·날짜·금액 계산
+import { fmtDate, fmtTime, lineAmount, overdueDays, PO_LABELS, PoItemSort, PurchaseOrder, remainingQuantity, totalAmount, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 표시 품목 계산
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 
@@ -18,6 +18,8 @@ const ACTIONS: Record<string, [string, string][]> = {
   APPROVED: [["order", "발주함 표시"], ["cancel", "취소"]],
   ORDERED: [["cancel", "취소"]], // 입고 등록은 아래 폼 여는 버튼이 따로 있다
 };
+
+const DEFAULT_ITEM_VIEW = { onlyOutstanding: false, sort: "registered" as PoItemSort }; // 전체 품목과 등록 순서가 기본값이다
 
 // 발주서 상세 화면 (주소 /purchase-orders/번호)
 function Detail() {
@@ -32,6 +34,7 @@ function Detail() {
   const [qty, setQty] = useState<Record<number, string>>({}); // 줄 번호 → 이번 입고 수량 (글자)
   const [date, setDate] = useState(""); // 입고일 (화면이 열린 뒤 서울 오늘로 채운다)
   const [today, setToday] = useState(""); // 입고일 상한 (미래 날짜 선택 불가)
+  const [itemView, setItemView] = useState({ scope: "", ...DEFAULT_ITEM_VIEW }); // 발주서와 상태별로 표의 선택을 기억한다
 
   const load = useCallback(async () => {
     try {
@@ -47,6 +50,11 @@ function Detail() {
     const t = seoulToday(); // 서버 렌더링 때 시각을 읽으면 빌드가 막혀 화면이 열린 뒤 채운다
     setToday(t); setDate(t); // 상한과 기본값
   }, [load]);
+
+  const itemViewScope = order ? `${order.id}:${order.status}` : ""; // 같은 발주서가 같은 상태로 다시 오면 같은 범위다
+  if (itemView.scope !== itemViewScope) { // 발주서나 상태가 바뀌는 렌더에서만 선택을 초기화한다
+    setItemView({ scope: itemViewScope, ...DEFAULT_ITEM_VIEW }); // 부분 입고 응답은 발주함 상태라 선택을 유지한다
+  } // 같은 범위에서는 사용자의 선택을 유지한다
 
   // 승인·발주함 표시·취소: 바뀐 발주서를 돌려받아 화면에 반영한다
   async function act(action: string) {
@@ -88,6 +96,9 @@ function Detail() {
   const buttons = (ACTIONS[order.status] ?? []).filter(([action]) => action !== "approve" || me?.role === "ADMIN"); // 담당자에게는 승인 버튼을 숨긴다
   const staffDraft = order.status === "DRAFT" && me?.role !== "ADMIN"; // 담당자가 본 작성 중 발주서
   const delay = overdueDays(order, today); // 입고일에 쓰는 서울 오늘 날짜로 납기 지연도 판단한다
+  const orderedStatus = order.status === "ORDERED"; // 발주함 상태에서만 미입고 필터를 보여준다
+  const isFiltered = orderedStatus && itemView.onlyOutstanding; // 미입고 필터는 발주함 상태에서만 적용한다
+  const shownItems = visiblePoItems(order.items, isFiltered, itemView.sort); // 모든 상태에서 표에 그릴 배열만 정렬한다
 
   return (
     <section>
@@ -144,8 +155,41 @@ function Detail() {
         </div>
       </div>
 
+      {/* 모든 상태의 품목 표에 같은 정렬 조작부를 표시한다. */}
+      <div style={S.detailTableToolbar}>
+        {/* 발주함 상태에서는 필터 두 개를 붙이고 눌린 상태를 화면 읽기 도구에도 전달한다. */}
+        {orderedStatus && (
+          <div role="group" aria-label="품목 보기" style={S.detailFilterGroup}>
+            {[false, true].map((onlyOutstanding) => { // 전체 품목과 미입고만 보기 버튼을 차례로 만든다
+              const selected = itemView.onlyOutstanding === onlyOutstanding; // 현재 보기와 일치하는 버튼만 선택 상태다
+              return (
+                // 입고 폼을 열면 필터를 잠그고 선택 표시는 유지한다.
+                <button key={String(onlyOutstanding)} type="button" disabled={receiving} aria-pressed={selected}
+                  style={{ ...S.detailFilterButton, ...(selected ? S.detailFilterSelected : {}) }}
+                  onClick={() => setItemView({ ...itemView, onlyOutstanding })}>
+                  {/* 선택한 쪽만 체크를 보여 주되 두 버튼의 폭은 유지한다. */}
+                  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ visibility: selected ? "visible" : "hidden" }}>
+                    <path d="m3 8 3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  {onlyOutstanding ? "미입고만 보기" : "전체 품목"}{/* 각 필터가 무엇을 보여주는지 글자로 표시한다. */}
+                </button>
+              ); // 필터 버튼 하나를 반환한다
+            })}
+          </div>
+        )}
+        {/* 정렬 상자는 선택지에 필요한 너비만 차지하고 입고 중에는 잠긴다. */}
+        <select aria-label="품목 정렬" style={{ maxWidth: "100%" }} disabled={receiving} value={itemView.sort}
+          onChange={(event) => setItemView({ ...itemView, sort: event.target.value as PoItemSort })}>
+          <option value="registered">등록 순서</option>{/* 서버가 준 순서로 되돌린다. */}
+          <option value="name-asc">품목명순 (오름차순)</option>{/* 가나다순으로 나열한다. */}
+          <option value="name-desc">품목명순 (내림차순)</option>{/* 가나다의 역순으로 나열한다. */}
+        </select>
+        {/* 미입고만 볼 때 전체 줄 수와 표시 줄 수를 함께 알린다. */}
+        {isFiltered && <p role="status" style={S.detailTableCount}>전체 {order.items.length}품목 중 {shownItems.length}품목 표시</p>}
+      </div>
       <div style={S.tableBox}>
-      <table style={S.table}>
+      {/* 표 윗여백을 없애 조작부와 붙인다. */}
+      <table style={{ ...S.table, marginTop: 0 }}>
         <thead>
           <tr style={S.headRow}>
             {/* 수량·단가·금액과 입고 현황을 품목별로 나란히 배치한다. */}
@@ -154,8 +198,18 @@ function Detail() {
           </tr>
         </thead>
         <tbody>
-          {order.items.map((i) => {
-            const remaining = i.quantity - i.received_quantity; // 발주 수량에서 누적 입고량을 빼 남은 수량을 구한다
+          {/* 필터 결과가 비어도 아래 합계는 전체 품목 기준으로 표시한다. */}
+          {isFiltered && shownItems.length === 0 && (
+            <tr>
+              <td colSpan={receiving ? 7 : 6} style={S.empty}>
+                <p>조건에 맞는 품목이 없습니다.</p>{/* 미입고 필터 결과가 없음을 알린다. */}
+                {/* 다른 전환과 같이 입고 폼을 닫은 뒤 필터를 해제할 수 있다. */}
+                <button type="button" disabled={receiving} onClick={() => setItemView({ ...itemView, onlyOutstanding: false })}>필터 해제</button>
+              </td>
+            </tr>
+          )}
+          {shownItems.map((i) => { // 표시할 행만 그리며 입고 입력은 기존대로 발주 품목 ID에 연결한다
+            const remaining = remainingQuantity(i); // 필터와 같은 기준으로 입고 잔량을 구한다
             const ordered = i.quantity.toLocaleString("ko-KR"); // 발주 수량과 입고 현황에 같은 쉼표 표기를 쓴다
             return (
               <tr key={i.id} style={S.row}>
@@ -197,14 +251,19 @@ function Detail() {
       {/* 서버도 403 으로 막지만 화면에서도 안내한다 */}
 
       {receiving && (
-        <form onSubmit={receive}>
-          <p>줄마다 이번에 들어온 수량을 적으세요(비운 줄은 입고하지 않습니다). 입고하면 그 수량만큼 현재고가 늘어납니다.</p>
-          <label>입고일 <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} /></label>
-          {/* 미래 날짜는 고를 수 없다 (서버도 422) */}
-          <p style={S.buttons}>
-            <button type="submit" disabled={busy}>{busy ? "등록 중…" : "입고"}</button>
-            <button type="button" onClick={() => setReceiving(false)}>닫기</button>
-          </p>
+        // 취소 등 발주서 버튼과 입고 폼을 카드로 구분한다.
+        <form style={S.sectionCard} onSubmit={receive}>
+          <p style={S.hint}>품목 표에 이번에 받은 수량을 적으세요. 비워 둔 줄은 입고하지 않습니다.</p>{/* 수량 입력 위치를 알려준다. */}
+          {/* 날짜와 버튼은 한 줄에 맞추고 좁은 화면에서는 줄을 바꾼다. */}
+          <div style={S.formGrid}>
+            {/* 날짜 입력을 짧게 유지하고 미래 날짜는 선택할 수 없게 한다. */}
+            <label style={S.receiptDateField}>입고일 <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} /></label>
+            {/* 등록과 닫기 버튼은 한 묶음으로 배치한다. */}
+            <div style={S.buttons}>
+              <button type="submit" disabled={busy}>{busy ? "등록 중…" : "입고"}</button>{/* 전송 중에는 중복 제출을 막는다. */}
+              <button type="button" onClick={() => setReceiving(false)}>닫기</button>{/* 폼을 닫아 필터와 정렬을 다시 쓸 수 있게 한다. */}
+            </div>
+          </div>
         </form>
       )}
       {notice && <p role="status" style={S.ok}>{notice}</p>}
