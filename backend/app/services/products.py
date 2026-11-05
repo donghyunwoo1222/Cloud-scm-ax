@@ -1,6 +1,6 @@
 """품목 관리 (F3). 모든 함수는 company_id 를 첫 번째 인자로 받는다(R1)."""
 
-from sqlalchemy import or_  # 조건 중 하나라도 맞으면
+from sqlalchemy import Select, or_  # 조회문 타입과 조건 중 하나라도 맞는 비교
 from sqlalchemy.exc import IntegrityError  # 제약 위반 오류
 from sqlalchemy.orm import Session  # DB 세션 타입
 
@@ -9,6 +9,16 @@ from app.models import Product, Supplier  # 품목, 공급업체 표
 from app.pagination import PageParams, paginate  # 목록 쪽 나누기
 from app.schemas.products import ProductCreate, ProductUpdate  # 요청 모양
 from app.services.tenant import check_ref, get_owned, scoped  # 회사 분리 도우미 (#23)
+
+
+def filter_product_search(stmt: Select, q: str | None) -> Select:  # 품목 목록과 재고 목록에서 쓰는 같은 검색 조건
+    term = q.strip() if q else ""  # 앞뒤 공백을 빼고, 검색어가 없으면 빈 문자열로 본다
+    if not term:  # 비었거나 공백만 있으면
+        return stmt  # 원래 조회 조건 그대로 돌려준다
+    return stmt.where(or_(  # SKU와 품목명 중 한 곳에 검색어가 들어 있으면 선택한다
+        Product.sku.icontains(term, autoescape=True),  # SKU에서 대소문자 없이 찾고 %·_는 글자 그대로 읽는다
+        Product.name.icontains(term, autoescape=True),  # 품목명에도 같은 규칙을 적용한다
+    ))
 
 
 def list_products(
@@ -21,12 +31,7 @@ def list_products(
         stmt = stmt.where(Product.default_supplier_id == default_supplier_id)  # 쪽을 자르기 전에 업체에 속한 품목만 남긴다
     if not include_inactive:  # 비활성 포함을 요청하지 않았으면
         stmt = stmt.where(Product.is_active.is_(True))  # 활성만
-    if q and q.strip():  # 검색어가 있으면
-        term = q.strip()  # 앞뒤 공백 제거
-        stmt = stmt.where(or_(  # SKU 나 품목명 중 하나에 들어 있으면
-            Product.sku.icontains(term, autoescape=True),  # 예) "bk" → "TS-BK-M"
-            Product.name.icontains(term, autoescape=True),  # 예) "티셔츠" → "기본 티셔츠"; %·_ 는 글자 그대로
-        ))
+    stmt = filter_product_search(stmt, q)  # 쪽을 나누기 전에 기존 품목 검색 조건을 적용한다
     stmt = stmt.order_by(Product.created_at.desc(), Product.id.desc())  # 최신순
     return paginate(db, stmt, page)  # 한 쪽 + meta
 

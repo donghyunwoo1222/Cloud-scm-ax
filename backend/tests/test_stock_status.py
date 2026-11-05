@@ -146,6 +146,24 @@ def test_status_filter_counts_whole_company_then_pages(client, world, session):
     assert all(r["status"] == "SHORTAGE" for r in first["data"]) and short
 
 
+def test_stock_search_combines_status_before_paging(client, world, session):
+    """이름·SKU와 상태가 모두 맞는 품목만 남긴 뒤 쪽을 나눈다."""
+    with_stock(session, world, "MATCH-A", 50)  # 검색과 부족 상태가 모두 일치한다
+    with_stock(session, world, "MATCH-B", 50)  # 두 번째 일치 품목
+    with_stock(session, world, "MATCH-NORMAL", 200)  # 검색어만 일치한다
+    with_stock(session, world, "OTHER", 50)  # 상태만 일치한다
+    with_stock(session, world, "MATCH-FOREIGN", 50, key="b")  # 다른 회사의 일치 품목
+    session.commit()  # 테스트가 끝나면 모두 되돌린다
+
+    path = f"{STOCK}?q=mAtCh&status=SHORTAGE&page_size=1"  # 두 조건을 함께 보내고 한 줄씩 읽는다
+    first = get(client, path)  # 첫 쪽을 조회한다
+    second = get(client, f"{path}&page=2")  # 둘째 쪽을 조회한다
+    assert [row["sku"] for row in first["data"]] == ["MATCH-B"]  # 회사 A의 최신 일치 품목
+    assert [row["sku"] for row in second["data"]] == ["MATCH-A"]  # 회사 A의 나머지 일치 품목
+    assert first["meta"] == {"page": 1, "page_size": 1, "total": 2}  # 조건을 적용한 전체 개수
+    assert second["meta"] == {"page": 2, "page_size": 1, "total": 2}  # 두 번째 쪽의 개수도 같다
+
+
 def test_status_filter_rejects_unknown_value(client, world):
     """정해진 상태 값이 아니면 422."""
     login_as(client)
