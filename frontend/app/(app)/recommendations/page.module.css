@@ -1,0 +1,109 @@
+/* 숫자 열의 머리와 본문에 같은 여백을 줘 오른쪽 정렬선을 안쪽으로 옮긴다. */
+.numericColumn {
+  padding-inline-end: clamp(var(--space-md), 3vw, calc(var(--space-lg) + var(--space-md))); /* 좁은 화면에서는 여백을 줄인다 */
+}
+
+/* 초안 수량과 상태 배지를 묶고 오른쪽 정렬은 숫자 열의 규칙을 따른다. */
+.draftQuantity {
+  display: inline-flex; /* 작은 배지와 큰 숫자를 같은 줄에 표시한다 */
+  align-items: center; /* 배지를 수량 숫자의 높이에 맞춘다 */
+  gap: var(--space-sm); /* 배지와 수량을 구분할 여백을 둔다 */
+  font-size: var(--text-lg); /* 저장된 수량을 보조 정보보다 크게 표시한다 */
+}
+
+/* 선택 칸에서 체크박스 주위도 누를 수 있게 한다. */
+.pickTarget {
+  display: inline-grid; /* 클릭 영역 전체에서 체크박스를 가운데에 둔다 */
+  place-items: center; /* 상하좌우 가운데 정렬 */
+  inline-size: 44px; /* 누를 수 있는 영역의 가로 폭 */
+  block-size: 44px; /* 누를 수 있는 영역의 세로 높이 */
+  cursor: pointer; /* 선택할 수 있는 품목에만 손 모양을 보여 준다 */
+}
+
+.pickTarget > input {
+  inline-size: 22px; /* 체크박스 자체도 기존보다 크게 표시한다 */
+  block-size: 22px; /* 정사각형 체크박스를 유지한다 */
+  margin: 0; /* 브라우저 기본 여백을 없애 가운데를 맞춘다 */
+  accent-color: var(--color-primary); /* 체크 색은 기존 파란색 토큰을 쓴다 */
+  cursor: inherit; /* 체크박스와 주변의 마우스 표시를 통일한다 */
+}
+
+.locked {
+  display: inline-flex; /* 자물쇠와 글자를 함께 표시한다 */
+  align-items: center; /* 자물쇠와 글자의 높이를 맞춘다 */
+  gap: var(--space-xs); /* 자물쇠가 글자에 붙지 않게 한다 */
+  color: var(--color-muted-foreground); /* 선택 불가 상태에는 보조 글자색을 쓴다 */
+  font-size: var(--text-xs); /* 상태 표시의 크기를 다른 보조 글자와 맞춘다 */
+  white-space: nowrap; /* 선택 불가가 두 줄로 갈라지지 않게 한다 */
+}
+
+/* 근거 버튼에 공통 포커스 테두리를 유지한다. */
+.evidenceToggle {
+  display: flex; /* 요약과 자세히를 한 줄에 둔다 */
+  align-items: center; /* 요약과 토글 글자의 높이를 맞춘다 */
+  gap: var(--space-xs); /* 요약과 동작 문구 사이를 띄운다 */
+  min-height: 28px; /* 글자 위아래도 눌러서 펼칠 수 있게 한다 */
+  padding: 0; /* 품목 이름과 왼쪽 시작점을 맞춘다 */
+  border: 0; /* 초안 만들기 버튼과 시각적 우선순위를 구분한다 */
+  background: transparent; /* 선택 행의 배경색이 보이게 한다 */
+  color: var(--color-muted-foreground); /* 요약은 보조 글자색을 쓴다 */
+  font-size: var(--text-xs); /* 품목 이름보다 작은 크기로 읽힌다 */
+  font-variant-numeric: tabular-nums; /* 요약 속 숫자의 폭을 맞춘다 */
+  white-space: nowrap; /* 짧은 판단 요약을 한 줄로 유지한다 */
+}
+
+.evidenceAction {
+  color: var(--color-link); /* 펼치기 동작을 요약 문구와 구분한다 */
+}
+
+.evidenceToggle:hover .evidenceAction {
+  text-decoration: underline; /* 마우스를 올리면 펼칠 수 있음을 보여 준다 */
+}
+
+/* 펼친 근거를 표의 다른 행과 구별하되 배경색과 제목을 함께 쓴다. */
+.evidencePanel {
+  padding: var(--space-md); /* 제목과 값 주변에 읽기 여백을 준다 */
+  border-inline-start: 3px solid var(--color-primary); /* 근거의 시작을 선으로도 표시한다 */
+  border-radius: var(--radius-sm); /* 기존 입력칸과 같은 모서리 크기 */
+  background: var(--color-muted); /* 본문 및 선택 행과 구별되는 배경 */
+}
+
+.evidenceTitle {
+  margin: 0; /* 제목 위의 기본 여백을 없앤다 */
+  font-size: var(--text-sm); /* 표 본문과 비슷한 크기로 표시한다 */
+  overflow-wrap: anywhere; /* 긴 품목명은 상자 안에서 줄을 바꾼다 */
+}
+
+.evidenceFacts {
+  display: flex; /* 계산에 쓰인 값을 가로로 읽는다 */
+  flex-wrap: wrap; /* 공간이 좁으면 항목 단위로 다음 줄에 보낸다 */
+  gap: var(--space-sm); /* 타일 사이의 간격을 맞춘다 */
+  margin: var(--space-sm) 0 0; /* 제목과 계산 숫자를 구분한다 */
+}
+
+.evidenceFacts > div {
+  display: flex; /* 타일 안에 이름과 숫자를 한 줄로 둔다 */
+  align-items: baseline; /* 글자 크기가 달라도 읽는 기준선을 맞춘다 */
+  justify-content: space-between; /* 숫자는 각 항목의 오른쪽에 둔다 */
+  gap: var(--space-sm); /* 이름과 숫자 사이 여백 */
+  min-inline-size: 8rem; /* 짧은 이름도 비슷한 폭으로 정렬한다 */
+  padding: var(--space-xs) var(--space-sm); /* 지표 네 개를 작은 타일로 보여 준다 */
+  border: 1px solid var(--color-border-strong); /* 인접한 타일의 경계를 표시한다 */
+  border-radius: var(--radius-sm); /* 근거 상자와 같은 모서리를 쓴다 */
+  background: var(--color-card); /* 근거 영역의 옅은 파란 배경과 구분한다 */
+  color: var(--color-muted-foreground); /* 지표 이름은 보조 글자색을 쓴다 */
+  font-size: var(--text-xs); /* 이름은 숫자보다 작게 표시한다 */
+}
+
+.evidenceFacts dd {
+  margin: 0; /* 정의 목록의 기본 들여쓰기를 없앤다 */
+  color: var(--color-foreground); /* 값은 본문색으로 더 선명하게 표시한다 */
+  font-size: var(--text-sm); /* 값을 이름보다 크게 표시한다 */
+  font-weight: 700; /* 계산 재료를 훑을 때 값이 먼저 눈에 들어오게 한다 */
+}
+
+.evidenceReason {
+  margin: var(--space-sm) 0 0; /* 계산 재료 아래에 전체 이유를 붙인다 */
+  max-inline-size: 90ch; /* 넓은 화면에서도 이유 문장이 지나치게 길어지지 않게 한다 */
+  overflow-wrap: anywhere; /* 긴 문자열이 상자 폭을 늘리지 않게 한다 */
+}
