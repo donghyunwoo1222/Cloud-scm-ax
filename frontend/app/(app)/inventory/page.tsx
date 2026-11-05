@@ -1,6 +1,7 @@
 "use client"; // 목록·폼을 다루는 화면이라 브라우저에서 실행
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 함수 기억, 처음·변경 시 실행, 즉시 확인용 ref, 상태
+import { useSearchParams } from "next/navigation"; // 주소의 ?status= 읽기 (대시보드 링크에서 걸러진 채로 열기)
+import { FormEvent, Suspense, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 주소 읽는 부품 감싸기, 함수 기억, 처음·변경 시 실행, 즉시 확인용 ref, 상태
 
 import { api, apiList, Meta } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
@@ -27,8 +28,18 @@ type ProductOption = { id: number; sku: string; name: string }; // 이력 필터
 const LABELS = { quantity: "수량", reason: "사유" }; // 정정 오류 details 칸 이름
 
 // 재고 현황 화면 (주소 /inventory): 품목별 현재고 + 입출고 이력(필터·정정)
+// 주소의 ?status= 는 화면이 열릴 때 알 수 있어 Suspense 로 감싼다 (Next.js 가 빌드 때 미리 그리는 동안 기다릴 자리)
 export default function Page() {
-  const [status, setStatus] = useState(""); // 재고 목록 상태 필터 ("" 이면 전체)
+  return (
+    <Suspense fallback={<p>불러오는 중…</p>}>
+      <Inventory />
+    </Suspense>
+  );
+}
+
+function Inventory() {
+  const asked = useSearchParams().get("status") ?? ""; // 주소로 받은 상태 (예: /inventory?status=SHORTAGE → "SHORTAGE")
+  const [status, setStatus] = useState(Object.keys(STATUS_LABEL).includes(asked) ? asked : ""); // 재고 목록 상태 필터. 허용된 3개만 초기값으로 쓰고 그 밖은 무시("" 이면 전체)
   const stock = useList<Stock>("/stock", { status }); // 재고 목록 (20개씩, 비활성 포함 선택, 상태로 거르기)
   const [products, setProducts] = useState<ProductOption[]>([]); // 이력 필터의 품목 선택지 (비활성 포함)
   const [productId, setProductId] = useState(""); // 이력 필터: 품목
