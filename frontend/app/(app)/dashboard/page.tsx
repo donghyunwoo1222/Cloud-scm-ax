@@ -73,7 +73,7 @@ export default function Page() {
               </table>
             </div>
             {shortage.count > shortage.items.length && <p style={S.hint}>최신 품목 {shortage.items.length}개만 보입니다.</p>}
-            <p><Link href="/recommendations">발주 추천에서 초안 만들기</Link> · <Link href="/inventory">재고 현황 (상태: 부족으로 거르기)</Link></p>
+            <p><Link href="/recommendations">발주 추천에서 초안 만들기</Link> · <Link href="/inventory?status=SHORTAGE">재고 현황 (상태: 부족으로 거르기)</Link></p>
             {/* 부족 품목에서 발주 작성·재고 현황으로 이동 (F7 완료 기준) */}
           </>
         )}

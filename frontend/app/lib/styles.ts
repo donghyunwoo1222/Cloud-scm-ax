@@ -19,6 +19,7 @@ export const S = {
   sidebar: { background: "var(--color-card)", borderRight: "1px solid var(--color-border)" }, // 사이드 메뉴 상자 (폭·여백·고정은 화면 폭마다 달라 globals.css 의 .sidebar)
   brand: { fontWeight: 700, fontSize: "var(--text-lg)", padding: "var(--space-xs) 12px var(--space-md)" }, // 메뉴 위 서비스 이름
   sideNav: { display: "flex", flexDirection: "column", gap: 2 }, // 메뉴 링크 세로 나열 (모양은 globals.css 의 .side-nav)
+  navGroupTitle: { margin: 0, padding: "var(--space-md) 12px var(--space-xs)", fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--color-muted-foreground)" }, // 메뉴 그룹 제목 (예: 재고 업무). 링크보다 작고 흐리게 해 눌리는 메뉴와 구분
   content: { flex: "999 1 560px", minWidth: 0, display: "flex", flexDirection: "column" }, // 메뉴 오른쪽 전체 (표가 넓어도 화면 밖으로 밀지 않게 minWidth 0)
   topbar: { display: "flex", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", gap: "var(--space-md)", padding: "12px var(--space-lg)", background: "var(--color-card)", borderBottom: "1px solid var(--color-border)", fontSize: "var(--text-sm)", color: "var(--color-muted-foreground)" }, // 상단 바: 내 정보·로그아웃
   main: { padding: "var(--space-lg)", maxWidth: 1360, width: "100%" }, // 본문 여백 (display 를 주지 않는다: hidden 속성이 먹어야 한다)
