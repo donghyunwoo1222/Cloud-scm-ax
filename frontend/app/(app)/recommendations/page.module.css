@@ -1,3 +1,24 @@
+/* 선택 칸에서 체크박스 주위도 누를 수 있게 한다. */
+.pickTarget {
+  display: inline-grid; /* 클릭 영역 전체에서 체크박스를 가운데에 둔다 */
+  place-items: center; /* 상하좌우 가운데 정렬 */
+  inline-size: 44px; /* 누를 수 있는 영역의 가로 폭 */
+  block-size: 44px; /* 누를 수 있는 영역의 세로 높이 */
+  cursor: pointer; /* 선택할 수 있는 품목에만 손 모양을 보여 준다 */
+}
+
+.pickTarget > input {
+  inline-size: 22px; /* 체크박스 자체도 기존보다 크게 표시한다 */
+  block-size: 22px; /* 정사각형 체크박스를 유지한다 */
+  margin: 0; /* 브라우저 기본 여백을 없애 가운데를 맞춘다 */
+  accent-color: var(--color-primary); /* 체크 색은 기존 파란색 토큰을 쓴다 */
+  cursor: inherit; /* 체크박스와 주변의 마우스 표시를 통일한다 */
+}
+
+.pickTarget:has(> input:disabled) {
+  cursor: not-allowed; /* 이미 초안에 든 품목의 선택 잠금을 표시한다 */
+}
+
 /* 근거 버튼에 공통 포커스 테두리를 유지한다. */
 .evidenceToggle {
   display: flex; /* 요약과 자세히를 한 줄에 둔다 */

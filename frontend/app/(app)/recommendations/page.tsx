@@ -149,9 +149,11 @@ export default function Page() {
                     <tr style={S.row}>
                       <td style={picked ? { ...S.selectedRow, ...S.selectedMark } : undefined}>
                         {/* 선택한 줄의 첫 칸에는 기존 파란 세로줄을 표시한다 */}
-                        <input type="checkbox" aria-label={i.product_sku + " 선택"} disabled={!!draft}
-                          checked={picked}
-                          onChange={(e) => setChecked({ ...checked, [i.product_id]: e.target.checked })} />
+                        <label className={styles.pickTarget}>{/* 체크박스 주변을 눌러도 이 품목을 선택한다 */}
+                          <input type="checkbox" aria-label={i.product_sku + " 선택"} disabled={!!draft}
+                            checked={picked}
+                            onChange={(e) => setChecked({ ...checked, [i.product_id]: e.target.checked })} />
+                        </label>
                       </td>
                       <td style={cell}>
                         {i.product_name}<span style={S.sub}>{i.product_sku}</span>
