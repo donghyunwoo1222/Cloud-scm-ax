@@ -8,18 +8,23 @@ import { ApiError, api } from "../lib/api"; // 공통 API 호출 함수·오류 
 import { Me, MeContext, ROLE_LABEL } from "../lib/me"; // 내 정보 모양·공유 상자·역할 이름
 import { S } from "../lib/styles"; // 화면 공통 스타일
 
-// 사이드 메뉴. adminOnly 는 관리자에게만 "보이게" 하는 표시일 뿐이다.
+// 사이드 메뉴를 업무별 그룹으로 나눈다. title 이 없는 그룹(대시보드)은 제목 없이 맨 위에 놓인다.
+// adminOnly 는 관리자에게만 그룹째 "보이게" 하는 표시일 뿐이다.
 // 메뉴를 숨기는 건 편의이고, 실제 권한은 서버가 검사한다(담당자가 주소를 직접 쳐도 API 가 403 을 준다).
 const MENU = [
-  { href: "/dashboard", label: "대시보드" },
-  { href: "/inventory", label: "재고 현황" },
-  { href: "/products", label: "품목" },
-  { href: "/suppliers", label: "공급업체" },
-  { href: "/receipts", label: "입고 등록" },
-  { href: "/shipments", label: "출고 등록" },
-  { href: "/purchase-orders", label: "발주" },
-  { href: "/recommendations", label: "발주 추천" },
-  { href: "/users", label: "사용자 관리", adminOnly: true },
+  { links: [{ href: "/dashboard", label: "대시보드" }] }, // 그룹 밖: 첫 화면
+  { title: "재고 업무", links: [ // 매일 하는 재고 일
+    { href: "/inventory", label: "재고 현황" },
+    { href: "/products", label: "품목" },
+    { href: "/receipts", label: "입고 등록" },
+    { href: "/shipments", label: "출고 등록" },
+  ] },
+  { title: "구매 업무", links: [ // 발주 흐름: 추천 → 발주서 → 거래처
+    { href: "/recommendations", label: "발주 추천" },
+    { href: "/purchase-orders", label: "발주" },
+    { href: "/suppliers", label: "공급업체" },
+  ] },
+  { title: "관리", adminOnly: true, links: [{ href: "/users", label: "사용자 관리" }] }, // 관리자에게만 보이는 그룹
 ];
 
 // 로그인 후 화면들(app/(app)/ 아래)을 감싸는 틀: 로그인 확인 → 사이드 메뉴·상단 바 → 각 화면
@@ -93,13 +98,20 @@ function SideNav({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname(); // 지금 주소 (예: /purchase-orders/3 → "발주" 메뉴를 현재 메뉴로)
   return (
     <nav className="side-nav" aria-label="주 메뉴" style={S.sideNav}>
-      {MENU.filter((item) => !item.adminOnly || isAdmin).map((item) => (
-        <Link key={item.href} href={item.href}
-          aria-current={pathname === item.href || pathname.startsWith(`${item.href}/`) ? "page" : undefined}>
-          {item.label}
-        </Link>
+      {MENU.filter((group) => !group.adminOnly || isAdmin).map((group) => (
+        // 그룹 하나 = (제목) + 링크들. 제목이 있으면 낭독기가 "재고 업무 그룹" 처럼 읽도록 묶는다
+        <div key={group.links[0].href} style={S.sideNav} role={group.title ? "group" : undefined} aria-label={group.title}>
+          {group.title && <p style={S.navGroupTitle} aria-hidden="true">{group.title}</p>}
+          {/* 그룹 제목은 눈으로 보는 용도 (낭독기는 위의 aria-label 로 읽는다) */}
+          {group.links.map((item) => (
+            <Link key={item.href} href={item.href}
+              aria-current={pathname === item.href || pathname.startsWith(`${item.href}/`) ? "page" : undefined}>
+              {item.label}
+            </Link>
+          ))}
+        </div>
       ))}
-      {/* 관리자 전용 메뉴는 관리자에게만 보인다 (편의일 뿐, 권한은 서버가 검사) */}
+      {/* 관리자 전용 그룹은 관리자에게만 보인다 (편의일 뿐, 권한은 서버가 검사) */}
     </nav>
   );
 }

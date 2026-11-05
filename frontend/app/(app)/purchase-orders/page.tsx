@@ -1,7 +1,8 @@
 "use client"; // 목록·필터를 다루는 화면이라 브라우저에서 실행
 
 import Link from "next/link"; // 상세·작성 화면 링크
-import { useEffect, useState } from "react"; // 처음 한 번 실행, 상태
+import { useSearchParams } from "next/navigation"; // 주소의 ?status= 읽기 (대시보드 숫자를 누르면 걸러진 채로 열기)
+import { Suspense, useEffect, useState } from "react"; // 주소 읽는 부품 감싸기, 처음 한 번 실행, 상태
 
 import { apiList } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, Pager, useList } from "../../lib/list"; // 목록 공통 부품
@@ -11,8 +12,18 @@ import { S } from "../../lib/styles"; // 화면 공통 스타일
 type SupplierOption = { id: number; name: string }; // 거르기 선택 상자에 쓸 공급업체
 
 // 발주 화면 (주소 /purchase-orders): 최신순 목록 + 상태·공급업체로 거르기
+// 주소의 ?status= 는 화면이 열릴 때 알 수 있어 Suspense 로 감싼다 (Next.js 가 빌드 때 미리 그리는 동안 기다릴 자리)
 export default function Page() {
-  const [status, setStatus] = useState(""); // 고른 상태 ("" 이면 전체)
+  return (
+    <Suspense fallback={<p>불러오는 중…</p>}>
+      <PurchaseOrders />
+    </Suspense>
+  );
+}
+
+function PurchaseOrders() {
+  const asked = useSearchParams().get("status") ?? ""; // 주소로 받은 상태 (예: ?status=ORDERED → "ORDERED")
+  const [status, setStatus] = useState(Object.keys(STATUS_LABEL).includes(asked) ? asked : ""); // 고른 상태. 발주 상태 5개만 초기값으로 쓰고 그 밖은 무시("" 이면 전체)
   const [supplierId, setSupplierId] = useState(""); // 고른 공급업체 ("" 이면 전체)
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]); // 공급업체 선택지
   const [error, setError] = useState<unknown>(null); // 선택지 불러오기 오류
