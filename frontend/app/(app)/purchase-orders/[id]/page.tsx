@@ -8,7 +8,7 @@ import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { useMe } from "../../../lib/me"; // 내 역할 (승인 버튼은 관리자에게만)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { fmtDate, fmtTime, lineAmount, overdueDays, PO_LABELS, PurchaseOrder, totalAmount } from "../../../lib/po"; // 발주서 모양·날짜·금액 계산
+import { fmtDate, fmtTime, lineAmount, overdueDays, PO_LABELS, PoItemSort, PurchaseOrder, remainingQuantity, totalAmount, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 표시 품목 계산
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 
@@ -18,6 +18,8 @@ const ACTIONS: Record<string, [string, string][]> = {
   APPROVED: [["order", "발주함 표시"], ["cancel", "취소"]],
   ORDERED: [["cancel", "취소"]], // 입고 등록은 아래 폼 여는 버튼이 따로 있다
 };
+
+const DEFAULT_ITEM_VIEW = { onlyOutstanding: false, sort: "registered" as PoItemSort }; // 전체 품목과 등록 순서가 기본값이다
 
 // 발주서 상세 화면 (주소 /purchase-orders/번호)
 function Detail() {
@@ -32,6 +34,7 @@ function Detail() {
   const [qty, setQty] = useState<Record<number, string>>({}); // 줄 번호 → 이번 입고 수량 (글자)
   const [date, setDate] = useState(""); // 입고일 (화면이 열린 뒤 서울 오늘로 채운다)
   const [today, setToday] = useState(""); // 입고일 상한 (미래 날짜 선택 불가)
+  const [itemView, setItemView] = useState({ scope: "", ...DEFAULT_ITEM_VIEW }); // 발주서와 상태별로 표의 선택을 기억한다
 
   const load = useCallback(async () => {
     try {
@@ -47,6 +50,11 @@ function Detail() {
     const t = seoulToday(); // 서버 렌더링 때 시각을 읽으면 빌드가 막혀 화면이 열린 뒤 채운다
     setToday(t); setDate(t); // 상한과 기본값
   }, [load]);
+
+  const itemViewScope = order ? `${order.id}:${order.status}` : ""; // 같은 발주서가 같은 상태로 다시 오면 같은 범위다
+  if (itemView.scope !== itemViewScope) { // 발주서나 상태가 바뀌는 렌더에서만 선택을 초기화한다
+    setItemView({ scope: itemViewScope, ...DEFAULT_ITEM_VIEW }); // 부분 입고 응답은 발주함 상태라 선택을 유지한다
+  } // 같은 범위에서는 사용자의 선택을 유지한다
 
   // 승인·발주함 표시·취소: 바뀐 발주서를 돌려받아 화면에 반영한다
   async function act(action: string) {
@@ -88,6 +96,8 @@ function Detail() {
   const buttons = (ACTIONS[order.status] ?? []).filter(([action]) => action !== "approve" || me?.role === "ADMIN"); // 담당자에게는 승인 버튼을 숨긴다
   const staffDraft = order.status === "DRAFT" && me?.role !== "ADMIN"; // 담당자가 본 작성 중 발주서
   const delay = overdueDays(order, today); // 입고일에 쓰는 서울 오늘 날짜로 납기 지연도 판단한다
+  const orderedStatus = order.status === "ORDERED"; // 발주함 상태에서만 품목 표를 거르거나 정렬할 수 있다
+  const shownItems = orderedStatus ? visiblePoItems(order.items, itemView.onlyOutstanding, itemView.sort) : order.items; // 화면에 그릴 배열만 가공한다
 
   return (
     <section>
@@ -144,6 +154,30 @@ function Detail() {
         </div>
       </div>
 
+      {/* 발주함 상태의 품목 표에만 조회 조작부를 표시한다. */}
+      {orderedStatus && (
+        <div style={S.toolbar}>
+          {/* 현재 필터 선택을 글자로 표시하고 입고 폼이 열리면 선택을 잠근다. */}
+          <label>품목 보기
+            <select style={S.block} disabled={receiving} value={itemView.onlyOutstanding ? "outstanding" : "all"}
+              onChange={(event) => setItemView({ ...itemView, onlyOutstanding: event.target.value === "outstanding" })}>
+              <option value="all">전체 품목</option>{/* 받은 모든 품목을 표시한다. */}
+              <option value="outstanding">미입고만 보기</option>{/* 입고 잔량이 있는 품목만 표시한다. */}
+            </select>{/* 품목 보기 선택을 닫는다. */}
+          </label>
+          {/* 정렬 방향도 글자로 표시하고 입고 폼이 열리면 선택을 잠근다. */}
+          <label>정렬
+            <select style={S.block} disabled={receiving} value={itemView.sort}
+              onChange={(event) => setItemView({ ...itemView, sort: event.target.value as PoItemSort })}>
+              <option value="registered">등록 순서</option>{/* 서버가 준 순서로 되돌린다. */}
+              <option value="name-asc">품목명순 (오름차순)</option>{/* 가나다순으로 나열한다. */}
+              <option value="name-desc">품목명순 (내림차순)</option>{/* 가나다의 역순으로 나열한다. */}
+            </select>{/* 정렬 선택을 닫는다. */}
+          </label>
+          {/* 미입고만 볼 때 전체 줄 수와 표시 줄 수를 함께 알린다. */}
+          {itemView.onlyOutstanding && <p role="status">전체 {order.items.length}품목 중 {shownItems.length}품목 표시</p>}
+        </div>
+      )}
       <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
@@ -154,8 +188,18 @@ function Detail() {
           </tr>
         </thead>
         <tbody>
-          {order.items.map((i) => {
-            const remaining = i.quantity - i.received_quantity; // 발주 수량에서 누적 입고량을 빼 남은 수량을 구한다
+          {/* 필터 결과가 비어도 아래 합계는 전체 품목 기준으로 표시한다. */}
+          {orderedStatus && itemView.onlyOutstanding && shownItems.length === 0 && (
+            <tr>
+              <td colSpan={receiving ? 7 : 6} style={S.empty}>
+                <p>조건에 맞는 품목이 없습니다.</p>{/* 미입고 필터 결과가 없음을 알린다. */}
+                {/* 다른 전환과 같이 입고 폼을 닫은 뒤 필터를 해제할 수 있다. */}
+                <button type="button" disabled={receiving} onClick={() => setItemView({ ...itemView, onlyOutstanding: false })}>필터 해제</button>
+              </td>
+            </tr>
+          )}
+          {shownItems.map((i) => { // 표시할 행만 그리며 입고 입력은 기존대로 발주 품목 ID에 연결한다
+            const remaining = remainingQuantity(i); // 필터와 같은 기준으로 입고 잔량을 구한다
             const ordered = i.quantity.toLocaleString("ko-KR"); // 발주 수량과 입고 현황에 같은 쉼표 표기를 쓴다
             return (
               <tr key={i.id} style={S.row}>

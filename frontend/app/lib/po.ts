@@ -44,6 +44,18 @@ export const totalQuantity = (order: PurchaseOrder) => order.items.reduce((sum, 
 export const lineAmount = (item: PoItem) => BigInt(item.quantity) * BigInt(item.unit_price); // 발주 당시 단가를 곱해 원 단위까지 정확히 계산한다
 export const totalAmount = (order: PurchaseOrder) => order.items.reduce((sum, item) => sum + lineAmount(item), BigInt(0)); // 모든 품목 금액을 큰 정수로 더한다
 
+export type PoItemSort = "registered" | "name-asc" | "name-desc"; // 등록 순서와 품목명 정렬의 두 방향
+
+export const remainingQuantity = (item: PoItem) => item.quantity - item.received_quantity; // 발주 수량에서 누적 입고량을 빼 남은 수량을 구한다
+
+// 표시할 행만 골라 등록 순서나 한글 품목명순으로 돌려준다.
+export function visiblePoItems(items: readonly PoItem[], onlyOutstanding: boolean, sort: PoItemSort): PoItem[] {
+  const rows = onlyOutstanding ? items.filter((item) => remainingQuantity(item) > 0) : [...items]; // 원본 대신 새 배열을 만든다
+  if (sort === "registered") return rows; // 서버가 준 등록 순서를 그대로 쓴다
+  const direction = sort === "name-asc" ? 1 : -1; // 내림차순은 이름 비교 결과의 부호를 뒤집는다
+  return rows.sort((a, b) => direction * a.product_name.localeCompare(b.product_name, "ko-KR")); // 이름이 같으면 안정 정렬로 등록 순서를 유지한다
+} // 표시용 배열 계산을 마친다
+
 // 화면에서 한 번 구한 서울 날짜와 약속 납기를 비교한다.
 export function overdueDays(order: Pick<PurchaseOrder, "status" | "due_date">, today: string): number {
   if (order.status !== "ORDERED" || !order.due_date || !today) return 0; // 발주함 상태이고 두 날짜를 모두 알 때만 계산한다
