@@ -299,3 +299,9 @@ details.reason > p {
   color: var(--color-link);
   font-weight: 500;
 }
+
+/* 대시보드 숫자 카드(#92): 카드 전체가 링크. 마우스를 올리면 테두리를 파랑으로(밑줄은 빼서 숫자가 지저분해지지 않게) */
+.kpi-card:hover {
+  border-color: var(--color-primary) !important;
+  text-decoration: none;
+}

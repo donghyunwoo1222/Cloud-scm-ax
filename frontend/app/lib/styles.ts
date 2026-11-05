@@ -30,6 +30,13 @@ export const S = {
   card: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)" }, // 흰 카드 상자
   sectionCard: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)", marginTop: "var(--space-md)" }, // 화면 안에서 항목마다 쌓는 흰 카드 (대시보드)
   sectionTitle: { marginTop: "var(--space-xl)" }, // 화면 안의 두 번째 제목
+  // 대시보드 숫자 카드 (#92)
+  kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "var(--space-md)", marginTop: "var(--space-md)" }, // 카드 줄: 칸이 모자라면 다음 줄로 (160px: 768px 화면에서도 3장이 한 줄)
+  kpiCard: { display: "flex", flexDirection: "column", gap: "var(--space-xs)", minWidth: 0, background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)", color: "var(--color-foreground)" }, // 숫자 카드 상자 (링크여도 글자는 본문색, 강조는 hover 테두리)
+  kpiLabel: { fontSize: "var(--text-sm)", fontWeight: 500, color: "var(--color-muted-foreground)" }, // 카드 이름
+  kpiValue: { fontSize: "var(--text-xl)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }, // 큰 숫자 (자릿수 폭 고정)
+  kpiSub: { fontSize: "var(--text-xs)", color: "var(--color-muted-foreground)" }, // 숫자 아래 보조 설명
+  kpiMore: { marginTop: "auto", paddingTop: "var(--space-xs)", fontSize: "var(--text-sm)", color: "var(--color-link)" }, // "… 보기 →" (카드 맨 아래로 밀어 높이가 달라도 줄을 맞춘다)
   hint: { color: "var(--color-muted-foreground)" }, // 화면 설명·보조 글자
   empty: { padding: "var(--space-lg)", textAlign: "center", color: "var(--color-muted-foreground)" }, // 목록이 비었을 때 안내
   error: { color: "var(--color-destructive)" }, // 오류 문장
