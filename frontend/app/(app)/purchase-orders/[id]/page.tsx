@@ -114,15 +114,33 @@ function Detail() {
             </dd>
           </div>
         </dl>
-        {/* 상태 변경 기록과 메모는 핵심 정보 아래에 모은다. */}
+        {/* 상태 기록은 항목명과 날짜를 칸으로 나누고 메모는 별도 줄에 둔다. */}
         <div style={S.detailMeta}>
-          <p style={S.detailHistory}>
-            <span>승인: {fmtTime(order.approved_at)}</span>
-            <span>발주함 표시: {fmtTime(order.ordered_at)}</span>
-            <span>입고 완료(실제 입고일): {fmtDate(order.received_at)}</span>
-            {order.cancelled_at && <span>취소: {fmtTime(order.cancelled_at)}</span>}
-          </p>
-          <p>메모: {order.memo ?? "-"}</p>
+          <dl style={S.detailHistory}>
+            {/* 각 기록은 좁은 화면에서도 제목과 날짜가 같은 칸에 남는다. */}
+            <div style={S.detailHistoryCell}>
+              <dt>승인</dt>
+              <dd style={S.detailHistoryValue}>{fmtTime(order.approved_at)}</dd>
+            </div>
+            <div style={S.detailHistoryCell}>
+              <dt>발주함 표시</dt>
+              <dd style={S.detailHistoryValue}>{fmtTime(order.ordered_at)}</dd>
+            </div>
+            <div style={S.detailHistoryCell}>
+              <dt>실제 입고일</dt>
+              <dd style={S.detailHistoryValue}>{fmtDate(order.received_at)}</dd>
+            </div>
+            {order.cancelled_at && (
+              <div style={S.detailHistoryCell}>
+                <dt>취소</dt>
+                <dd style={S.detailHistoryValue}>{fmtTime(order.cancelled_at)}</dd>
+              </div>
+            )}
+          </dl>
+          <dl style={S.detailMemo}>
+            <dt>메모</dt>
+            <dd style={S.detailHistoryValue}>{order.memo ?? "-"}</dd>
+          </dl>
         </div>
       </div>
 

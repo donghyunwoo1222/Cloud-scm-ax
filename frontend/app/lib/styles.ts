@@ -36,7 +36,10 @@ export const S = {
   detailLabel: { color: "var(--color-muted-foreground)", fontSize: "var(--text-sm)" }, // 핵심 값 위의 작은 항목 이름
   detailValue: { margin: 0, fontSize: "var(--text-lg)", fontWeight: 700, overflowWrap: "anywhere" }, // 값은 크게 보여주고 긴 업체명도 카드 안에서 줄바꿈
   detailMeta: { marginTop: "var(--space-md)", paddingTop: "var(--space-sm)", borderTop: "1px solid var(--color-border)", color: "var(--color-muted-foreground)", fontSize: "var(--text-sm)", overflowWrap: "anywhere" }, // 기록과 메모를 구분선 아래에 배치
-  detailHistory: { display: "flex", flexWrap: "wrap", gap: "var(--space-xs) var(--space-md)" }, // 각 기록을 날짜와 함께 묶고 공간이 부족하면 다음 줄에 표시
+  detailHistory: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 11rem), 1fr))", gap: "var(--space-sm)", margin: 0 }, // 기록을 같은 너비의 칸에 두고 화면이 좁으면 칸을 아래로 보낸다
+  detailHistoryCell: { padding: "var(--space-sm) var(--space-md)", borderRadius: "var(--radius-sm)", background: "var(--color-hover)" }, // 연한 배경으로 승인·발주·입고 기록을 구분한다
+  detailHistoryValue: { margin: "var(--space-xs) 0 0", color: "var(--color-foreground)", fontWeight: 500 }, // 항목명 아래 날짜나 메모를 본문색으로 강조한다
+  detailMemo: { margin: "var(--space-md) 0 0", paddingInline: "var(--space-md)" }, // 메모는 날짜 칸 아래에서 가로 폭 전체를 쓴다
   hint: { color: "var(--color-muted-foreground)" }, // 화면 설명·보조 글자
   empty: { padding: "var(--space-lg)", textAlign: "center", color: "var(--color-muted-foreground)" }, // 목록이 비었을 때 안내
   error: { color: "var(--color-destructive)" }, // 오류 문장
