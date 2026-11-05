@@ -83,7 +83,8 @@ export default function Page() {
     filter(setProductId, String(id));
     const title = historyTitle.current;
     if (!title) return;
-    title.scrollIntoView({ block: "start" }); // 바로 이동 (부드러운 스크롤은 확인한 환경에서 움직이지 않아 쓰지 않았다. 움직임이 없어 "움직임 줄이기" 설정과도 충돌하지 않는다)
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches; // OS 의 "움직임 줄이기" 설정이 켜져 있으면 스르륵 대신 바로 이동
+    title.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); // 아래로 스르륵 내려간다
     title.focus({ preventScroll: true }); // 키보드·낭독기 사용자도 이력 영역으로 따라오게 (스크롤은 위에서 이미 했다)
   }
 
