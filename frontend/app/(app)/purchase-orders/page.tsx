@@ -21,9 +21,16 @@ export default function Page() {
   );
 }
 
+// 주소의 status 를 읽어 목록 부품에 넘긴다. key 를 status 로 주어, 화면이 열린 채(Next.js 가 보관한 화면) 다른 status 링크로 다시 들어와도
+// 목록 부품을 새로 만들어 초기값이 다시 적용되게 한다 (useState 초기값은 처음 만들 때 한 번만 쓰인다)
 function PurchaseOrders() {
   const asked = useSearchParams().get("status") ?? ""; // 주소로 받은 상태 (예: ?status=ORDERED → "ORDERED")
-  const [status, setStatus] = useState(Object.keys(STATUS_LABEL).includes(asked) ? asked : ""); // 고른 상태. 발주 상태 5개만 초기값으로 쓰고 그 밖은 무시("" 이면 전체)
+  const initial = Object.keys(STATUS_LABEL).includes(asked) ? asked : ""; // 발주 상태 5개만 초기값으로 쓰고 그 밖은 무시("" 이면 전체)
+  return <PurchaseOrdersBody key={initial} initialStatus={initial} />; // status 가 바뀔 때만 새로 만든다 (화면 안에서 필터를 바꾸는 건 주소를 안 바꾸므로 그대로)
+}
+
+function PurchaseOrdersBody({ initialStatus }: { initialStatus: string }) {
+  const [status, setStatus] = useState(initialStatus); // 고른 상태 ("" 이면 전체). 처음 값은 주소에서
   const [supplierId, setSupplierId] = useState(""); // 고른 공급업체 ("" 이면 전체)
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]); // 공급업체 선택지
   const [error, setError] = useState<unknown>(null); // 선택지 불러오기 오류

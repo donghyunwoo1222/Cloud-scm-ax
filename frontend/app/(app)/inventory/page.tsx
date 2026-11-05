@@ -37,9 +37,16 @@ export default function Page() {
   );
 }
 
+// 주소의 status 를 읽어 목록 부품에 넘긴다. key 를 status 로 주어, 화면이 열린 채(Next.js 가 보관한 화면) 다른 status 링크로 다시 들어와도
+// 목록 부품을 새로 만들어 초기값이 다시 적용되게 한다 (useState 초기값은 처음 만들 때 한 번만 쓰인다)
 function Inventory() {
   const asked = useSearchParams().get("status") ?? ""; // 주소로 받은 상태 (예: /inventory?status=SHORTAGE → "SHORTAGE")
-  const [status, setStatus] = useState(Object.keys(STATUS_LABEL).includes(asked) ? asked : ""); // 재고 목록 상태 필터. 허용된 3개만 초기값으로 쓰고 그 밖은 무시("" 이면 전체)
+  const initial = Object.keys(STATUS_LABEL).includes(asked) ? asked : ""; // 허용된 3개만 초기값으로 쓰고 그 밖은 무시("" 이면 전체)
+  return <InventoryBody key={initial} initialStatus={initial} />; // status 가 바뀔 때만 새로 만든다 (화면 안에서 필터를 바꾸는 건 주소를 안 바꾸므로 그대로)
+}
+
+function InventoryBody({ initialStatus }: { initialStatus: string }) {
+  const [status, setStatus] = useState(initialStatus); // 고른 상태 ("" 이면 전체). 처음 값은 주소에서
   const stock = useList<Stock>("/stock", { status }); // 재고 목록 (20개씩, 비활성 포함 선택, 상태로 거르기)
   const [products, setProducts] = useState<ProductOption[]>([]); // 이력 필터의 품목 선택지 (비활성 포함)
   const [productId, setProductId] = useState(""); // 이력 필터: 품목
