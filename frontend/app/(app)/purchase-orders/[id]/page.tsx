@@ -156,32 +156,39 @@ function Detail() {
 
       {/* 발주함 상태의 품목 표에만 조회 조작부를 표시한다. */}
       {orderedStatus && (
-        <div style={S.toolbar}>
-          {/* 두 필터를 항상 보여주고 입고 폼이 열리면 함께 잠근다. */}
-          <fieldset style={S.detailFilterGroup} disabled={receiving}>
-            <legend>품목 보기</legend>{/* 키보드와 화면 읽기 도구에서 선택지의 이름을 알 수 있게 한다. */}
-            <div style={S.detailFilterOptions}>
-              {/* 전체 품목을 고르면 입고 잔량에 관계없이 모든 줄을 보여준다. */}
-              <label><input type="radio" name="po-item-view" checked={!itemView.onlyOutstanding} onChange={() => setItemView({ ...itemView, onlyOutstanding: false })} /> 전체 품목</label>
-              {/* 미입고만 보기를 고르면 잔량이 있는 줄만 보여준다. */}
-              <label><input type="radio" name="po-item-view" checked={itemView.onlyOutstanding} onChange={() => setItemView({ ...itemView, onlyOutstanding: true })} /> 미입고만 보기</label>
-            </div>
-          </fieldset>
-          {/* 정렬 방향도 글자로 표시하고 입고 폼이 열리면 선택을 잠근다. */}
-          <label>정렬
-            <select style={S.block} disabled={receiving} value={itemView.sort}
-              onChange={(event) => setItemView({ ...itemView, sort: event.target.value as PoItemSort })}>
-              <option value="registered">등록 순서</option>{/* 서버가 준 순서로 되돌린다. */}
-              <option value="name-asc">품목명순 (오름차순)</option>{/* 가나다순으로 나열한다. */}
-              <option value="name-desc">품목명순 (내림차순)</option>{/* 가나다의 역순으로 나열한다. */}
-            </select>{/* 정렬 선택을 닫는다. */}
-          </label>
+        <div style={S.detailTableToolbar}>
+          {/* 두 필터를 붙여 놓고 눌린 상태를 화면 읽기 도구에도 전달한다. */}
+          <div role="group" aria-label="품목 보기" style={S.detailFilterGroup}>
+            {[false, true].map((onlyOutstanding) => { // 전체 품목과 미입고만 보기 버튼을 차례로 만든다
+              const selected = itemView.onlyOutstanding === onlyOutstanding; // 현재 보기와 일치하는 버튼만 선택 상태다
+              return (
+                // 입고 폼을 열면 필터를 잠그고 선택 표시는 유지한다.
+                <button key={String(onlyOutstanding)} type="button" disabled={receiving} aria-pressed={selected}
+                  style={{ ...S.detailFilterButton, ...(selected ? S.detailFilterSelected : {}) }}
+                  onClick={() => setItemView({ ...itemView, onlyOutstanding })}>
+                  {/* 선택한 쪽만 체크를 보여 주되 두 버튼의 폭은 유지한다. */}
+                  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ visibility: selected ? "visible" : "hidden" }}>
+                    <path d="m3 8 3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  {onlyOutstanding ? "미입고만 보기" : "전체 품목"}{/* 각 필터가 무엇을 보여주는지 글자로 표시한다. */}
+                </button>
+              ); // 필터 버튼 하나를 반환한다
+            })}
+          </div>
+          {/* 정렬 상자는 선택지에 필요한 너비만 차지하고 입고 중에는 잠긴다. */}
+          <select aria-label="품목 정렬" style={{ maxWidth: "100%" }} disabled={receiving} value={itemView.sort}
+            onChange={(event) => setItemView({ ...itemView, sort: event.target.value as PoItemSort })}>
+            <option value="registered">등록 순서</option>{/* 서버가 준 순서로 되돌린다. */}
+            <option value="name-asc">품목명순 (오름차순)</option>{/* 가나다순으로 나열한다. */}
+            <option value="name-desc">품목명순 (내림차순)</option>{/* 가나다의 역순으로 나열한다. */}
+          </select>
           {/* 미입고만 볼 때 전체 줄 수와 표시 줄 수를 함께 알린다. */}
-          {itemView.onlyOutstanding && <p role="status">전체 {order.items.length}품목 중 {shownItems.length}품목 표시</p>}
+          {itemView.onlyOutstanding && <p role="status" style={S.detailTableCount}>전체 {order.items.length}품목 중 {shownItems.length}품목 표시</p>}
         </div>
       )}
       <div style={S.tableBox}>
-      <table style={S.table}>
+      {/* 조작부가 있는 발주서에서는 표 윗여백을 없애 서로 붙인다. */}
+      <table style={orderedStatus ? { ...S.table, marginTop: 0 } : S.table}>
         <thead>
           <tr style={S.headRow}>
             {/* 수량·단가·금액과 입고 현황을 품목별로 나란히 배치한다. */}
