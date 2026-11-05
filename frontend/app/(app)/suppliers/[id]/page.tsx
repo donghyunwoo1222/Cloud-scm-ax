@@ -7,6 +7,7 @@ import { Suspense, useEffect, useState } from "react"; // 처음 한 번 실행,
 import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, Pager, useList } from "../../../lib/list"; // 목록 공통 부품
 import { fmtDate, PurchaseOrder, STATUS_LABEL } from "../../../lib/po"; // 발주서 모양·상태 이름·날짜 표시
+import { StatusBadge } from "../../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/suppliers/{id} 중 이 화면이 쓰는 칸
@@ -30,7 +31,7 @@ function Detail() {
       <ErrorText error={error} />
       {supplier && (
         <p>
-          리드타임 {supplier.lead_time_days}일 · 담당자 {supplier.contact_name ?? "-"} · 연락처 {supplier.phone ?? "-"} · 이메일 {supplier.email ?? "-"} · {supplier.is_active ? "활성" : "비활성"}
+          리드타임 {supplier.lead_time_days}일 · 담당자 {supplier.contact_name ?? "-"} · 연락처 {supplier.phone ?? "-"} · 이메일 {supplier.email ?? "-"} · {supplier.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}
         </p>
       )}
 

@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react"; // 폼 제출, 상태
 
 import { api } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
+import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/suppliers 의 한 행
@@ -124,7 +125,7 @@ export default function SuppliersPage() {
               <td style={S.num}>{s.lead_time_days}일</td>
               <td>{s.contact_name ?? "-"}</td>
               <td style={S.nowrap}>{s.phone ?? "-"}</td>
-              <td style={S.nowrap}>{s.is_active ? "활성" : "비활성"}</td>
+              <td style={S.nowrap}>{s.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}</td>
               <td style={S.nowrap}>
                 <button type="button" onClick={() => startEdit(s)}>수정</button>{" "}
                 {s.is_active
