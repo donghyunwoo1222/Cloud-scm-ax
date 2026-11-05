@@ -49,7 +49,7 @@ function Detail() {
                 {/* 발주서 첫 줄에만 구분선·발주 정보를 보인다 (단가는 줄마다 다르다) */}
                 <td>{index === 0 ? <Link href={`/purchase-orders/${o.id}`}>{o.po_number}</Link> : ""}</td>
                 <td>{index === 0 ? STATUS_LABEL[o.status] : ""}</td>
-                <td>{i.product_sku} · {i.product_name}</td>
+                <td><span style={S.nowrap}>{i.product_sku}</span> · {i.product_name}</td>
                 <td style={S.num}>{i.quantity}</td>
                 <td style={S.num}>{i.unit_price}</td>
                 <td style={S.nowrap}>{index === 0 ? (o.due_date ?? "-") : ""}</td>

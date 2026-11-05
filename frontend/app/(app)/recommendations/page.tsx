@@ -111,7 +111,7 @@ export default function Page() {
       {items.length === 0 ? <p style={S.empty}>지금 발주가 필요한 품목이 없습니다.</p> : (
         <div style={S.tableBox}>
           {/* 표가 화면보다 넓으면 이 상자 안에서만 가로로 스크롤된다 */}
-        <table style={S.table}>
+        <table style={S.tableWide}>
           <thead>
             <tr style={S.headRow}>
               <th colSpan={3} />
@@ -161,8 +161,17 @@ export default function Page() {
                     <span style={S.sub}>추천 {i.recommended_quantity}</span>
                     {/* 기본값은 추천 수량, 사용자가 고칠 수 있다 */}
                   </td>
-                  <td style={{ ...S.wideCol, ...cell }}>{i.reason}</td>
-                  {/* 이유 문구는 서버가 준 문장 그대로 (줄바꿈 유지, 칸이 너무 좁아지지 않게 최소 폭) */}
+                  <td style={{ ...S.wideCol, ...cell }}>
+                    <details className="reason">
+                      {/* 접힌 상태: 화면에 이미 있는 값(가용재고·재주문점·추천 수량)으로 만든 한 줄 요약. 펼치면 서버가 준 전체 문장 */}
+                      <summary>
+                        <span style={S.nowrap}>가용 {i.available} ≤ 재주문점 {fmt(i.reorder_point)} → {i.recommended_quantity}개 추천</span>
+                        <span className="more"><span className="when-closed">자세히</span><span className="when-open">접기</span></span>
+                      </summary>
+                      <p>{i.reason}</p>
+                    </details>
+                  </td>
+                  {/* 이유 전체 문장은 서버가 준 그대로 (백엔드 문장 틀은 바꾸지 않는다) */}
                 </tr>
               );
             })}
