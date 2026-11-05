@@ -53,6 +53,12 @@ export function MovementForm({ types }: { types: MovementType[] }) {
   }, []);
 
   useEffect(() => {
+    if (!done) return; // 안내가 없으면 할 일 없음
+    const timer = setTimeout(() => setDone(""), 8000); // 약 8초 뒤 성공 안내를 지운다
+    return () => clearTimeout(timer); // 그 전에 안내가 바뀌거나 화면을 떠나면 이전 타이머는 취소
+  }, [done]);
+
+  useEffect(() => {
     if (!productId) return; // 품목을 안 골랐으면 조회하지 않는다 (표시도 아래에서 숨긴다)
     let alive = true; // 품목을 빨리 바꿀 때 늦게 온 이전 응답을 버리려는 표시
     api<{ current_stock: number }>(`/stock/${productId}`).then((s) => alive && setStock(s.current_stock)).catch(() => alive && setStock(null));
@@ -64,6 +70,9 @@ export function MovementForm({ types }: { types: MovementType[] }) {
     if (sending.current) return; // 이미 등록 중이면 두 번째 제출은 버린다
     sending.current = true; // 즉시 잠금
     setBusy(true); // 버튼 잠금·글자 변경
+    setDone(""); // 다음 등록을 누르면 이전 성공 안내는 지운다
+    const sku = products.find((p) => String(p.id) === productId)?.sku ?? ""; // 등록 직전에 품목 SKU 를 잡아 둔다 (응답을 기다리는 동안 선택이 바뀌어도 안내는 이 등록 기준)
+    const label = `${sku} ${TYPE_LABEL[type]} ${quantity}개`; // 예: "KB-101 입고 5개" (유형·수량도 등록 직전 값)
     const body: Record<string, unknown> = {
       product_id: productId === "" ? null : Number(productId), // 비우면 null → 서버가 422
       movement_type: type,
@@ -76,7 +85,7 @@ export function MovementForm({ types }: { types: MovementType[] }) {
     try {
       const r = await api<{ stock_after: number }>("/inventory-movements", { method: "POST", body });
       setError(null);
-      setDone(`등록했습니다. 현재고는 ${r.stock_after}개입니다.`); // 서버가 돌려준 등록 직후 재고
+      setDone(`${label}를 등록했습니다 · 현재고 ${r.stock_after}개`); // 예: "KB-101 입고 5개를 등록했습니다 · 현재고 27개" (현재고는 서버가 돌려준 등록 직후 값)
       setStock(r.stock_after); // 품목 아래 현재고도 바로 갱신
       setQuantity(""); setReason(""); setMemo(""); // 다음 입력을 위해 비운다 (품목·유형·날짜는 유지)
       setSavedCount((n) => n + 1); // 방금 등록한 줄이 최근 이력 맨 위에 보이도록 다시 불러오게 한다
@@ -149,6 +158,7 @@ export function MovementForm({ types }: { types: MovementType[] }) {
 // 최근 이력 한 줄: GET /inventory-movements 응답 중 이 표가 쓰는 칸
 type Recent = {
   id: number; // 이력 번호 (표의 줄 구분용)
+  product_id: number; // 품목 번호 (지금 재고를 찾는 데 쓴다)
   product_sku: string | null; product_name: string | null; // 품목 SKU·이름 (이력 조회가 채워 준다)
   movement_type: string; direction: "IN" | "OUT"; // 유형, 늘림·줄임
   quantity: number; movement_date: string; // 수량, 입출고일
@@ -162,15 +172,21 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
   const typesKey = types.join(","); // 유형 묶음을 글자 하나로 만든다 (아래 함수의 의존성으로 쓰기 쉽게)
   const [rows, setRows] = useState<Recent[] | null>(null); // 불러온 줄 (불러오기 전에는 null)
   const [loadError, setLoadError] = useState<unknown>(null); // 이력 불러오기 오류 (등록 폼의 오류와 따로 둔다)
+  const [stockNow, setStockNow] = useState<Map<number, number>>(new Map()); // 품목 번호 → 지금 현재고 (못 불러오면 비어 있어 "-")
   const latest = useRef(0); // 가장 마지막으로 보낸 요청 번호 (늦게 도착한 이전 응답을 버리는 데 쓴다)
 
   const load = useCallback(async () => {
     const mine = ++latest.current; // 이 요청의 번호를 정한다
     const params = new URLSearchParams({ sort: "registered", page_size: "10" }); // 등록 순서 최신순, 10건
     typesKey.split(",").forEach((t) => params.append("movement_type", t)); // 유형을 하나씩 반복해 붙인다 (한 요청에 여러 유형)
+    // shortcut: 재고는 최신 품목 100개까지만 불러온다(서버 page_size 최대). 그보다 오래된 품목은 "-". 넘으면 품목별 조회 API 를 검토
+    const stockReq = apiList<{ product_id: number; current_stock: number }>("/stock?page_size=100&include_inactive=true")
+      .then((s) => new Map(s.data.map((x) => [x.product_id, x.current_stock] as [number, number]))) // 품목 번호로 찾기 쉽게 바꾼다
+      .catch(() => new Map<number, number>()); // 재고를 못 불러와도 이력은 보여 주고 열만 "-"
     try {
-      const r = await apiList<Recent>(`/inventory-movements?${params}`); // 이력 조회
+      const [r, stocks] = await Promise.all([apiList<Recent>(`/inventory-movements?${params}`), stockReq]); // 이력과 재고를 함께 불러온다
       if (mine !== latest.current) return; // 더 새로운 요청이 있으면 이 응답은 버린다
+      setStockNow(stocks); // 지금 재고 열 값
       setRows(r.data); // 불러온 줄을 보여 준다
       setLoadError(null); // 이전 실패 안내를 지운다
     } catch (e) {
@@ -197,13 +213,16 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
       {rows === null && loadError === null && <p style={S.hint}>불러오는 중…</p>}
       {rows !== null && rows.length === 0 && <p style={S.empty}>아직 등록한 이력이 없습니다.</p>}
       {rows !== null && rows.length > 0 && (
+        <>
+        <p style={S.hint}>현재고(지금) 열은 각 줄 등록 후 재고가 아니라 지금 재고입니다.</p>
+        {/* 오해를 막는 설명을 표 바로 위에 늘 보이게 둔다 (마우스를 올려야 보이는 방식은 쓰지 않는다) */}
         <div style={S.tableBox}>
           <table style={S.table}>
             <thead>
               <tr style={S.headRow}>
                 <th>{isReceipt ? "입고일" : "출고일"}</th><th>품목</th>
                 {!isReceipt && <th>유형</th>}
-                <th style={S.num}>수량</th><th>메모</th>
+                <th style={S.num}>수량</th><th style={S.num}>현재고(지금)</th><th>메모</th>
               </tr>
             </thead>
             <tbody>
@@ -220,6 +239,8 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
                   )}
                   <td style={S.num}>{m.direction === "IN" ? "+" : "−"}{m.quantity}</td>
                   {/* 늘면 +, 줄면 − (실사 조정은 방향이 둘 다 있다) */}
+                  <td style={S.num}>{stockNow.get(m.product_id) ?? "-"}</td>
+                  {/* 이 품목의 지금 재고 (재고 목록에 없거나 못 불러왔으면 "-") */}
                   <td>
                     {m.purchase_order_item_id !== null && <StatusBadge kind="info">발주 입고</StatusBadge>}
                     {/* 발주 화면에서 들어온 줄은 "발주 입고" 배지로 구분한다 */}
@@ -232,6 +253,7 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
             </tbody>
           </table>
         </div>
+        </>
       )}
     </section>
   );
