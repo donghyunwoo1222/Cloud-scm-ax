@@ -13,42 +13,50 @@ export function useList<T>(basePath: string, filters: Record<string, string> = {
   const [rows, setRows] = useState<T[]>([]); // 이 쪽의 행들
   const [meta, setMeta] = useState<Meta | null>(null); // 쪽 정보 (전체 개수 등)
   const [error, setError] = useState<unknown>(null); // 불러오기 오류
+  const [settledPath, setSettledPath] = useState(""); // 마지막으로 응답을 받은 목록 주소
   const latestRequest = useRef(0); // 조건을 연달아 바꿨을 때 최신 요청을 구분한다
   const filterKey = JSON.stringify(filters); // 추가 조건(예: 상태·공급업체)을 글자로 바꿔 비교한다 (객체는 매번 새로 만들어져 그대로 비교할 수 없다)
 
+  const params = new URLSearchParams({ page: String(page) }); // 쿼리 문자열 만들기 (예: page=2&q=유통)
+  if (q) params.set("q", q); // 검색어가 있을 때만
+  for (const [key, value] of Object.entries(JSON.parse(filterKey) as Record<string, string>)) if (value) params.set(key, value); // 값이 있는 추가 조건만
+  if (includeInactive) params.set("include_inactive", "true"); // 비활성 포함일 때만
+  const path = `${basePath}?${params}`; // 현재 조건을 한 주소로 나타낸다
+  const activePath = useRef(path); // 다른 작업이 끝나 재조회할 때도 그때의 최신 조건을 쓴다
+
   const reload = useCallback(async () => {
+    const requestedPath = activePath.current; // 이번 요청이 조회할 조건을 기록한다
     const request = ++latestRequest.current; // 요청마다 새 번호를 붙인다
-    const params = new URLSearchParams({ page: String(page) }); // 쿼리 문자열 만들기 (예: page=2&q=유통)
-    if (q) params.set("q", q); // 검색어가 있을 때만
-    for (const [key, value] of Object.entries(JSON.parse(filterKey) as Record<string, string>)) if (value) params.set(key, value); // 값이 있는 추가 조건만
-    if (includeInactive) params.set("include_inactive", "true"); // 비활성 포함일 때만
     try {
-      const result = await apiList<T>(`${basePath}?${params}`); // 서버에서 한 쪽 가져오기
+      const result = await apiList<T>(requestedPath); // 서버에서 한 쪽 가져오기
       if (request !== latestRequest.current) return; // 뒤늦게 도착한 이전 필터 결과는 무시한다
       setRows(result.data); // 행 바꾸기
       setMeta(result.meta); // 쪽 정보 바꾸기
       setError(null); // 이전 오류 지우기
     } catch (e) {
       if (request === latestRequest.current) setError(e); // 현재 조건의 오류만 보여준다
+    } finally {
+      if (request === latestRequest.current) setSettledPath(requestedPath); // 현재 조건의 응답만 완료로 표시한다
     }
-  }, [basePath, page, q, includeInactive, filterKey]);
+  }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 목록을 서버에서 불러와 상태에 넣는 것이 이 효과의 목적이다
+    activePath.current = path; // 재조회도 현재 필터와 쪽 번호로 요청한다
     reload(); // 처음 열 때와 쪽·검색어·필터가 바뀔 때마다 다시 불러온다
-  }, [reload]);
+    return () => { latestRequest.current += 1; }; // 조건이 바뀌거나 화면을 닫으면 진행 중인 응답을 무효화한다
+  }, [path, reload]);
 
   // 검색어·필터가 바뀌면 1쪽부터 다시 본다
-  function search(nextQ: string) {
+  const search = useCallback((nextQ: string) => {
     setQ(nextQ.trim()); // 앞뒤 공백 제거
-    setPage(1);
-  }
+    setPage(1); // 검색 조건의 첫 쪽을 조회한다
+  }, []);
   function toggleInactive(value: boolean) {
     setIncludeInactive(value);
     setPage(1);
   }
 
-  return { rows, meta, error, page, setPage, includeInactive, search, toggleInactive, reload };
+  return { rows, meta, error, page, setPage, includeInactive, search, toggleInactive, reload, q, isCurrent: settledPath === path }; // 응답이 현재 조건의 것인지도 알려준다
 }
 
 // 검색창 + "비활성 포함" 선택 (onSearch 를 주지 않으면 검색창은 숨긴다: 검색이 없는 목록 API 용)
@@ -58,25 +66,29 @@ export function ListControls({
   onSearch, // 검색 실행
   onToggleInactive, // 비활성 포함 바꾸기
   tableFilter, // 검색과 비활성 사이에 넣을 표 필터
+  searchInput, // 부모가 검색 입력과 지우기를 직접 관리할 때 사용한다
 }: {
   placeholder?: string;
   includeInactive: boolean;
   onSearch?: (q: string) => void;
   onToggleInactive: (value: boolean) => void;
   tableFilter?: ReactNode; // 필터를 넘긴 화면에서만 표 도구막대 스타일을 쓴다
+  searchInput?: { value: string; onChange: (value: string) => void; maxLength: number }; // 입력값·변경 함수·글자 수 상한
 }) {
-  const [text, setText] = useState(""); // 입력 중인 검색어 (검색 버튼을 눌러야 적용)
+  const [text, setText] = useState(""); // 부모가 관리하지 않는 화면의 검색 입력
+  const value = searchInput?.value ?? text; // 관리 주체에 맞는 값을 사용한다
 
   function submit(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
-    onSearch?.(text); // 검색 적용
+    onSearch?.(value); // 검색 버튼을 누르거나 Enter를 치면 입력값으로 검색한다
   }
 
   return (
     <form onSubmit={submit} style={tableFilter ? S.tableToolbar : S.searchBar}>
       {onSearch && (
         <>
-          <input value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} aria-label="검색어" style={tableFilter ? { maxWidth: "100%" } : undefined} />
+          {/* 재고 화면은 입력을 받아 지연 검색하고 다른 화면은 기존 제출 방식으로 검색한다. */}
+          <input value={value} maxLength={searchInput?.maxLength} onChange={(e) => (searchInput?.onChange ?? setText)(e.target.value)} placeholder={placeholder} aria-label="검색어" style={tableFilter ? { maxWidth: "100%" } : undefined} />
           <button type="submit">검색</button>
         </>
       )}
