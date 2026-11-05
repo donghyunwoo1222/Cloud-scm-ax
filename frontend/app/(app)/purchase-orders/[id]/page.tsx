@@ -96,8 +96,9 @@ function Detail() {
   const buttons = (ACTIONS[order.status] ?? []).filter(([action]) => action !== "approve" || me?.role === "ADMIN"); // 담당자에게는 승인 버튼을 숨긴다
   const staffDraft = order.status === "DRAFT" && me?.role !== "ADMIN"; // 담당자가 본 작성 중 발주서
   const delay = overdueDays(order, today); // 입고일에 쓰는 서울 오늘 날짜로 납기 지연도 판단한다
-  const orderedStatus = order.status === "ORDERED"; // 발주함 상태에서만 품목 표를 거르거나 정렬할 수 있다
-  const shownItems = orderedStatus ? visiblePoItems(order.items, itemView.onlyOutstanding, itemView.sort) : order.items; // 화면에 그릴 배열만 가공한다
+  const orderedStatus = order.status === "ORDERED"; // 발주함 상태에서만 미입고 필터를 보여준다
+  const isFiltered = orderedStatus && itemView.onlyOutstanding; // 미입고 필터는 발주함 상태에서만 적용한다
+  const shownItems = visiblePoItems(order.items, isFiltered, itemView.sort); // 모든 상태에서 표에 그릴 배열만 정렬한다
 
   return (
     <section>
@@ -154,10 +155,10 @@ function Detail() {
         </div>
       </div>
 
-      {/* 발주함 상태의 품목 표에만 조회 조작부를 표시한다. */}
-      {orderedStatus && (
-        <div style={S.detailTableToolbar}>
-          {/* 두 필터를 붙여 놓고 눌린 상태를 화면 읽기 도구에도 전달한다. */}
+      {/* 모든 상태의 품목 표에 같은 정렬 조작부를 표시한다. */}
+      <div style={S.detailTableToolbar}>
+        {/* 발주함 상태에서는 필터 두 개를 붙이고 눌린 상태를 화면 읽기 도구에도 전달한다. */}
+        {orderedStatus && (
           <div role="group" aria-label="품목 보기" style={S.detailFilterGroup}>
             {[false, true].map((onlyOutstanding) => { // 전체 품목과 미입고만 보기 버튼을 차례로 만든다
               const selected = itemView.onlyOutstanding === onlyOutstanding; // 현재 보기와 일치하는 버튼만 선택 상태다
@@ -175,20 +176,20 @@ function Detail() {
               ); // 필터 버튼 하나를 반환한다
             })}
           </div>
-          {/* 정렬 상자는 선택지에 필요한 너비만 차지하고 입고 중에는 잠긴다. */}
-          <select aria-label="품목 정렬" style={{ maxWidth: "100%" }} disabled={receiving} value={itemView.sort}
-            onChange={(event) => setItemView({ ...itemView, sort: event.target.value as PoItemSort })}>
-            <option value="registered">등록 순서</option>{/* 서버가 준 순서로 되돌린다. */}
-            <option value="name-asc">품목명순 (오름차순)</option>{/* 가나다순으로 나열한다. */}
-            <option value="name-desc">품목명순 (내림차순)</option>{/* 가나다의 역순으로 나열한다. */}
-          </select>
-          {/* 미입고만 볼 때 전체 줄 수와 표시 줄 수를 함께 알린다. */}
-          {itemView.onlyOutstanding && <p role="status" style={S.detailTableCount}>전체 {order.items.length}품목 중 {shownItems.length}품목 표시</p>}
-        </div>
-      )}
+        )}
+        {/* 정렬 상자는 선택지에 필요한 너비만 차지하고 입고 중에는 잠긴다. */}
+        <select aria-label="품목 정렬" style={{ maxWidth: "100%" }} disabled={receiving} value={itemView.sort}
+          onChange={(event) => setItemView({ ...itemView, sort: event.target.value as PoItemSort })}>
+          <option value="registered">등록 순서</option>{/* 서버가 준 순서로 되돌린다. */}
+          <option value="name-asc">품목명순 (오름차순)</option>{/* 가나다순으로 나열한다. */}
+          <option value="name-desc">품목명순 (내림차순)</option>{/* 가나다의 역순으로 나열한다. */}
+        </select>
+        {/* 미입고만 볼 때 전체 줄 수와 표시 줄 수를 함께 알린다. */}
+        {isFiltered && <p role="status" style={S.detailTableCount}>전체 {order.items.length}품목 중 {shownItems.length}품목 표시</p>}
+      </div>
       <div style={S.tableBox}>
-      {/* 조작부가 있는 발주서에서는 표 윗여백을 없애 서로 붙인다. */}
-      <table style={orderedStatus ? { ...S.table, marginTop: 0 } : S.table}>
+      {/* 표 윗여백을 없애 조작부와 붙인다. */}
+      <table style={{ ...S.table, marginTop: 0 }}>
         <thead>
           <tr style={S.headRow}>
             {/* 수량·단가·금액과 입고 현황을 품목별로 나란히 배치한다. */}
@@ -198,7 +199,7 @@ function Detail() {
         </thead>
         <tbody>
           {/* 필터 결과가 비어도 아래 합계는 전체 품목 기준으로 표시한다. */}
-          {orderedStatus && itemView.onlyOutstanding && shownItems.length === 0 && (
+          {isFiltered && shownItems.length === 0 && (
             <tr>
               <td colSpan={receiving ? 7 : 6} style={S.empty}>
                 <p>조건에 맞는 품목이 없습니다.</p>{/* 미입고 필터 결과가 없음을 알린다. */}
