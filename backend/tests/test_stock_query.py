@@ -143,3 +143,90 @@ def test_movements_include_product_name_and_sku(client, world, data):
     login_as(client)
     row = client.get(MOVES, params={"product_id": data["p1"].id}).json()["data"][0]
     assert row["product_sku"] == "P1" and row["product_name"] == "P1"
+
+
+# ----- 이력: 유형 여러 개·등록순 정렬 (#90) -----
+def ids(response):
+    """응답 줄들의 번호 목록 (순서 확인용)."""
+    return [m["id"] for m in response.json()["data"]]
+
+
+def test_movements_multiple_types(client, world, data, session):
+    """movement_type 을 여러 번 보내면 그중 하나인 이력이 모두 나온다. 예전처럼 마지막 값만 적용되면 안 된다."""
+    add_move(session, world, "a", data["p1"], "DISPOSAL", "OUT", 1)
+    session.commit()
+    login_as(client)
+    got = client.get(MOVES, params={"movement_type": ["SALE", "ADJUSTMENT"]}).json()
+    assert got["meta"]["total"] == 3  # 판매 1 + 조정 2 (마지막 값 ADJUSTMENT 만 적용되면 2)
+    assert {m["movement_type"] for m in got["data"]} == {"SALE", "ADJUSTMENT"}
+    out = client.get(MOVES, params={"movement_type": ["SALE", "DISPOSAL", "OTHER_OUT", "ADJUSTMENT"]}).json()  # 출고 화면이 쓸 묶음
+    assert out["meta"]["total"] == 4 and {m["movement_type"] for m in out["data"]} == {"SALE", "DISPOSAL", "ADJUSTMENT"}
+    assert client.get(MOVES, params={"movement_type": ["SALE", "SALE"]}).json()["meta"]["total"] == 1  # 같은 값을 두 번 보내도 한 번 센다
+
+
+def test_movements_single_type_unchanged(client, world, data):
+    """값이 하나일 때는 예전과 같다 (그 유형만, 기본 정렬)."""
+    login_as(client)
+    one = client.get(MOVES, params={"movement_type": "RECEIPT"})
+    same = client.get(MOVES, params={"movement_type": ["RECEIPT"]})
+    assert ids(one) == ids(same) and one.json()["meta"]["total"] == 2  # 회사 A 입고: p1 입고와 비활성 p3 입고
+    assert {m["movement_type"] for m in one.json()["data"]} == {"RECEIPT"}
+
+
+def test_movements_invalid_type_is_422(client, world, data):
+    """잘못된 유형은 다른 값이 섞여 있어도 422 (조용히 무시하지 않는다)."""
+    login_as(client)
+    assert client.get(MOVES, params={"movement_type": "BOGUS"}).status_code == 422
+    assert client.get(MOVES, params={"movement_type": ["SALE", "BOGUS"]}).status_code == 422
+    assert client.get(MOVES, params={"sort": "newest"}).status_code == 422  # 정렬 옵션도 정해진 값만
+
+
+def test_movements_sort_registered_puts_backdated_row_first(client, world, data, session):
+    """등록순 정렬: 과거 입출고일로 방금 등록한 줄이 맨 위. 옵션을 안 쓰면 입출고일 순이라 맨 아래."""
+    old = add_move(session, world, "a", data["p1"], "SALE", "OUT", 1, seoul_today() - timedelta(days=60))
+    session.commit()  # 따로 확정해야 이전 줄들과 다른 등록 시각이 된다
+    login_as(client)
+    default = ids(client.get(MOVES, params={"product_id": data["p1"].id}))
+    registered = ids(client.get(MOVES, params={"product_id": data["p1"].id, "sort": "registered"}))
+    assert default[-1] == old.id  # 기본: 60일 전 입출고일이라 맨 아래
+    assert registered[0] == old.id  # 등록순: 가장 나중에 등록했으니 맨 위
+    assert sorted(default) == sorted(registered)  # 줄 구성은 같다
+    assert ids(client.get(MOVES, params={"sort": "date"})) == ids(client.get(MOVES))  # sort=date 는 기본과 같다
+
+
+def test_movements_sort_registered_uses_created_at_not_id(client, world, data, session):
+    """등록순은 번호가 아니라 created_at 이 기준. 번호는 큰데 등록 시각이 더 이른 줄은 뒤로 간다."""
+    first = add_move(session, world, "a", data["p2"], "SALE", "OUT", 1)
+    second = add_move(session, world, "a", data["p2"], "SALE", "OUT", 2)
+    second.created_at = first.created_at - timedelta(days=1)  # 번호는 second 가 크지만 등록 시각은 하루 이르다
+    session.commit()
+    login_as(client)
+    assert ids(client.get(MOVES, params={"product_id": data["p2"].id, "sort": "registered"})) == [first.id, second.id]
+    assert ids(client.get(MOVES, params={"product_id": data["p2"].id})) == [second.id, first.id]  # 기본 정렬은 같은 날 번호 큰 것 먼저
+
+
+def test_movements_new_options_keep_company_isolation(client, world, data, session):
+    """유형 여러 개·등록순을 써도 다른 회사 이력은 섞이지 않는다."""
+    add_move(session, world, "b", data["b1"], "SALE", "OUT", 5)
+    add_move(session, world, "b", data["b1"], "DISPOSAL", "OUT", 5)
+    session.commit()
+    login_as(client)
+    got = client.get(MOVES, params={"movement_type": ["SALE", "DISPOSAL", "RECEIPT"], "sort": "registered", "page_size": 100}).json()
+    assert all(m["product_id"] != data["b1"].id for m in got["data"])  # B 의 판매·폐기·입고(999) 모두 안 보임
+    assert got["meta"]["total"] == 3  # A: 입고 2(p1, 비활성 p3) + 판매 1
+    assert client.get(MOVES, params={"product_id": data["b1"].id, "movement_type": ["SALE", "DISPOSAL"]}).json()["meta"]["total"] == 0
+
+
+def test_movements_new_options_with_paging(client, world, data, session):
+    """유형 여러 개 + 등록순 + 쪽 나누기: 쪽마다 겹치거나 빠지는 줄이 없고 순서가 이어진다."""
+    for qty in range(1, 6):  # 판매 5줄을 각각 확정해 등록 시각을 다르게
+        add_move(session, world, "a", data["p2"], "SALE", "OUT", qty)
+        session.commit()
+    login_as(client)
+    params = {"movement_type": ["SALE", "ADJUSTMENT"], "sort": "registered"}
+    whole = client.get(MOVES, params={**params, "page_size": 100}).json()
+    assert whole["meta"]["total"] == 8  # 판매 1 + 5, 조정 2
+    pages = [client.get(MOVES, params={**params, "page_size": 3, "page": n}) for n in (1, 2, 3, 4)]
+    assert [p.json()["meta"]["total"] for p in pages] == [8, 8, 8, 8]
+    assert [len(p.json()["data"]) for p in pages] == [3, 3, 2, 0]
+    assert [i for p in pages for i in ids(p)] == [m["id"] for m in whole["data"]]  # 쪽을 이어 붙이면 전체와 같다

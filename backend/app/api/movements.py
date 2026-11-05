@@ -1,7 +1,7 @@
 """입출고 등록·정정 경로 (F4). 관리자·담당자 모두 사용. 이력 수정·삭제 경로는 없다(잘못 넣은 건 정정으로)."""
 
 from datetime import date  # 기간 칸
-from typing import Annotated  # 타입에 부가 정보를 붙이는 도구
+from typing import Annotated, Literal  # 타입에 부가 정보를 붙이는 도구, 정해진 값 중 하나
 
 from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
 
@@ -28,13 +28,14 @@ def list_movements(
     db: DB,
     page: Page,
     product_id: QueryId = None,  # 이 품목만 (비활성 품목의 이력도 볼 수 있다)
-    movement_type: Annotated[MovementTypeFilter | None, Query()] = None,  # 이 유형만 (정정 CORRECTION 포함)
+    movement_type: Annotated[list[MovementTypeFilter] | None, Query()] = None,  # 이 유형들만 (정정 CORRECTION 포함). 여러 개는 movement_type=SALE&movement_type=DISPOSAL, 잘못된 값은 422
     date_from: Annotated[date | None, Query()] = None,  # 이 날짜부터 (포함)
     date_to: Annotated[date | None, Query()] = None,  # 이 날짜까지 (포함)
+    sort: Annotated[Literal["date", "registered"], Query()] = "date",  # date: 입출고일 최신순(기본), registered: 등록 순서 최신순
 ) -> dict:
     if date_from and date_to and date_from > date_to:  # 거꾸로 된 기간은 빈 결과 대신 422 로 알려준다
         raise AppError(422, "VALIDATION_ERROR", "시작일은 종료일보다 늦을 수 없습니다.", [{"field": "date_from", "reason": "invalid"}])
-    rows, meta = stock_service.list_movements(user.company_id, db, page, product_id, movement_type, date_from, date_to)
+    rows, meta = stock_service.list_movements(user.company_id, db, page, product_id, movement_type, date_from, date_to, sort)
     products = {p.id: p for p in products_service.products_by_ids(user.company_id, db, {m.product_id for m in rows})}  # 품목명·SKU 를 한 번에
     data = []
     for m in rows:

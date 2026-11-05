@@ -44,7 +44,7 @@
 | F3 | GET /products/{id}, PATCH /products/{id} | 상세, 수정·비활성 | 둘 다 |
 | F4 입출고 | POST /inventory-movements | 직접 입고, 출고(판매·폐기·기타), 재고 조정 등록. movement\_type으로 구분 | 둘 다 |
 | F4 | POST /inventory-movements/{id}/corrections | 잘못 넣은 이력 {id}를 정정(CORRECTION 등록) | 둘 다 |
-| F4 | GET /inventory-movements | 이력 조회(품목·유형·기간 필터) | 둘 다 |
+| F4 | GET /inventory-movements | 이력 조회(품목·유형(여러 개 가능)·기간 필터, 정렬: 입출고일순 또는 등록순) | 둘 다 |
 | F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 안전재고. 발주 진행 중 수량(`in_transit`), 상태(`status`: 가용재고 ≤ 재주문점이면 SHORTAGE, 추천 제외 품목은 UNKNOWN + `status_reason`, 비활성은 null, 추천과 같은 계산, #76). `?status=`로 거르기 | 둘 다 |
 | F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status` 필터, #36), DRAFT 발주서 만들기(직접) | 둘 다 |
 | F6 | GET /purchase-orders/{id}, PATCH /purchase-orders/{id} | 상세, DRAFT 일 때만 품목·수량 수정 | 둘 다 |
@@ -114,6 +114,17 @@
 예) 판매 100개(#51)를 잘못 넣고 정정 90개를 보내면, 재고는 −10만큼만 줄고 30일 판매 합계는 10이 된다(S13). 성공 응답은 출고 등록과 같다(201, 이력과 `stock_after`).
 
 정정 이력의 `movement_date`는 원래 이력의 날짜를 따른다(날짜로 묶는 집계가 따로 챙기지 않아도 맞게, 고친 시각은 `created_at`). 실사 조정(ADJUSTMENT)도 정정할 수 있다. 발주 없는 직접 입고의 정정은 상태 검사 없이 재고 검사만 한다. 잠금 순서는 발주서 → 품목이다(발주 입고와 같은 순서로 교착 방지). 같은 원래 이력에 대한 동시 정정도 품목 줄 잠금으로 한 줄로 세워 합계가 원래 수량을 넘지 않는다(#30, 임시 확정).
+
+### 2-1) 이력 조회: GET /inventory-movements
+
+쿼리(모두 선택): `product_id`, `movement_type`, `date_from`, `date_to`, `sort`, 공통 `page`·`page_size`(기본 20, 최대 100).
+
+- `movement_type`은 **여러 번** 보낼 수 있다. `movement_type=SALE&movement_type=DISPOSAL`이면 그 유형들 중 하나인 이력이 나온다(OR). 값이 하나면 예전과 같이 그 유형만. 같은 값을 두 번 보내도 한 번으로 센다. 값은 RECEIPT·SALE·DISPOSAL·OTHER\_OUT·ADJUSTMENT·CORRECTION 중 하나이고, 그 밖의 값은 하나만 섞여 있어도 422 `VALIDATION_ERROR`(예전에는 여러 번 보내면 오류 없이 마지막 값만 적용됐다)
+- `sort`는 `date`(기본) 또는 `registered`. `date`는 입출고일 최신순(같은 날은 번호가 큰, 나중에 등록한 줄 먼저). `registered`는 등록 순서 최신순(`created_at`, 같은 시각이면 번호가 큰 줄 먼저)이라 **과거 날짜로 방금 등록한 줄도 맨 위**에 온다. 그 밖의 값은 422
+- 기간은 양 끝 날짜를 포함하고, 시작일이 종료일보다 늦으면 422. 비활성 품목의 이력도 보인다. 우리 회사 이력만 나온다(다른 회사 번호로 걸러도 빈 목록)
+- 응답은 `{"data": [...], "meta": {page, page_size, total}}`. 각 줄에 품목 `product_sku`·`product_name`, `purchase_order_item_id`(발주 입고면 값이 있다), 정정이면 `reverses_movement_id`가 들어 있다
+
+예) 출고 등록 화면의 최근 출고 10건: `GET /inventory-movements?movement_type=SALE&movement_type=DISPOSAL&movement_type=OTHER_OUT&movement_type=ADJUSTMENT&sort=registered&page_size=10`
 
 ### 3) 발주 입고: POST /purchase-orders/{id}/receipts
 

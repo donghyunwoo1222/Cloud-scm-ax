@@ -183,16 +183,26 @@ def stock_rows(company_id: int, db: Session, products: list[Product]) -> list[di
 
 def list_movements(
     company_id: int, db: Session, page: PageParams,
-    product_id: int | None, movement_type: str | None, date_from: date | None, date_to: date | None,
+    product_id: int | None, movement_types: list[str] | None, date_from: date | None, date_to: date | None,
+    sort: str = "date",
 ) -> tuple[list[InventoryMovement], dict]:
-    """GET /inventory-movements: 우리 회사 이력, 입출고일 최신순(같은 날은 나중에 등록한 것 먼저). 기간은 양 끝 날짜 포함."""
+    """GET /inventory-movements: 우리 회사 이력. 기간은 양 끝 날짜 포함.
+
+    movement_types: 이 유형들 중 하나인 이력 (None 이면 전체. 값이 하나면 예전의 "이 유형만"과 같다).
+    sort="date"(기본): 입출고일 최신순, 같은 날은 나중에 등록한 것 먼저.
+    sort="registered": 등록 순서 최신순(created_at, 같은 시각이면 번호가 큰 것 먼저) - 과거 날짜로 방금 등록한 줄도 맨 위에 온다.
+    """
     stmt = scoped(company_id, InventoryMovement)  # 회사 조건이 붙은 시작점
     if product_id is not None:
         stmt = stmt.where(InventoryMovement.product_id == product_id)  # 이 품목만
-    if movement_type is not None:
-        stmt = stmt.where(InventoryMovement.movement_type == movement_type)  # 이 유형만
+    if movement_types:
+        stmt = stmt.where(InventoryMovement.movement_type.in_(movement_types))  # 이 유형들 중 하나 (예: SALE, DISPOSAL)
     if date_from is not None:
         stmt = stmt.where(InventoryMovement.movement_date >= date_from)  # 이 날짜부터
     if date_to is not None:
         stmt = stmt.where(InventoryMovement.movement_date <= date_to)  # 이 날짜까지
-    return paginate(db, stmt.order_by(InventoryMovement.movement_date.desc(), InventoryMovement.id.desc()), page)
+    if sort == "registered":
+        order = (InventoryMovement.created_at.desc(), InventoryMovement.id.desc())  # 등록 순서 최신순
+    else:
+        order = (InventoryMovement.movement_date.desc(), InventoryMovement.id.desc())  # 입출고일 최신순 (기본)
+    return paginate(db, stmt.order_by(*order), page)
