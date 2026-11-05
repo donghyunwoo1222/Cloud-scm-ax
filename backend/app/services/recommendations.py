@@ -135,13 +135,17 @@ def list_recommendations(company_id: int, db: Session, today: date) -> dict:
 def create_drafts(company_id: int, db: Session, user_id: int, today: date, data: DraftCreate) -> list[tuple[PurchaseOrder, bool]]:
     """POST /recommendations/drafts: 품목들을 공급업체별 DRAFT 1장에 담는다. (발주서, 새로 만들었는지) 목록을 돌려준다.
 
-    ① 요청 검사 → ② 추천을 서버가 다시 계산(화면이 보낸 추천 수량은 받지 않는다) → ③ 회사 행 잠금
-    → ④ 공급업체마다 기존 DRAFT 를 잠가 품목 추가(created: false), 없으면 새로 만들기(created: true).
+    ① 잠금(회사 → 회사의 DRAFT 발주서들 → 요청 품목, 잠금 순서 규칙) → ② 요청 검사 → ③ 추천을 서버가 다시 계산
+    (화면이 보낸 추천 수량은 받지 않는다) → ④ 공급업체마다 기존 DRAFT 에 품목 추가(created: false), 없으면 새로 만들기(created: true).
+    잠근 **뒤에** 검사·계산한다(#84): 계산과 저장 사이에 그 품목의 입고·비활성 변경이 끼어들 수 없다(그런 요청은 품목 잠금을 기다린다).
     하나라도 막히면 409 로 끝나고, commit 전이라 앞에서 만든 초안도 함께 취소된다.
     """
-    check_items(company_id, db, data.items, keep=set())  # ① 같은 품목 두 줄 409 DUPLICATE_ITEM, 다른 회사 404, 비활성 품목 409
+    db.execute(select(Company.id).where(Company.id == company_id).with_for_update())  # ① 회사 행 잠금: 동시 요청이 한 줄로 서서 업체당 DRAFT 1장·발주번호가 안 겹친다
+    drafts = {o.supplier_id: o for o in db.scalars(scoped(company_id, PurchaseOrder).where(
+        PurchaseOrder.status == "DRAFT").order_by(PurchaseOrder.id).with_for_update())}  # 회사의 DRAFT 를 번호 순으로 잠금 (업체당 1장이라 많지 않다)
+    check_items(company_id, db, data.items, keep=set(), lock=True)  # ① 품목 번호 순 잠금 → ② 같은 품목 두 줄 409, 다른 회사 404, 비활성 품목 409 (최신 값)
     quantity = {i.product_id: i.quantity for i in data.items}  # 품목 id → 사용자가 고친 발주 수량
-    rows = calculate_for(company_id, db, today, list(quantity))  # ② 조회 5번 + 순수 함수로 다시 계산
+    rows = calculate_for(company_id, db, today, list(quantity))  # ③ 잠근 뒤 조회 5번 + 순수 함수로 다시 계산
     not_recommended = []  # 지금은 추천 대상이 아닌 품목들
     for product, supplier, _, _, result in rows:
         if not supplier.is_active:  # 기본 공급업체가 비활성이면 새 발주에 못 쓴다 (MISSING_INFO 와 같은 경우)
@@ -154,17 +158,15 @@ def create_drafts(company_id: int, db: Session, user_id: int, today: date, data:
                        f"지금은 추천 대상이 아닌 품목이 있습니다({', '.join(n['sku'] for n in not_recommended)}). 추천 목록을 새로 불러오세요.",
                        not_recommended)
 
-    db.execute(select(Company.id).where(Company.id == company_id).with_for_update())  # ③ 회사 행 잠금: 동시 요청이 한 줄로 서서 업체당 DRAFT 1장·발주번호가 안 겹친다
     by_supplier = defaultdict(list)  # 공급업체 id → [(품목, 계산 결과)]
     suppliers = {}  # 공급업체 id → 공급업체
     for product, supplier, _, _, result in rows:
         by_supplier[supplier.id].append((product, result))
         suppliers[supplier.id] = supplier
     out = []  # (발주서, 새로 만들었는지)
-    for supplier_id in sorted(by_supplier):  # ④ 발주서도 번호 순으로 잠근다 (잠금 순서: 회사 → 발주서)
+    for supplier_id in sorted(by_supplier):  # ④ 공급업체 번호 순으로 처리
         supplier, lines = suppliers[supplier_id], by_supplier[supplier_id]
-        order = db.scalar(scoped(company_id, PurchaseOrder).where(
-            PurchaseOrder.supplier_id == supplier_id, PurchaseOrder.status == "DRAFT").with_for_update())  # 이 업체의 기존 DRAFT (잠근 뒤 읽는다)
+        order = drafts.get(supplier_id)  # 이 업체의 기존 DRAFT (①에서 잠근 것. 새 DRAFT 는 회사 잠금 없이 생기지 않는다)
         created = order is None  # 없으면 새로 만든다 (S9), 있으면 품목만 추가 (S10)
         if created:
             order = PurchaseOrder(

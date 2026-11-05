@@ -4,7 +4,7 @@ from fastapi import APIRouter  # 라우터
 
 from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
 from app.clock import seoul_today  # 서울 기준 오늘
-from app.db import DB  # 요청마다 DB 세션
+from app.db import DB, ReadDB  # 요청마다 DB 세션, 조회용은 한 시점 세션 (#84)
 from app.schemas.recommendations import DraftCreate  # 초안 만들기 요청 모양
 from app.services import purchase_orders as po_service  # 발주서 응답 모양 (build_out)
 from app.services import recommendations as recommendation_service  # 추천 조회·초안 만들기
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/recommendations")  # 이 파일의 경로는 모두 
 
 
 @router.get("")  # 추천 목록 (요청이 올 때 계산, 저장하지 않음)
-def list_recommendations(user: CurrentUser, db: DB) -> dict:
+def list_recommendations(user: CurrentUser, db: ReadDB) -> dict:  # 현재고·진행 중 수량을 같은 시점에서 읽는다
     return {"data": recommendation_service.list_recommendations(user.company_id, db, seoul_today())}  # 회사는 토큰에서, 오늘은 서울 기준 한 번
 
 
