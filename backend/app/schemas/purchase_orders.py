@@ -50,6 +50,7 @@ class ItemOut(BaseModel):
     product_id: int  # 품목
     product_sku: str  # 품목 SKU
     product_name: str  # 품목명
+    unit: str  # 품목 단위 (품목 마스터의 현재 값, 개·박스 등)
     quantity: int  # 발주 수량
     unit_price: int  # 발주 단가
     recommended_quantity: int | None  # 추천으로 만든 줄이면 당시 추천 수량
