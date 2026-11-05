@@ -1,6 +1,6 @@
 "use client"; // 상태·입력을 다루는 화면 부품이라 브라우저에서 실행
 
-import { FormEvent, useCallback, useEffect, useState } from "react"; // 폼 제출, 함수 기억, 처음·변경 시 실행, 상태
+import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 추가 필터 요소, 함수 기억, 요청 번호 보관, 상태
 
 import { apiList, ApiError, Meta } from "./api"; // 목록 API 호출, 서버 오류, 쪽 정보
 import { S } from "./styles"; // 화면 공통 스타일
@@ -13,20 +13,23 @@ export function useList<T>(basePath: string, filters: Record<string, string> = {
   const [rows, setRows] = useState<T[]>([]); // 이 쪽의 행들
   const [meta, setMeta] = useState<Meta | null>(null); // 쪽 정보 (전체 개수 등)
   const [error, setError] = useState<unknown>(null); // 불러오기 오류
+  const latestRequest = useRef(0); // 조건을 연달아 바꿨을 때 최신 요청을 구분한다
   const filterKey = JSON.stringify(filters); // 추가 조건(예: 상태·공급업체)을 글자로 바꿔 비교한다 (객체는 매번 새로 만들어져 그대로 비교할 수 없다)
 
   const reload = useCallback(async () => {
+    const request = ++latestRequest.current; // 요청마다 새 번호를 붙인다
     const params = new URLSearchParams({ page: String(page) }); // 쿼리 문자열 만들기 (예: page=2&q=유통)
     if (q) params.set("q", q); // 검색어가 있을 때만
     for (const [key, value] of Object.entries(JSON.parse(filterKey) as Record<string, string>)) if (value) params.set(key, value); // 값이 있는 추가 조건만
     if (includeInactive) params.set("include_inactive", "true"); // 비활성 포함일 때만
     try {
       const result = await apiList<T>(`${basePath}?${params}`); // 서버에서 한 쪽 가져오기
+      if (request !== latestRequest.current) return; // 뒤늦게 도착한 이전 필터 결과는 무시한다
       setRows(result.data); // 행 바꾸기
       setMeta(result.meta); // 쪽 정보 바꾸기
       setError(null); // 이전 오류 지우기
     } catch (e) {
-      setError(e); // 화면에 보여줄 오류
+      if (request === latestRequest.current) setError(e); // 현재 조건의 오류만 보여준다
     }
   }, [basePath, page, q, includeInactive, filterKey]);
 
@@ -54,11 +57,13 @@ export function ListControls({
   includeInactive, // 지금 비활성 포함 여부
   onSearch, // 검색 실행
   onToggleInactive, // 비활성 포함 바꾸기
+  tableFilter, // 검색과 비활성 사이에 넣을 표 필터
 }: {
   placeholder?: string;
   includeInactive: boolean;
   onSearch?: (q: string) => void;
   onToggleInactive: (value: boolean) => void;
+  tableFilter?: ReactNode; // 필터를 넘긴 화면에서만 표 도구막대 스타일을 쓴다
 }) {
   const [text, setText] = useState(""); // 입력 중인 검색어 (검색 버튼을 눌러야 적용)
 
@@ -68,14 +73,15 @@ export function ListControls({
   }
 
   return (
-    <form onSubmit={submit} style={S.searchBar}>
+    <form onSubmit={submit} style={tableFilter ? S.tableToolbar : S.searchBar}>
       {onSearch && (
         <>
-          <input value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} aria-label="검색어" />
+          <input value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} aria-label="검색어" style={tableFilter ? { maxWidth: "100%" } : undefined} />
           <button type="submit">검색</button>
         </>
       )}
-      <label style={S.inlineLabel}>
+      {tableFilter}{/* 지정한 화면에서만 추가 필터를 표시한다. */}
+      <label style={tableFilter ? undefined : S.inlineLabel}>
         <input type="checkbox" checked={includeInactive} onChange={(e) => onToggleInactive(e.target.checked)} /> 비활성 포함
       </label>
     </form>

@@ -12,10 +12,13 @@ from app.services.tenant import check_ref, get_owned, scoped  # 회사 분리 �
 
 
 def list_products(
-    company_id: int, db: Session, page: PageParams, include_inactive: bool, q: str | None
+    company_id: int, db: Session, page: PageParams, include_inactive: bool, q: str | None,
+    *, default_supplier_id: int | None = None,  # 기본 공급업체를 지정한 호출만 필터를 적용한다
 ) -> tuple[list, dict]:
     """우리 회사 품목 목록. 최신순, 기본은 활성만, q 는 SKU 또는 품목명 부분 일치(대소문자 무시)."""
     stmt = scoped(company_id, Product)  # 회사 조건이 붙은 시작점
+    if default_supplier_id is not None:  # 공급업체가 선택됐으면
+        stmt = stmt.where(Product.default_supplier_id == default_supplier_id)  # 쪽을 자르기 전에 업체에 속한 품목만 남긴다
     if not include_inactive:  # 비활성 포함을 요청하지 않았으면
         stmt = stmt.where(Product.is_active.is_(True))  # 활성만
     if q and q.strip():  # 검색어가 있으면

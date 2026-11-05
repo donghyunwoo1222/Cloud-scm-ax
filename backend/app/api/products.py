@@ -8,7 +8,7 @@ from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
 from app.db import DB  # 요청마다 DB 세션
 from app.models import Product, Supplier  # 품목, 공급업체 표
 from app.pagination import Page  # page·page_size
-from app.schemas.common import PathId  # 번호 칸 (DB 범위를 넘으면 422, #71)
+from app.schemas.common import PathId, QueryId  # 경로·목록의 번호 칸 (DB 범위를 넘으면 422)
 from app.schemas.products import (  # 요청·응답 모양
     ProductCreate,
     ProductOut,
@@ -43,8 +43,11 @@ def list_products(
     page: Page,
     include_inactive: Annotated[bool, Query()] = False,  # true 면 비활성 포함 (기본은 숨김)
     q: Annotated[str | None, Query(max_length=100)] = None,  # SKU·품목명 검색어
+    default_supplier_id: QueryId = None,  # 선택한 기본 공급업체 번호
 ) -> dict:
-    rows, meta = products_service.list_products(user.company_id, db, page, include_inactive, q)  # 회사는 토큰 사용자에게서
+    rows, meta = products_service.list_products(
+        user.company_id, db, page, include_inactive, q, default_supplier_id=default_supplier_id,  # 회사는 토큰에서, 업체는 필터에서 읽는다
+    )
     suppliers = products_service.suppliers_of(user.company_id, db, rows)  # 기본 공급업체를 한 번에
     return {"data": [out(p, suppliers[p.default_supplier_id]) for p in rows], "meta": meta}
 
