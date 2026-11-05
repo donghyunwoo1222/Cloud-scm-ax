@@ -32,7 +32,6 @@ export const S = {
   sectionTitle: { marginTop: "var(--space-xl)" }, // 화면 안의 두 번째 제목
   // 대시보드 숫자 카드 (#92)
   kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "var(--space-md)", marginTop: "var(--space-md)" }, // 카드 줄: 칸이 모자라면 다음 줄로 (160px: 768px 화면에서도 3장이 한 줄)
-  kpiRow4: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "var(--space-sm)" }, // 진행 중 발주 타일 4개: 폭이 좁아도 항상 한 줄
   kpiCard: { display: "flex", flexDirection: "column", gap: "var(--space-xs)", minWidth: 0, background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)", color: "var(--color-foreground)" }, // 숫자 카드 상자 (링크여도 글자는 본문색, 강조는 hover 테두리)
   kpiLabel: { fontSize: "var(--text-sm)", fontWeight: 500, color: "var(--color-muted-foreground)" }, // 카드 이름
   kpiValue: { fontSize: "var(--text-xl)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }, // 큰 숫자 (자릿수 폭 고정)

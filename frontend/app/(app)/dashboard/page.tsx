@@ -33,8 +33,7 @@ function NumberCard({ label, value, sub, href, more }: { label: string; value: s
       {/* 큰 숫자 (예: 5건) */}
       {sub && <span style={S.kpiSub}>{sub}</span>}
       {/* 보조 설명 (예: 입고 예정 155개) */}
-      {href && <span style={S.kpiMore}>{more ?? "목록 보기"} →</span>}
-      {/* 마우스를 올리지 않아도 눌리는 카드임을 글자로 보인다 */}
+      {more && <span style={S.kpiMore}>{more} →</span>}{/* 카드마다 어디로 가는지 다른 문구로 알린다 */}
     </>
   );
   return href
@@ -84,27 +83,27 @@ export default function Page() {
       <div role="group" aria-label="오늘 확인할 일" style={S.kpiGrid}>
         <NumberCard label="발주 추천" value={`${won(shortage.count)}건`} sub="재고 부족 품목 수와 같습니다" href="/recommendations" more="발주 추천 보기" />
         {/* 1. 지금 발주할 품목 수 (부족 판정과 추천은 같은 계산이라 새로 계산하지 않는다) */}
-        <NumberCard label="입고 대기 발주" value={`${won(po.ordered)}건`} sub={`입고 예정 ${won(po.incoming_quantity)}개`} href="/purchase-orders?status=ORDERED" />
-        {/* 2. 발주를 보냈고 물건이 들어올 차례인 발주서 */}
+        <NumberCard label="입고 대기 발주" value={`${won(po.ordered)}건`} sub={`입고 예정 ${won(po.incoming_quantity)}개`} href="/purchase-orders?status=ORDERED" more="입고 대기 발주 보기" />{/* 발주함 상태로 걸러진 목록으로 이동한다 */}
         {me?.role === "ADMIN" && (
-          <NumberCard label="승인 대기" value={`${won(po.draft)}건`} sub="작성 중인 발주서 (승인은 관리자만)" href="/purchase-orders?status=DRAFT" />
+          <NumberCard label="승인 대기" value={`${won(po.draft)}건`} sub="작성 중인 발주서 (승인은 관리자만)" href="/purchase-orders?status=DRAFT" more="승인 대기 발주 보기" />
         )}
         {/* 3-관리자: 내가 승인해야 할 발주서 */}
         {me?.role === "STAFF" && (
-          <NumberCard label="승인됨" value={`${won(po.approved)}건`} sub="승인되어 발주를 보낼 차례" href="/purchase-orders?status=APPROVED" />
+          <NumberCard label="승인됨" value={`${won(po.approved)}건`} sub="승인되어 발주를 보낼 차례" href="/purchase-orders?status=APPROVED" more="승인된 발주 보기" />
         )}
         {/* 3-담당자: 승인이 나서 공급업체에 보낼 발주서 */}
       </div>
 
       <h2 style={S.sectionTitle}>진행 중 발주</h2>
-      <div style={S.kpiRow4}>
-        {/* 타일 4개는 폭이 좁아도 항상 한 줄 (사용자 결정: 부족 품목 표 바로 위) */}
-        <NumberCard label="작성 중" value={`${won(po.draft)}건`} href="/purchase-orders?status=DRAFT" />
-        <NumberCard label="승인됨" value={`${won(po.approved)}건`} href="/purchase-orders?status=APPROVED" />
-        <NumberCard label="발주함" value={`${won(po.ordered)}건`} href="/purchase-orders?status=ORDERED" />
-        <NumberCard label="입고 예정 수량" value={`${won(po.incoming_quantity)}개`} sub="발주함 발주서의 아직 안 들어온 수량" href="/purchase-orders?status=ORDERED" />
-        {/* 숫자를 누르면 그 상태로 걸러진 발주 목록 (사용자 결정: 표 대신 눌리는 숫자 카드) */}
-      </div>
+      <Link href="/purchase-orders" className="kpi-card" style={S.kpiCard} aria-labelledby="all-purchase-orders" aria-describedby="purchase-order-flow incoming-quantity">{/* 카드 한 장을 발주 전체 목록에 연결한다 */}
+        <div id="purchase-order-flow" style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "var(--space-sm)" }}>{/* 폭이 모자라면 단계 단위로 줄을 바꾼다 */}
+          <span style={S.nowrap}>작성 중 <strong style={S.kpiValue}>{won(po.draft)}건</strong></span>{/* 작성 중 건수를 한 덩어리로 표시한다 */}
+          <span style={S.nowrap}><span aria-hidden="true">→ </span>승인됨 <strong style={S.kpiValue}>{won(po.approved)}건</strong></span>{/* 화살표는 보조기기에서 숨기고 다음 단계와 함께 줄을 바꾼다 */}
+          <span style={S.nowrap}><span aria-hidden="true">→ </span>발주함 <strong style={S.kpiValue}>{won(po.ordered)}건</strong></span>{/* 발주함 건수와 단위를 붙여 표시한다 */}
+        </div>{/* 세 단계의 현황 표시를 닫는다 */}
+        <span id="incoming-quantity" style={S.kpiSub}>입고 예정 수량 <strong style={S.nowrap}>{won(po.incoming_quantity)}개</strong> (발주함 발주서의 아직 안 들어온 수량)</span>{/* 미입고 수량과 단위가 갈라지지 않게 한다 */}
+        <span id="all-purchase-orders" style={S.kpiMore}>발주 목록 전체 보기 →</span>{/* 카드에 보이는 문구를 보조기기의 링크 이름으로도 쓴다 */}
+      </Link>
 
       {/* 항목마다 흰 카드 한 장. 카드 안 제목(h2)은 위 여백을 없앤다 */}
       <div style={S.sectionCard}>
@@ -132,8 +131,7 @@ export default function Page() {
                 <tbody>
                   {shortage.items.map((i) => (
                     <tr key={i.product_id} style={bodyRow(true)}>
-                      <td style={S.nowrap}><Link href="/recommendations">{i.sku}</Link></td>
-                      {/* 누르면 발주 추천 화면으로 (거기서 초안을 만든다) */}
+                      <td style={S.nowrap}>{i.sku}</td>{/* 같은 추천 화면으로 연결되는 SKU 링크를 없애고 식별자만 보여 준다 */}
                       <td>{i.name}</td>
                       <td style={S.num}>{i.current_stock.toLocaleString()}{i.unit}</td>
                       <td style={S.num}>{i.available.toLocaleString()}</td>
@@ -145,8 +143,7 @@ export default function Page() {
               </table>
             </div>
             {shortage.count > shortage.items.length && <p style={S.hint}>최신 품목 {shortage.items.length}개만 보입니다.</p>}
-            <p><Link href="/recommendations">발주 추천에서 초안 만들기</Link> · <Link href="/inventory?status=SHORTAGE">재고 현황에서 보기</Link></p>
-            {/* 부족 품목에서 발주 작성·재고 현황(부족으로 걸러진 목록)으로 이동 (F7 완료 기준) */}
+            <p><Link href="/inventory?status=SHORTAGE">재고 현황에서 보기</Link></p>{/* 표 아래에서는 부족으로 걸러진 재고 현황만 연결한다 */}
           </>
         )}
       </div>
