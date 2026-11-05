@@ -40,6 +40,9 @@ export const S = {
   detailHistoryCell: { padding: "var(--space-sm) var(--space-md)", borderRadius: "var(--radius-sm)", background: "var(--color-hover)" }, // 연한 배경으로 승인·발주·입고 기록을 구분한다
   detailHistoryValue: { margin: "var(--space-xs) 0 0", color: "var(--color-foreground)", fontWeight: 500 }, // 항목명 아래 날짜나 메모를 본문색으로 강조한다
   detailMemo: { margin: "var(--space-md) 0 0", paddingInline: "var(--space-md)" }, // 메모는 날짜 칸 아래에서 가로 폭 전체를 쓴다
+  detailFilterGroup: { border: 0, margin: 0, padding: 0, minWidth: 0 }, // 표 필터 선택지를 기본 테두리 없이 묶는다
+  detailFilterOptions: { display: "flex", flexWrap: "wrap", gap: "var(--space-sm)", marginTop: "var(--space-xs)" }, // 품목 보기 선택지를 나란히 두고 좁으면 줄을 바꾼다
+  receiptDateField: { maxWidth: "12rem" }, // 입고일 입력이 날짜에 필요한 너비만 차지하게 한다
 
   // 대시보드 숫자 카드 (#92)
   kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "var(--space-md)", marginTop: "var(--space-md)" }, // 카드 줄: 칸이 모자라면 다음 줄로 (160px: 768px 화면에서도 3장이 한 줄)

@@ -157,14 +157,16 @@ function Detail() {
       {/* 발주함 상태의 품목 표에만 조회 조작부를 표시한다. */}
       {orderedStatus && (
         <div style={S.toolbar}>
-          {/* 현재 필터 선택을 글자로 표시하고 입고 폼이 열리면 선택을 잠근다. */}
-          <label>품목 보기
-            <select style={S.block} disabled={receiving} value={itemView.onlyOutstanding ? "outstanding" : "all"}
-              onChange={(event) => setItemView({ ...itemView, onlyOutstanding: event.target.value === "outstanding" })}>
-              <option value="all">전체 품목</option>{/* 받은 모든 품목을 표시한다. */}
-              <option value="outstanding">미입고만 보기</option>{/* 입고 잔량이 있는 품목만 표시한다. */}
-            </select>{/* 품목 보기 선택을 닫는다. */}
-          </label>
+          {/* 두 필터를 항상 보여주고 입고 폼이 열리면 함께 잠근다. */}
+          <fieldset style={S.detailFilterGroup} disabled={receiving}>
+            <legend>품목 보기</legend>{/* 키보드와 화면 읽기 도구에서 선택지의 이름을 알 수 있게 한다. */}
+            <div style={S.detailFilterOptions}>
+              {/* 전체 품목을 고르면 입고 잔량에 관계없이 모든 줄을 보여준다. */}
+              <label><input type="radio" name="po-item-view" checked={!itemView.onlyOutstanding} onChange={() => setItemView({ ...itemView, onlyOutstanding: false })} /> 전체 품목</label>
+              {/* 미입고만 보기를 고르면 잔량이 있는 줄만 보여준다. */}
+              <label><input type="radio" name="po-item-view" checked={itemView.onlyOutstanding} onChange={() => setItemView({ ...itemView, onlyOutstanding: true })} /> 미입고만 보기</label>
+            </div>
+          </fieldset>
           {/* 정렬 방향도 글자로 표시하고 입고 폼이 열리면 선택을 잠근다. */}
           <label>정렬
             <select style={S.block} disabled={receiving} value={itemView.sort}
@@ -241,14 +243,19 @@ function Detail() {
       {/* 서버도 403 으로 막지만 화면에서도 안내한다 */}
 
       {receiving && (
-        <form onSubmit={receive}>
-          <p>줄마다 이번에 들어온 수량을 적으세요(비운 줄은 입고하지 않습니다). 입고하면 그 수량만큼 현재고가 늘어납니다.</p>
-          <label>입고일 <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} /></label>
-          {/* 미래 날짜는 고를 수 없다 (서버도 422) */}
-          <p style={S.buttons}>
-            <button type="submit" disabled={busy}>{busy ? "등록 중…" : "입고"}</button>
-            <button type="button" onClick={() => setReceiving(false)}>닫기</button>
-          </p>
+        // 취소 등 발주서 버튼과 입고 폼을 카드로 구분한다.
+        <form style={S.sectionCard} onSubmit={receive}>
+          <p style={S.hint}>품목 표에 이번에 받은 수량을 적으세요. 비워 둔 줄은 입고하지 않습니다.</p>{/* 수량 입력 위치를 알려준다. */}
+          {/* 날짜와 버튼은 한 줄에 맞추고 좁은 화면에서는 줄을 바꾼다. */}
+          <div style={S.formGrid}>
+            {/* 날짜 입력을 짧게 유지하고 미래 날짜는 선택할 수 없게 한다. */}
+            <label style={S.receiptDateField}>입고일 <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} /></label>
+            {/* 등록과 닫기 버튼은 한 묶음으로 배치한다. */}
+            <div style={S.buttons}>
+              <button type="submit" disabled={busy}>{busy ? "등록 중…" : "입고"}</button>{/* 전송 중에는 중복 제출을 막는다. */}
+              <button type="button" onClick={() => setReceiving(false)}>닫기</button>{/* 폼을 닫아 필터와 정렬을 다시 쓸 수 있게 한다. */}
+            </div>
+          </div>
         </form>
       )}
       {notice && <p role="status" style={S.ok}>{notice}</p>}
