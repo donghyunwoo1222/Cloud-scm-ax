@@ -20,7 +20,6 @@ from app.models import (  # 입출고 이력, 품목, 발주서·발주 품목
 )
 from app.pagination import PageParams, paginate  # 목록 쪽 나누기
 from app.schemas.movements import CorrectionCreate, MovementCreate  # 등록·정정 요청 모양
-from app.services.products import list_products  # 품목 목록 (활성 거르기·최신순·쪽 나누기)
 from app.services.tenant import check_ref, get_owned, scoped  # 회사 분리 도우미 (#23)
 
 OUT_TYPES = {"SALE", "DISPOSAL", "OTHER_OUT"}  # 항상 줄이는 유형
@@ -180,18 +179,6 @@ def stock_rows(company_id: int, db: Session, products: list[Product]) -> list[di
          "is_active": p.is_active, "current_stock": int(sums.get(p.id, 0))}  # 이력이 없으면 0
         for p in products
     ]
-
-
-def list_stock(company_id: int, db: Session, page: PageParams, include_inactive: bool) -> tuple[list[dict], dict]:
-    """GET /stock: 품목 목록과 같은 순서·쪽 나누기(최신 품목 먼저)에 현재고를 붙인다."""
-    products, meta = list_products(company_id, db, page, include_inactive, None)  # 활성 거르기·최신순·meta
-    return stock_rows(company_id, db, products), meta
-
-
-def get_stock(company_id: int, db: Session, product_id: int) -> dict:
-    """GET /stock/{product_id}: 한 품목 (비활성도 조회 가능). 다른 회사·없는 id 는 404."""
-    product = get_owned(company_id, db, Product, product_id)
-    return stock_rows(company_id, db, [product])[0]
 
 
 def list_movements(

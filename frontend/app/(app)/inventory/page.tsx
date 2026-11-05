@@ -7,8 +7,14 @@ import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목
 import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
-// GET /api/v1/stock 의 한 행 (부족/정상 상태는 #39)
-type Stock = { product_id: number; sku: string; name: string; unit: string; safety_stock: number; is_active: boolean; current_stock: number };
+// GET /api/v1/stock 의 한 행 (상태는 추천 계산과 같은 기준, #76)
+type Stock = {
+  product_id: number; sku: string; name: string; unit: string; safety_stock: number; is_active: boolean; current_stock: number;
+  in_transit: number; // 발주 진행 중(발주함, 미입고) 수량
+  status: "SHORTAGE" | "NORMAL" | "UNKNOWN" | null; // 부족·정상·판단 불가 (비활성 품목은 계산하지 않아 null)
+  status_reason: { code: string; message: string } | null; // 판단 불가 이유 (예: 데이터 부족)
+};
+const STATUS_LABEL = { SHORTAGE: "부족", NORMAL: "정상", UNKNOWN: "판단 불가" }; // 상태 코드 → 화면 이름
 // GET /api/v1/inventory-movements 의 한 행
 type Movement = {
   id: number; product_id: number; product_sku: string | null; product_name: string | null; movement_type: string; direction: "IN" | "OUT";
@@ -21,7 +27,8 @@ const LABELS = { quantity: "수량", reason: "사유" }; // 정정 오류 detail
 
 // 재고 현황 화면 (주소 /inventory): 품목별 현재고 + 입출고 이력(필터·정정)
 export default function Page() {
-  const stock = useList<Stock>("/stock"); // 재고 목록 (20개씩, 비활성 포함 선택)
+  const [status, setStatus] = useState(""); // 재고 목록 상태 필터 ("" 이면 전체)
+  const stock = useList<Stock>("/stock", { status }); // 재고 목록 (20개씩, 비활성 포함 선택, 상태로 거르기)
   const [products, setProducts] = useState<ProductOption[]>([]); // 이력 필터의 품목 선택지 (비활성 포함)
   const [productId, setProductId] = useState(""); // 이력 필터: 품목
   const [type, setType] = useState(""); // 이력 필터: 유형
@@ -98,10 +105,19 @@ export default function Page() {
       <h1>재고 현황</h1>
       <ListControls includeInactive={stock.includeInactive} onToggleInactive={stock.toggleInactive} />
       {/* 재고 목록 API 에는 검색어가 없어 검색창은 숨긴다 */}
+      <div style={S.toolbar}>
+        <label>상태
+          <select value={status} onChange={(e) => { setStatus(e.target.value); stock.setPage(1); }} style={S.block}>
+            <option value="">전체</option>
+            {Object.entries(STATUS_LABEL).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+          </select>
+        </label>
+        {/* 상태를 고르면 서버가 회사 전체에서 거른 뒤 쪽을 나눈다. 비활성 품목은 상태가 없어 나오지 않는다 */}
+      </div>
       <ErrorText error={stock.error} />
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>품목명</th><th>SKU</th><th>현재고</th><th>안전재고</th><th></th></tr>
+          <tr style={S.headRow}><th>품목명</th><th>SKU</th><th>현재고</th><th>발주 진행 중</th><th>안전재고</th><th>상태</th><th></th></tr>
         </thead>
         <tbody>
           {stock.rows.map((s) => (
@@ -109,14 +125,20 @@ export default function Page() {
               <td>{s.name}{!s.is_active && " (비활성)"}</td>
               <td>{s.sku}</td>
               <td>{s.current_stock} {s.unit}</td>
+              <td>{s.in_transit}</td>
               <td>{s.safety_stock}</td>
+              <td title={s.status_reason?.message}>
+                {s.status === "SHORTAGE" ? <strong style={S.error}>부족</strong> : s.status ? STATUS_LABEL[s.status] : "-"}
+                {s.status_reason && <div><small>{s.status_reason.message}</small></div>}
+                {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 판단 불가는 이유를 작게 보인다. 비활성은 "-" */}
+              </td>
               <td><button type="button" onClick={() => filter(setProductId, String(s.product_id))}>이력 보기</button></td>
               {/* 아래 이력을 이 품목으로 거른다 */}
             </tr>
           ))}
         </tbody>
       </table>
-      {stock.meta?.total === 0 && <p>품목이 없습니다. 품목을 먼저 등록하세요.</p>}
+      {stock.meta?.total === 0 && <p>{status ? "이 상태의 품목이 없습니다." : "품목이 없습니다. 품목을 먼저 등록하세요."}</p>}
       <Pager meta={stock.meta} onPage={stock.setPage} />
 
       <h2 style={S.sectionTitle}>입출고 이력</h2>

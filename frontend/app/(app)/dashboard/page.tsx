@@ -12,7 +12,14 @@ type Dashboard = {
   purchase_orders: { draft: number; approved: number; ordered: number; incoming_quantity: number }; // 진행 중 발주 건수와 입고 예정 수량
   month: { month_start: string; in_quantity: number; out_quantity: number }; // 이번 달 입고·출고 수량
   dead_stock: { days: number; count: number; items: DeadItem[] }; // 장기재고 (기준 일수, 전체 건수, 화면에 보일 줄)
+  shortage: { count: number; items: ShortItem[] }; // 부족 품목 (전체 건수, 화면에 보일 20줄)
+  overstock: { days: number; count: number; items: OverItem[] }; // 과잉재고 (기준 일수 90, 전체 건수, 20줄)
 };
+type ShortItem = { product_id: number; sku: string; name: string; unit: string; current_stock: number; available: number; reorder_point: number; recommended_quantity: number };
+type OverItem = { product_id: number; sku: string; name: string; unit: string; current_stock: number; avg_daily_sales: number };
+
+// 소수는 첫째 자리까지, 정수는 그대로 (추천 화면과 같은 방식, 예: 3.1666 → "3.2", 70 → "70")
+const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 type DeadItem = { product_id: number; sku: string; name: string; unit: string; current_stock: number; last_sale_date: string | null };
 
 // 대시보드 화면 (주소 /dashboard): 로그인 후 시작 화면
@@ -27,8 +34,9 @@ export default function Page() {
   if (error) return <section><h1>대시보드</h1><ErrorText error={error} /></section>; // 오류면 문장만
   if (!data) return <section><h1>대시보드</h1><p>불러오는 중…</p></section>; // 불러오기 전
 
-  const { purchase_orders: po, month, dead_stock: dead } = data; // 이름 줄이기
-  const noData = po.draft + po.approved + po.ordered === 0 && month.in_quantity + month.out_quantity === 0 && dead.count === 0; // 보여줄 숫자가 모두 0
+  const { purchase_orders: po, month, dead_stock: dead, shortage, overstock: over } = data; // 이름 줄이기
+  const noData = po.draft + po.approved + po.ordered === 0 && month.in_quantity + month.out_quantity === 0
+    && dead.count + shortage.count + over.count === 0; // 보여줄 숫자가 모두 0
 
   return (
     <section>
@@ -36,9 +44,52 @@ export default function Page() {
       {noData && <p>아직 데이터가 없습니다. <Link href="/products">품목 등록</Link>부터 시작해 보세요.</p>}
       {/* 데이터가 없으면 품목 등록 안내 (service-planning.md 화면 정의) */}
 
-      <h2 style={S.sectionTitle}>재고 부족 품목</h2>
-      <p>부족 품목은 발주 추천 계산(6주차) 뒤에 표시됩니다.</p>
-      {/* 부족·과잉 기준은 추천 공식(#38·#39)과 한 곳에서 계산하려고 이번에는 자리만 둔다 */}
+      <h2 style={S.sectionTitle}>재고 부족 품목 ({shortage.count}개)</h2>
+      <p>가용재고(현재고 + 발주 진행 중)가 재주문점 이하인 품목입니다. 발주 추천과 같은 계산입니다.</p>
+      {shortage.count === 0 ? <p>해당하는 품목이 없습니다.</p> : (
+        <>
+          <table style={S.table}>
+            <thead><tr style={S.headRow}><th>SKU</th><th>품목명</th><th>현재고</th><th>가용재고</th><th>재주문점</th><th>추천 수량</th></tr></thead>
+            <tbody>
+              {shortage.items.map((i) => (
+                <tr key={i.product_id} style={bodyRow(true)}>
+                  <td><Link href="/recommendations">{i.sku}</Link></td>
+                  {/* 누르면 발주 추천 화면으로 (거기서 초안을 만든다) */}
+                  <td>{i.name}</td>
+                  <td>{i.current_stock.toLocaleString()}{i.unit}</td>
+                  <td>{i.available.toLocaleString()}</td>
+                  <td>{fmt(i.reorder_point)}</td>
+                  <td>{i.recommended_quantity.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {shortage.count > shortage.items.length && <p>최신 품목 {shortage.items.length}개만 보입니다.</p>}
+          <p><Link href="/recommendations">발주 추천에서 초안 만들기</Link> · <Link href="/inventory">재고 현황 (상태: 부족으로 거르기)</Link></p>
+          {/* 부족 품목에서 발주 작성·재고 현황으로 이동 (F7 완료 기준) */}
+        </>
+      )}
+
+      <h2 style={S.sectionTitle}>과잉재고 ({over.count}개)</h2>
+      <p>현재고가 최근 30일 하루 평균 판매량의 {over.days}일치 이상인 품목입니다. (판매가 없는 품목은 아래 장기재고에서 봅니다)</p>
+      {over.count === 0 ? <p>해당하는 품목이 없습니다.</p> : (
+        <>
+          <table style={S.table}>
+            <thead><tr style={S.headRow}><th>SKU</th><th>품목명</th><th>현재고</th><th>일평균 판매</th></tr></thead>
+            <tbody>
+              {over.items.map((i) => (
+                <tr key={i.product_id} style={bodyRow(true)}>
+                  <td>{i.sku}</td>
+                  <td>{i.name}</td>
+                  <td>{i.current_stock.toLocaleString()}{i.unit}</td>
+                  <td>{fmt(i.avg_daily_sales)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {over.count > over.items.length && <p>최신 품목 {over.items.length}개만 보입니다.</p>}
+        </>
+      )}
 
       <h2 style={S.sectionTitle}>진행 중 발주</h2>
       <table style={S.table}>
