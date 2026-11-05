@@ -46,6 +46,7 @@ export default function Page() {
   const [notice, setNotice] = useState(""); // 정정 성공 안내
   const [busy, setBusy] = useState(false); // 정정 등록 중이면 버튼을 잠근다
   const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
+  const historyTitle = useRef<HTMLHeadingElement>(null); // "입출고 이력" 제목 (이력 보기를 누르면 여기로 이동)
 
   useEffect(() => {
     // shortcut: 품목 100개까지만 선택지로 불러온다(서버 page_size 최대). 100개를 넘으면 검색형 선택 상자로 바꾼다
@@ -75,6 +76,15 @@ export default function Page() {
   function filter(set: (v: string) => void, value: string) {
     set(value);
     setPage(1);
+  }
+
+  // 이 품목의 이력 보기: 이력을 품목으로 거르고 "입출고 이력" 제목으로 화면과 포커스를 옮긴다
+  function showHistory(id: number) {
+    filter(setProductId, String(id));
+    const title = historyTitle.current;
+    if (!title) return;
+    title.scrollIntoView({ block: "start" }); // 바로 이동 (부드러운 스크롤은 확인한 환경에서 움직이지 않아 쓰지 않았다. 움직임이 없어 "움직임 줄이기" 설정과도 충돌하지 않는다)
+    title.focus({ preventScroll: true }); // 키보드·낭독기 사용자도 이력 영역으로 따라오게 (스크롤은 위에서 이미 했다)
   }
 
   function startCorrect(m: Movement) {
@@ -134,7 +144,7 @@ export default function Page() {
                 {s.status_reason && <span style={S.sub}>{s.status_reason.message}</span>}
                 {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 판단 불가는 이유를 작게 보인다. 비활성은 "-" */}
               </td>
-              <td><button type="button" onClick={() => filter(setProductId, String(s.product_id))}>이력 보기</button></td>
+              <td><button type="button" onClick={() => showHistory(s.product_id)}>이력 보기</button></td>
               {/* 아래 이력을 이 품목으로 거른다 */}
             </tr>
           ))}
@@ -144,7 +154,8 @@ export default function Page() {
       {stock.meta?.total === 0 && <p style={S.empty}>{status ? "이 상태의 품목이 없습니다." : "품목이 없습니다. 품목을 먼저 등록하세요."}</p>}
       <Pager meta={stock.meta} onPage={stock.setPage} />
 
-      <h2 style={S.sectionTitle}>입출고 이력</h2>
+      <h2 ref={historyTitle} tabIndex={-1} style={S.sectionTitle}>입출고 이력</h2>
+      {/* tabIndex -1: 키 이동 순서에는 넣지 않고, 코드로만 포커스를 줄 수 있게 */}
       <div style={S.toolbar}>
         {/* 필터: 품목·유형·기간 */}
         <label>품목

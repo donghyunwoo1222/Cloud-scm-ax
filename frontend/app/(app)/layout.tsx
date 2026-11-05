@@ -59,7 +59,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       {/* 로그인 확인 전 안내 */}
       <div style={S.shell}>
         {me && (
-        <aside style={S.sidebar}>
+        <aside className="sidebar" style={S.sidebar}>
           <div style={S.brand}>Cloud SCM</div>
           <Suspense fallback={null}>
             <SideNav isAdmin={me.role === "ADMIN"} />
