@@ -14,6 +14,7 @@ from fractions import (
 SALES_WINDOW_DAYS = 30  # 일평균을 구하는 기간: 오늘 포함 30일 (오늘−29일 ~ 오늘)
 MIN_HISTORY_DAYS = 14  # 데이터 부족 기준: (오늘 − 첫 입출고) < 14일이면 계산하지 않는다 (확정)
 REPLENISH_CYCLE_DAYS = 14  # 보충 주기 14일 (임시값, 인터뷰·측정 후 조정. 바꿀 곳은 여기 한 곳)
+OVERSTOCK_DAYS = 90  # 과잉재고 기준: 현재고가 일평균 판매량의 90일치 이상 (임시값, 인터뷰 후 재검토. 바꿀 곳은 여기 한 곳)
 
 EXCLUDED_MESSAGES = {  # 제외 코드 → 화면에 보여 줄 문장 (api-design.md §5)
     "MISSING_INFO": "기본 공급업체가 비활성입니다. 품목 정보를 확인하세요",  # S7
@@ -81,6 +82,26 @@ def calculate_recommendation(
         f"지금 가용재고는 {available}개라서 발주를 추천합니다. 추천 수량은 {quantity}개입니다."
     )  # 예) 하루 평균 10개 … 50개가 필요 … 70개입니다. 가용재고는 50개 … 추천 수량은 160개입니다.
     return Recommendation(avg, available, reorder_point, quantity, reason)
+
+
+def stock_status(result: Recommendation | Excluded) -> str:
+    """재고 상태(#76): 계산 못 한 품목은 UNKNOWN(판단 불가), 추천 대상이면 SHORTAGE(부족), 그 밖은 NORMAL(정상).
+
+    부족 = 추천 대상(가용재고 ≤ 재주문점)이라 추천 목록과 항상 같은 답이 나온다. 공식을 새로 만들지 않는다.
+    """
+    if isinstance(result, Excluded):  # 데이터 부족·판매 없음·공급업체 비활성
+        return "UNKNOWN"
+    return "SHORTAGE" if result.recommended_quantity is not None else "NORMAL"  # 예) 가용재고 50 ≤ 재주문점 70 → 부족
+
+
+def is_overstock(stock: int, result: Recommendation | Excluded) -> bool:
+    """과잉재고(#76): 현재고 ≥ 일평균 × 90일. 제외 품목·일평균 0 은 과잉으로 치지 않는다(판매 없는 품목은 장기재고 쪽).
+
+    예) 일평균 10 → 기준 900개. 현재고 900 → 과잉(정확히 90일치 포함), 899 → 아님. 분수라 경계에서 오차가 없다.
+    """
+    if isinstance(result, Excluded) or result.avg_daily_sales <= 0:  # 계산 못 했거나 판매가 없으면
+        return False
+    return stock >= result.avg_daily_sales * OVERSTOCK_DAYS
 
 
 def _excluded(code: str) -> Excluded:

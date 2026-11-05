@@ -1,6 +1,6 @@
-"""대시보드 (F7). 읽기만 하는 요약 조회: 진행 중 발주, 이번 달 입출고, 장기재고. 저장·commit 은 하지 않는다.
+"""대시보드 (F7). 읽기만 하는 요약 조회: 진행 중 발주, 이번 달 입출고, 장기재고, 부족·과잉재고. 저장·commit 은 하지 않는다.
 
-부족·과잉 재고는 추천 계산(#38·#39)과 같은 공식을 써야 해서 여기서 만들지 않는다(공식이 두 곳에 생기지 않게).
+부족·과잉은 추천 계산(calculate_for → calculate_recommendation)의 결과로만 판정한다(공식이 두 곳에 생기지 않게, #76).
 모든 함수는 company_id 를 첫 번째 인자로 받고(R1), 오늘 날짜(today)는 인자로 받는다(테스트가 날짜를 고정할 수 있게).
 """
 
@@ -13,10 +13,16 @@ from app.models import InventoryMovement, Product, PurchaseOrder, PurchaseOrderI
 from app.services.purchase_orders import (
     received_quantities,  # 발주 줄별 누적 입고량 (한 번의 GROUP BY)
 )
+from app.services.recommend import (  # 과잉 기준(일), 과잉 판정, 부족 판정
+    OVERSTOCK_DAYS,
+    is_overstock,
+    stock_status,
+)
+from app.services.recommendations import calculate_for  # 추천 계산 (쿼리 5번)
 
 # 장기재고 기준: 현재고가 있는데 마지막 판매(정정 반영)가 오늘 − N일보다 이전. 임시값, 인터뷰 후 재검토 (CLAUDE.md §10)
 DEAD_STOCK_DAYS = 60
-DEAD_STOCK_LIMIT = 20  # 화면에 보여줄 최대 줄 수 (전체 건수는 따로 센다)
+LIST_LIMIT = 20  # 장기재고·부족·과잉 목록에서 화면에 보여줄 최대 줄 수 (전체 건수는 따로 센다)
 
 
 def open_orders(company_id: int, db: Session) -> dict:
@@ -97,7 +103,7 @@ def dead_stock(company_id: int, db: Session, today: date) -> dict:
             stock.c.stock > 0,  # 재고가 있어야 장기재고
             stock.c.first_day <= limit_day,  # 첫 입출고가 N일 이내인 신규 품목은 제외
             (last_sale.c.last_sale_date.is_(None)) | (last_sale.c.last_sale_date < limit_day),  # 판매가 없거나 N일 넘게 전
-        ).order_by(stock.c.stock.desc(), Product.id).limit(DEAD_STOCK_LIMIT)  # 재고 많은 순
+        ).order_by(stock.c.stock.desc(), Product.id).limit(LIST_LIMIT)  # 재고 많은 순
     ).all()
     return {
         "days": DEAD_STOCK_DAYS,
@@ -110,9 +116,29 @@ def dead_stock(company_id: int, db: Session, today: date) -> dict:
     }
 
 
-def get_dashboard(company_id: int, db: Session, today: date) -> dict:
-    """GET /dashboard 응답 본문. 쿼리 5번 안팎(품목 수와 무관)."""
+def shortage_and_overstock(company_id: int, db: Session, today: date) -> dict:
+    """부족(추천 대상)과 과잉(현재고 ≥ 일평균 × 90일) 품목. 활성 품목만, 최신 품목 먼저, 목록은 20줄까지.
+
+    장기재고와는 겹치지 않는다: 과잉은 최근 30일 판매가 있어야 하고, 장기재고는 60일 넘게 판매가 없어야 한다.
+    """
+    shortage, overstock = [], []  # 부족 품목, 과잉 품목
+    for product, _, stock, _, result in calculate_for(company_id, db, today):  # 추천 목록과 같은 계산 하나
+        base = {"product_id": product.id, "sku": product.sku, "name": product.name, "unit": product.unit, "current_stock": stock}
+        if stock_status(result) == "SHORTAGE":  # 예) 가용재고 50 ≤ 재주문점 70
+            shortage.append({**base, "available": result.available, "reorder_point": float(result.reorder_point),
+                             "recommended_quantity": result.recommended_quantity})
+        if is_overstock(stock, result):  # 예) 현재고 900 ≥ 10 × 90
+            overstock.append({**base, "avg_daily_sales": float(result.avg_daily_sales)})
     return {
+        "shortage": {"count": len(shortage), "items": shortage[:LIST_LIMIT]},  # 전체 건수와 앞 20줄
+        "overstock": {"days": OVERSTOCK_DAYS, "count": len(overstock), "items": overstock[:LIST_LIMIT]},
+    }
+
+
+def get_dashboard(company_id: int, db: Session, today: date) -> dict:
+    """GET /dashboard 응답 본문. 쿼리는 품목 수와 무관하다(장기재고 1번 + 추천 계산 5번 + 그 밖)."""
+    return {
+        **shortage_and_overstock(company_id, db, today),  # shortage, overstock (#76)
         "purchase_orders": open_orders(company_id, db),
         "month": {"month_start": today.replace(day=1), **month_movements(company_id, db, today)},
         "dead_stock": dead_stock(company_id, db, today),

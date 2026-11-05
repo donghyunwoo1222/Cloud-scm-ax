@@ -45,14 +45,14 @@
 | F4 입출고 | POST /inventory-movements | 직접 입고, 출고(판매·폐기·기타), 재고 조정 등록. movement\_type으로 구분 | 둘 다 |
 | F4 | POST /inventory-movements/{id}/corrections | 잘못 넣은 이력 {id}를 정정(CORRECTION 등록) | 둘 다 |
 | F4 | GET /inventory-movements | 이력 조회(품목·유형·기간 필터) | 둘 다 |
-| F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 안전재고. 상태(가용재고 ≤ 재주문점이면 부족, 추천과 같은 기준)는 #39에서 추가 | 둘 다 |
+| F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 안전재고. 발주 진행 중 수량(`in_transit`), 상태(`status`: 가용재고 ≤ 재주문점이면 SHORTAGE, 추천 제외 품목은 UNKNOWN + `status_reason`, 비활성은 null, 추천과 같은 계산, #76). `?status=`로 거르기 | 둘 다 |
 | F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status` 필터, #36), DRAFT 발주서 만들기(직접) | 둘 다 |
 | F6 | GET /purchase-orders/{id}, PATCH /purchase-orders/{id} | 상세, DRAFT 일 때만 품목·수량 수정 | 둘 다 |
 | F6 | POST /purchase-orders/{id}/approve | DRAFT → APPROVED | 관리자 |
 | F6 | POST /purchase-orders/{id}/order | APPROVED → ORDERED(공급업체에 발주했음 표시) | 둘 다 |
 | F6 | POST /purchase-orders/{id}/receipts | 발주 품목 입고(부분 가능). 이력 등록 + 상태 갱신을 한 번에 | 둘 다 |
 | F6 | POST /purchase-orders/{id}/cancel | 입고 이력이 없는 발주만 취소 | 둘 다 |
-| F7 대시보드 | GET /dashboard | 부족·과잉·진행 중 발주 요약 | 둘 다 |
+| F7 대시보드 | GET /dashboard | 부족(`shortage`, 추천 대상과 같음)·과잉(`overstock`, 현재고 ≥ 일평균 × 90일, 임시값)·장기재고·진행 중 발주·이번 달 입출고 요약(목록은 20줄 + 전체 건수) | 둘 다 |
 | F8 발주 추천 | GET /recommendations | 현재 시점 추천 목록 계산·반환 | 둘 다 |
 | F8 | POST /recommendations/drafts | 선택한 품목으로 공급업체별 DRAFT 발주서 생성·품목 추가 | 둘 다 |
 
