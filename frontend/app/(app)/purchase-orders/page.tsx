@@ -6,7 +6,9 @@ import { Suspense, useEffect, useState } from "react"; // 주소 읽는 부품 �
 
 import { apiList } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, Pager, useList } from "../../lib/list"; // 목록 공통 부품
-import { PurchaseOrder, STATUS_LABEL, totalQuantity } from "../../lib/po"; // 발주서 모양·상태 이름·수량 합계
+import { seoulToday } from "../../lib/movement-form"; // 상세 화면과 같은 서울 날짜
+import { overdueDays, PurchaseOrder, receiptQuantitiesByUnit, STATUS_LABEL } from "../../lib/po"; // 발주서 모양·납기 지연·단위별 수량·상태 이름
+import { PurchaseOrderStatusBadge, StatusBadge } from "../../lib/status-badge"; // 상세 화면과 같은 상태·납기 지연 배지
 import { S } from "../../lib/styles"; // 화면 공통 스타일
 
 type SupplierOption = { id: number; name: string }; // 거르기 선택 상자에 쓸 공급업체
@@ -33,6 +35,7 @@ function PurchaseOrdersBody({ initialStatus }: { initialStatus: string }) {
   const [status, setStatus] = useState(initialStatus); // 고른 상태 ("" 이면 전체). 처음 값은 주소에서
   const [supplierId, setSupplierId] = useState(""); // 고른 공급업체 ("" 이면 전체)
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]); // 공급업체 선택지
+  const [today, setToday] = useState(""); // 화면이 열리면 서울 기준 오늘을 기록한다
   const [error, setError] = useState<unknown>(null); // 선택지 불러오기 오류
   const list = useList<PurchaseOrder>("/purchase-orders", { status, supplier_id: supplierId }); // 20개씩, 최신순, 조건이 바뀌면 다시 불러온다
 
@@ -41,6 +44,11 @@ function PurchaseOrdersBody({ initialStatus }: { initialStatus: string }) {
     // shortcut: 업체 100개까지만 불러온다(서버 page_size 최대). 100개를 넘으면 검색형 선택 상자로 바꾼다
     apiList<SupplierOption>("/suppliers?page_size=100&include_inactive=true").then((r) => setSuppliers(r.data)).catch(setError);
   }, []);
+
+  useEffect(() => { // 빌드 중 서버 시각을 읽지 않고 브라우저에서 날짜를 정한다
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 상세 화면과 같은 방식으로 마운트 뒤 서울 날짜를 저장한다
+    setToday(seoulToday()); // 발주함 상태의 약속 납기와 비교할 날짜다
+  }, []); // 목록을 처음 열 때 한 번만 계산한다
 
   // 조건을 바꾸면 1쪽부터 다시 본다
   function filter(set: (value: string) => void, value: string) {
@@ -76,16 +84,36 @@ function PurchaseOrdersBody({ initialStatus }: { initialStatus: string }) {
           <tr style={S.headRow}><th>발주번호</th><th>공급업체</th><th>상태</th><th style={S.num}>품목 수</th><th style={S.num}>합계 수량</th><th>약속 납기</th></tr>
         </thead>
         <tbody>
-          {list.rows.map((o) => (
-            <tr key={o.id} style={S.row}>
-              <td style={S.nowrap}><Link href={`/purchase-orders/${o.id}`}>{o.po_number}</Link></td>
-              <td>{o.supplier_name}</td>
-              <td style={S.nowrap}>{STATUS_LABEL[o.status]}</td>
-              <td style={S.num}>{o.items.length}</td>
-              <td style={S.num}>{totalQuantity(o)}</td>
-              <td style={S.nowrap}>{o.due_date ?? "-"}</td>
-            </tr>
-          ))}
+          {list.rows.map((o) => { // 각 발주서의 상태와 입고 현황을 한 줄에 표시한다
+            const delay = overdueDays(o, today); // 상세와 같은 규칙으로 발주함 상태의 지연 일수를 구한다
+            const quantities = receiptQuantitiesByUnit(o.items); // 개와 박스처럼 다른 단위는 따로 집계한다
+            const showReceiptProgress = o.status === "ORDERED" || o.status === "RECEIVED"; // 발주함·입고 완료일 때 입고 현황을 표시한다
+            return (
+              <tr key={o.id} style={S.row}>
+                <td style={S.nowrap}><Link href={"/purchase-orders/" + o.id}>{o.po_number}</Link></td>{/* 상세로 가는 링크는 발주번호에만 둔다 */}
+                <td>{o.supplier_name}</td>{/* 서버의 공급업체 이름 */}
+                <td style={S.nowrap}><PurchaseOrderStatusBadge status={o.status} /></td>{/* 발주 상태를 글자와 아이콘으로 표시한다 */}
+                <td style={S.num}>{o.items.length}</td>{/* 품목 줄 수는 오른쪽 정렬한다 */}
+                <td style={S.num}>
+                  {Array.from(quantities, ([unit, totals]) => { // 단위 하나마다 수량을 한 줄로 표시한다
+                    const withUnit = (quantity: number) => quantity.toLocaleString("ko-KR") + unit; // 서버의 실제 단위를 숫자에 붙인다
+                    const ordered = withUnit(totals.ordered); // 단위별 발주 수량을 먼저 표시한다
+                    return (
+                      <div key={unit}>
+                        <strong>{ordered}</strong>{/* 기준이 되는 발주 수량을 강조한다 */}
+                        {showReceiptProgress && (totals.remaining === 0 ? " 전량 입고"
+                          : " 중 " + withUnit(totals.received) + " 입고 · " + withUnit(totals.remaining) + " 남음")}{/* 잔량이 있을 때만 입고량과 잔량을 나란히 표시한다 */}
+                      </div>
+                    );
+                  })}
+                </td>
+                <td style={S.nowrap}>
+                  {o.due_date ?? "-"}{/* 약속 납기가 없으면 표시할 날짜가 없다 */}
+                  {delay > 0 && <span style={S.sub}><StatusBadge kind="danger">납기 {delay.toLocaleString("ko-KR")}일 지연</StatusBadge></span>}{/* 납기 다음 날부터 글자와 아이콘으로 지연을 표시한다 */}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       </div>

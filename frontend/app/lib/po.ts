@@ -39,14 +39,25 @@ export const PO_LABELS = {
   supplier_id: "공급업체", due_date: "약속 납기", memo: "메모", items: "품목 줄", product_id: "품목", quantity: "수량", unit_price: "단가", movement_date: "입고일",
 };
 
-export const totalQuantity = (order: PurchaseOrder) => order.items.reduce((sum, i) => sum + i.quantity, 0); // 줄 수량 합계 (예: 100 + 50 → 150)
-
 export const lineAmount = (item: PoItem) => BigInt(item.quantity) * BigInt(item.unit_price); // 발주 당시 단가를 곱해 원 단위까지 정확히 계산한다
 export const totalAmount = (order: PurchaseOrder) => order.items.reduce((sum, item) => sum + lineAmount(item), BigInt(0)); // 모든 품목 금액을 큰 정수로 더한다
 
 export type PoItemSort = "registered" | "name-asc" | "name-desc"; // 등록 순서와 품목명 정렬의 두 방향
 
 export const remainingQuantity = (item: PoItem) => item.quantity - item.received_quantity; // 발주 수량에서 누적 입고량을 빼 남은 수량을 구한다
+
+// 목록의 수량은 단위가 같은 품목끼리만 합친다.
+export function receiptQuantitiesByUnit(items: readonly PoItem[]) {
+  const byUnit = new Map<string, { ordered: number; received: number; remaining: number }>(); // 단위별로 발주·입고·잔량을 담는다
+  for (const item of items) { // 발주서의 품목을 한 번씩 읽는다
+    const totals = byUnit.get(item.unit) ?? { ordered: 0, received: 0, remaining: 0 }; // 처음 나온 단위는 0부터 시작한다
+    totals.ordered += item.quantity; // 발주한 수량을 합친다
+    totals.received += item.received_quantity; // 서버가 준 누적 입고량을 합친다
+    totals.remaining += remainingQuantity(item); // 상세 화면과 같은 잔량 계산을 재사용한다
+    byUnit.set(item.unit, totals); // 다른 단위의 숫자와 섞지 않는다
+  } // 모든 품목의 수량을 더했다
+  return byUnit; // 품목에서 단위가 처음 나타난 순서를 유지한다
+} // 단위별 합계 계산을 마친다
 
 // 표시할 행만 골라 등록 순서나 한글 품목명순으로 돌려준다.
 export function visiblePoItems(items: readonly PoItem[], onlyOutstanding: boolean, sort: PoItemSort): PoItem[] {
