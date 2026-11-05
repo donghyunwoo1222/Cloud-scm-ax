@@ -73,6 +73,8 @@ body {
   font-family: var(--font-sans);
   font-size: var(--text-base);
   line-height: 1.5;
+  word-break: keep-all; /* 한글을 글자 단위가 아니라 띄어쓰기에서만 줄바꿈한다 (칸이 좁아져도 품목명이 한 글자씩 꺾이지 않게) */
+  overflow-wrap: break-word; /* 띄어쓰기 없는 아주 긴 글(이메일 등)은 칸을 넘지 않게 그때만 자른다 */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -120,6 +122,7 @@ button {
   color: var(--color-foreground);
   font: inherit;
   font-weight: 500;
+  white-space: nowrap; /* 버튼 글자는 줄바꿈하지 않는다 (좁은 칸에서 "이력 보기"가 두 줄로 꺾이지 않게) */
   cursor: pointer;
   transition: background-color 150ms, border-color 150ms;
 }
@@ -213,9 +216,62 @@ tbody tr:hover {
   background: var(--color-hover);
 }
 
-/* 사이드 메뉴 고정: 화면(본문)을 스크롤해도 메뉴는 제자리. 가로 폭이 800px 이상일 때만
-   (좁은 화면에서는 메뉴가 본문 위로 쌓이므로 고정하면 본문을 가린다). 메뉴가 화면보다 길면 메뉴 안에서만 스크롤 */
-@media (min-width: 800px) {
+/* 접었다 펴는 이유 칸 (<details className="reason">): 접힌 상태는 한 줄 요약 + "자세히", 펼치면 전체 문장 + "접기" */
+details.reason > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+details.reason > summary::-webkit-details-marker {
+  display: none; /* 브라우저 기본 삼각형 표시를 숨긴다 (자세히·접기 글자가 대신한다) */
+}
+
+details.reason .more {
+  margin-left: var(--space-sm);
+  color: var(--color-link);
+  white-space: nowrap;
+}
+
+details.reason .more:hover {
+  text-decoration: underline;
+}
+
+details.reason:not([open]) .when-open,
+details.reason[open] .when-closed {
+  display: none;
+}
+
+details.reason > p {
+  margin-top: var(--space-sm);
+}
+
+/* 사이드 메뉴 폭: 넓은 화면 220px, 1100px 이하에서는 168px 로 줄여 본문 자리를 넓힌다.
+   730px 미만(본문 최소 폭 560px 과 같이 못 놓이는 폭)에서는 메뉴가 본문 위로 쌓인다 */
+.sidebar {
+  flex: 0 0 220px;
+  padding: var(--space-md) 12px;
+}
+
+@media (max-width: 1100px) {
+  .sidebar {
+    flex-basis: 168px;
+    padding: var(--space-md) var(--space-sm);
+  }
+
+  .side-nav a {
+    padding: var(--space-sm) 10px;
+  }
+}
+
+@media (max-width: 729px) {
+  .sidebar {
+    flex-basis: 100%;
+  }
+}
+
+/* 사이드 메뉴 고정: 화면(본문)을 스크롤해도 메뉴는 제자리. 메뉴가 본문 옆에 놓이는 폭(730px 이상)에서만
+   (쌓이는 좁은 화면에서 고정하면 본문을 가린다). 메뉴가 화면보다 길면 메뉴 안에서만 스크롤 */
+@media (min-width: 730px) {
   .sidebar {
     position: sticky;
     top: 0;

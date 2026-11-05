@@ -107,7 +107,7 @@ function Detail() {
         <tbody>
           {order.items.map((i) => (
             <tr key={i.id} style={S.row}>
-              <td>{i.product_sku}</td>
+              <td style={S.nowrap}>{i.product_sku}</td>
               <td>{i.product_name}</td>
               <td style={S.num}>{i.unit_price}</td>
               <td style={S.num}>{i.quantity}</td>

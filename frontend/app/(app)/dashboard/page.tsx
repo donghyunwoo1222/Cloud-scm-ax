@@ -60,7 +60,7 @@ export default function Page() {
                 <tbody>
                   {shortage.items.map((i) => (
                     <tr key={i.product_id} style={bodyRow(true)}>
-                      <td><Link href="/recommendations">{i.sku}</Link></td>
+                      <td style={S.nowrap}><Link href="/recommendations">{i.sku}</Link></td>
                       {/* 누르면 발주 추천 화면으로 (거기서 초안을 만든다) */}
                       <td>{i.name}</td>
                       <td style={S.num}>{i.current_stock.toLocaleString()}{i.unit}</td>
@@ -90,7 +90,7 @@ export default function Page() {
                 <tbody>
                   {over.items.map((i) => (
                     <tr key={i.product_id} style={bodyRow(true)}>
-                      <td>{i.sku}</td>
+                      <td style={S.nowrap}>{i.sku}</td>
                       <td>{i.name}</td>
                       <td style={S.num}>{i.current_stock.toLocaleString()}{i.unit}</td>
                       <td style={S.num}>{fmt(i.avg_daily_sales)}</td>
@@ -152,7 +152,7 @@ export default function Page() {
                 <tbody>
                   {dead.items.map((i) => (
                     <tr key={i.product_id} style={bodyRow(true)}>
-                      <td>{i.sku}</td>
+                      <td style={S.nowrap}>{i.sku}</td>
                       <td>{i.name}</td>
                       <td style={S.num}>{i.current_stock.toLocaleString()}{i.unit}</td>
                       <td>{i.last_sale_date ?? "판매 기록 없음"}</td>

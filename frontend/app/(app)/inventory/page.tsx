@@ -136,7 +136,7 @@ export default function Page() {
           {stock.rows.map((s) => (
             <tr key={s.product_id} style={bodyRow(s.is_active)}>
               <td>{s.name}{!s.is_active && " (비활성)"}</td>
-              <td>{s.sku}</td>
+              <td style={S.nowrap}>{s.sku}</td>
               <td style={S.num}>{s.current_stock} {s.unit}</td>
               <td style={S.num}>{s.in_transit}</td>
               <td style={S.num}>{s.safety_stock}</td>
@@ -201,7 +201,7 @@ export default function Page() {
             <tr key={m.id} style={S.row}>
               <td>#{m.id}</td>
               <td style={S.nowrap}>{m.movement_date}</td>
-              <td>{m.product_name} ({m.product_sku})</td>
+              <td>{m.product_name} <span style={S.nowrap}>({m.product_sku})</span></td>
               <td>{TYPE_LABEL[m.movement_type] ?? m.movement_type}{m.reverses_movement_id !== null && ` (#${m.reverses_movement_id})`}</td>
               {/* 정정 행은 어떤 이력을 바로잡았는지 번호로 보인다 (예: 정정 (#2)) */}
               <td style={S.num}>{m.direction === "IN" ? "+" : "−"}{m.quantity}</td>
