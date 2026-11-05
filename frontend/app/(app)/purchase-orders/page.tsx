@@ -33,7 +33,7 @@ export default function Page() {
   return (
     <section>
       <h1>발주</h1>
-      <p><Link href="/purchase-orders/new">발주서 작성</Link></p>
+      <p><Link href="/purchase-orders/new" style={S.linkButton}>발주서 작성</Link></p>
 
       <div style={S.toolbar}>
         <label>상태
@@ -52,24 +52,26 @@ export default function Page() {
       <ErrorText error={error} />
       <ErrorText error={list.error} />
 
+      <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>발주번호</th><th>공급업체</th><th>상태</th><th>품목 수</th><th>합계 수량</th><th>약속 납기</th></tr>
+          <tr style={S.headRow}><th>발주번호</th><th>공급업체</th><th>상태</th><th style={S.num}>품목 수</th><th style={S.num}>합계 수량</th><th>약속 납기</th></tr>
         </thead>
         <tbody>
           {list.rows.map((o) => (
             <tr key={o.id} style={S.row}>
-              <td><Link href={`/purchase-orders/${o.id}`}>{o.po_number}</Link></td>
+              <td style={S.nowrap}><Link href={`/purchase-orders/${o.id}`}>{o.po_number}</Link></td>
               <td>{o.supplier_name}</td>
-              <td>{STATUS_LABEL[o.status]}</td>
-              <td>{o.items.length}</td>
-              <td>{totalQuantity(o)}</td>
-              <td>{o.due_date ?? "-"}</td>
+              <td style={S.nowrap}>{STATUS_LABEL[o.status]}</td>
+              <td style={S.num}>{o.items.length}</td>
+              <td style={S.num}>{totalQuantity(o)}</td>
+              <td style={S.nowrap}>{o.due_date ?? "-"}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      {list.meta?.total === 0 && <p>조건에 맞는 발주서가 없습니다.</p>}
+      </div>
+      {list.meta?.total === 0 && <p style={S.empty}>조건에 맞는 발주서가 없습니다.</p>}
       {/* 빈 목록 안내 */}
       <Pager meta={list.meta} onPage={list.setPage} />
     </section>

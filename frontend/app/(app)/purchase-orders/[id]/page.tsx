@@ -96,29 +96,34 @@ function Detail() {
       <p>승인: {fmtTime(order.approved_at)} · 발주함 표시: {fmtTime(order.ordered_at)} · 입고 완료(실제 입고일): {fmtDate(order.received_at)}</p>
       {order.cancelled_at && <p>취소: {fmtTime(order.cancelled_at)}</p>}
 
+      <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>SKU</th><th>품목</th><th>단가(원)</th><th>발주 수량</th><th>누적 입고량</th><th>남은 수량</th>{receiving && <th>이번 입고</th>}</tr>
+          <tr style={S.headRow}>
+            <th>SKU</th><th>품목</th><th style={S.num}>단가(원)</th><th style={S.num}>발주 수량</th><th style={S.num}>누적 입고량</th><th style={S.num}>남은 수량</th>
+            {receiving && <th style={S.num}>이번 입고</th>}
+          </tr>
         </thead>
         <tbody>
           {order.items.map((i) => (
             <tr key={i.id} style={S.row}>
               <td>{i.product_sku}</td>
               <td>{i.product_name}</td>
-              <td>{i.unit_price}</td>
-              <td>{i.quantity}</td>
-              <td>{i.received_quantity}</td>
-              <td>{i.quantity - i.received_quantity}</td>
+              <td style={S.num}>{i.unit_price}</td>
+              <td style={S.num}>{i.quantity}</td>
+              <td style={S.num}>{i.received_quantity}</td>
+              <td style={S.num}>{i.quantity - i.received_quantity}</td>
               {receiving && (
-                <td><input type="number" value={qty[i.id] ?? ""} onChange={(e) => setQty({ ...qty, [i.id]: e.target.value })} aria-label={`${i.product_name} 이번 입고 수량`} /></td>
+                <td style={S.num}><input type="number" style={S.numInput} value={qty[i.id] ?? ""} onChange={(e) => setQty({ ...qty, [i.id]: e.target.value })} aria-label={`${i.product_name} 이번 입고 수량`} /></td>
               )}
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
 
       <p style={S.buttons}>
-        {order.status === "DRAFT" && <Link href={`/purchase-orders/${order.id}/edit`}>수정</Link>}
+        {order.status === "DRAFT" && <Link href={`/purchase-orders/${order.id}/edit`} style={S.linkButtonGhost}>수정</Link>}
         {/* 작성 중일 때만 수정 화면으로 간다 */}
         {buttons.map(([action, label]) => <button key={action} type="button" onClick={() => act(action)}>{label}</button>)}
         {order.status === "ORDERED" && !receiving && <button type="button" onClick={() => setReceiving(true)}>입고 등록</button>}

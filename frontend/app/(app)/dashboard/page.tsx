@@ -44,102 +44,127 @@ export default function Page() {
       {noData && <p>아직 데이터가 없습니다. <Link href="/products">품목 등록</Link>부터 시작해 보세요.</p>}
       {/* 데이터가 없으면 품목 등록 안내 (service-planning.md 화면 정의) */}
 
-      <h2 style={S.sectionTitle}>재고 부족 품목 ({shortage.count}개)</h2>
-      <p>가용재고(현재고 + 발주 진행 중)가 재주문점 이하인 품목입니다. 발주 추천과 같은 계산입니다.</p>
-      {shortage.count === 0 ? <p>해당하는 품목이 없습니다.</p> : (
-        <>
+      {/* 항목마다 흰 카드 한 장. 카드 안 제목(h2)은 위 여백을 없앤다 */}
+      <div style={S.sectionCard}>
+        <h2>재고 부족 품목 ({shortage.count}개)</h2>
+        <p style={S.hint}>가용재고(현재고 + 발주 진행 중)가 재주문점 이하인 품목입니다. 발주 추천과 같은 계산입니다.</p>
+        {shortage.count === 0 ? <p style={S.empty}>해당하는 품목이 없습니다.</p> : (
+          <>
+            <div style={S.tableBox}>
+              <table style={S.table}>
+                <thead>
+                  <tr style={S.headRow}>
+                    <th>SKU</th><th>품목명</th><th style={S.num}>현재고</th><th style={S.num}>가용재고</th><th style={S.num}>재주문점</th><th style={S.num}>추천 수량</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shortage.items.map((i) => (
+                    <tr key={i.product_id} style={bodyRow(true)}>
+                      <td><Link href="/recommendations">{i.sku}</Link></td>
+                      {/* 누르면 발주 추천 화면으로 (거기서 초안을 만든다) */}
+                      <td>{i.name}</td>
+                      <td style={S.num}>{i.current_stock.toLocaleString()}{i.unit}</td>
+                      <td style={S.num}>{i.available.toLocaleString()}</td>
+                      <td style={S.num}>{fmt(i.reorder_point)}</td>
+                      <td style={S.num}>{i.recommended_quantity.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {shortage.count > shortage.items.length && <p style={S.hint}>최신 품목 {shortage.items.length}개만 보입니다.</p>}
+            <p><Link href="/recommendations">발주 추천에서 초안 만들기</Link> · <Link href="/inventory">재고 현황 (상태: 부족으로 거르기)</Link></p>
+            {/* 부족 품목에서 발주 작성·재고 현황으로 이동 (F7 완료 기준) */}
+          </>
+        )}
+      </div>
+
+      <div style={S.sectionCard}>
+        <h2>과잉재고 ({over.count}개)</h2>
+        <p style={S.hint}>현재고가 최근 30일 하루 평균 판매량의 {over.days}일치 이상인 품목입니다. (판매가 없는 품목은 아래 장기재고에서 봅니다)</p>
+        {over.count === 0 ? <p style={S.empty}>해당하는 품목이 없습니다.</p> : (
+          <>
+            <div style={S.tableBox}>
+              <table style={S.table}>
+                <thead><tr style={S.headRow}><th>SKU</th><th>품목명</th><th style={S.num}>현재고</th><th style={S.num}>일평균 판매</th></tr></thead>
+                <tbody>
+                  {over.items.map((i) => (
+                    <tr key={i.product_id} style={bodyRow(true)}>
+                      <td>{i.sku}</td>
+                      <td>{i.name}</td>
+                      <td style={S.num}>{i.current_stock.toLocaleString()}{i.unit}</td>
+                      <td style={S.num}>{fmt(i.avg_daily_sales)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {over.count > over.items.length && <p style={S.hint}>최신 품목 {over.items.length}개만 보입니다.</p>}
+          </>
+        )}
+      </div>
+
+      <div style={S.sectionCard}>
+        <h2>진행 중 발주</h2>
+        <div style={S.tableBox}>
           <table style={S.table}>
-            <thead><tr style={S.headRow}><th>SKU</th><th>품목명</th><th>현재고</th><th>가용재고</th><th>재주문점</th><th>추천 수량</th></tr></thead>
+            <thead><tr style={S.headRow}><th style={S.num}>작성 중</th><th style={S.num}>승인됨</th><th style={S.num}>발주함</th><th style={S.num}>입고 예정 수량</th></tr></thead>
             <tbody>
-              {shortage.items.map((i) => (
-                <tr key={i.product_id} style={bodyRow(true)}>
-                  <td><Link href="/recommendations">{i.sku}</Link></td>
-                  {/* 누르면 발주 추천 화면으로 (거기서 초안을 만든다) */}
-                  <td>{i.name}</td>
-                  <td>{i.current_stock.toLocaleString()}{i.unit}</td>
-                  <td>{i.available.toLocaleString()}</td>
-                  <td>{fmt(i.reorder_point)}</td>
-                  <td>{i.recommended_quantity.toLocaleString()}</td>
-                </tr>
-              ))}
+              <tr style={S.row}>
+                <td style={S.num}>{po.draft}건</td>
+                <td style={S.num}>{po.approved}건</td>
+                <td style={S.num}>{po.ordered}건</td>
+                <td style={S.num}>{po.incoming_quantity.toLocaleString()}개</td>
+                {/* 입고 예정 = 발주함(ORDERED) 발주의 아직 안 들어온 수량 합계 */}
+              </tr>
             </tbody>
           </table>
-          {shortage.count > shortage.items.length && <p>최신 품목 {shortage.items.length}개만 보입니다.</p>}
-          <p><Link href="/recommendations">발주 추천에서 초안 만들기</Link> · <Link href="/inventory">재고 현황 (상태: 부족으로 거르기)</Link></p>
-          {/* 부족 품목에서 발주 작성·재고 현황으로 이동 (F7 완료 기준) */}
-        </>
-      )}
+        </div>
+        <p><Link href="/purchase-orders">발주 화면으로</Link></p>
+      </div>
 
-      <h2 style={S.sectionTitle}>과잉재고 ({over.count}개)</h2>
-      <p>현재고가 최근 30일 하루 평균 판매량의 {over.days}일치 이상인 품목입니다. (판매가 없는 품목은 아래 장기재고에서 봅니다)</p>
-      {over.count === 0 ? <p>해당하는 품목이 없습니다.</p> : (
-        <>
+      <div style={S.sectionCard}>
+        <h2>이번 달 입출고 ({month.month_start} ~ 오늘)</h2>
+        <div style={S.tableBox}>
           <table style={S.table}>
-            <thead><tr style={S.headRow}><th>SKU</th><th>품목명</th><th>현재고</th><th>일평균 판매</th></tr></thead>
+            <thead><tr style={S.headRow}><th style={S.num}>입고 수량</th><th style={S.num}>출고 수량</th></tr></thead>
             <tbody>
-              {over.items.map((i) => (
-                <tr key={i.product_id} style={bodyRow(true)}>
-                  <td>{i.sku}</td>
-                  <td>{i.name}</td>
-                  <td>{i.current_stock.toLocaleString()}{i.unit}</td>
-                  <td>{fmt(i.avg_daily_sales)}</td>
-                </tr>
-              ))}
+              <tr style={S.row}>
+                <td style={S.num}>{month.in_quantity.toLocaleString()}개</td>
+                <td style={S.num}>{month.out_quantity.toLocaleString()}개</td>
+                {/* 정정은 원래 이력에서 뺀 순수량, 재고 조정은 제외 */}
+              </tr>
             </tbody>
           </table>
-          {over.count > over.items.length && <p>최신 품목 {over.items.length}개만 보입니다.</p>}
-        </>
-      )}
+        </div>
+      </div>
 
-      <h2 style={S.sectionTitle}>진행 중 발주</h2>
-      <table style={S.table}>
-        <thead><tr style={S.headRow}><th>작성 중</th><th>승인됨</th><th>발주함</th><th>입고 예정 수량</th></tr></thead>
-        <tbody>
-          <tr style={S.row}>
-            <td>{po.draft}건</td>
-            <td>{po.approved}건</td>
-            <td>{po.ordered}건</td>
-            <td>{po.incoming_quantity.toLocaleString()}개</td>
-            {/* 입고 예정 = 발주함(ORDERED) 발주의 아직 안 들어온 수량 합계 */}
-          </tr>
-        </tbody>
-      </table>
-      <p><Link href="/purchase-orders">발주 화면으로</Link></p>
-
-      <h2 style={S.sectionTitle}>이번 달 입출고 ({month.month_start} ~ 오늘)</h2>
-      <table style={S.table}>
-        <thead><tr style={S.headRow}><th>입고 수량</th><th>출고 수량</th></tr></thead>
-        <tbody>
-          <tr style={S.row}>
-            <td>{month.in_quantity.toLocaleString()}개</td>
-            <td>{month.out_quantity.toLocaleString()}개</td>
-            {/* 정정은 원래 이력에서 뺀 순수량, 재고 조정은 제외 */}
-          </tr>
-        </tbody>
-      </table>
-
-      <h2 style={S.sectionTitle}>장기재고 ({dead.count}개)</h2>
-      <p>재고가 있는데 최근 {dead.days}일 동안 판매가 없는 품목입니다. (첫 입출고가 {dead.days}일 이내인 새 품목은 제외)</p>
-      {dead.count === 0 ? (
-        <p>해당하는 품목이 없습니다.</p>
-      ) : (
-        <>
-          <table style={S.table}>
-            <thead><tr style={S.headRow}><th>SKU</th><th>품목명</th><th>현재고</th><th>마지막 판매일</th></tr></thead>
-            <tbody>
-              {dead.items.map((i) => (
-                <tr key={i.product_id} style={bodyRow(true)}>
-                  <td>{i.sku}</td>
-                  <td>{i.name}</td>
-                  <td>{i.current_stock.toLocaleString()}{i.unit}</td>
-                  <td>{i.last_sale_date ?? "판매 기록 없음"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {dead.count > dead.items.length && <p>재고가 많은 {dead.items.length}개만 보입니다. 전체는 <Link href="/inventory">재고 현황</Link>에서 확인하세요.</p>}
-        </>
-      )}
+      <div style={S.sectionCard}>
+        <h2>장기재고 ({dead.count}개)</h2>
+        <p style={S.hint}>재고가 있는데 최근 {dead.days}일 동안 판매가 없는 품목입니다. (첫 입출고가 {dead.days}일 이내인 새 품목은 제외)</p>
+        {dead.count === 0 ? (
+          <p style={S.empty}>해당하는 품목이 없습니다.</p>
+        ) : (
+          <>
+            <div style={S.tableBox}>
+              <table style={S.table}>
+                <thead><tr style={S.headRow}><th>SKU</th><th>품목명</th><th style={S.num}>현재고</th><th>마지막 판매일</th></tr></thead>
+                <tbody>
+                  {dead.items.map((i) => (
+                    <tr key={i.product_id} style={bodyRow(true)}>
+                      <td>{i.sku}</td>
+                      <td>{i.name}</td>
+                      <td style={S.num}>{i.current_stock.toLocaleString()}{i.unit}</td>
+                      <td>{i.last_sale_date ?? "판매 기록 없음"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {dead.count > dead.items.length && <p style={S.hint}>재고가 많은 {dead.items.length}개만 보입니다. 전체는 <Link href="/inventory">재고 현황</Link>에서 확인하세요.</p>}
+          </>
+        )}
+      </div>
     </section>
   );
 }

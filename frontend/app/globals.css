@@ -90,6 +90,11 @@ h2 {
   margin-bottom: var(--space-sm);
 }
 
+/* 문단이 연달아 나오면 줄 사이를 살짝 띄운다 (예: 발주서 상세의 공급업체·메모·승인 줄) */
+p + p {
+  margin-top: var(--space-xs);
+}
+
 a {
   color: var(--color-link);
   text-decoration: none;

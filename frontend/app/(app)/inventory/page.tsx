@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react"; // 
 import { api, apiList, Meta } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
+import { STOCK_BADGE, StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/stock 의 한 행 (상태는 추천 계산과 같은 기준, #76)
@@ -115,21 +116,22 @@ export default function Page() {
         {/* 상태를 고르면 서버가 회사 전체에서 거른 뒤 쪽을 나눈다. 비활성 품목은 상태가 없어 나오지 않는다 */}
       </div>
       <ErrorText error={stock.error} />
+      <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>품목명</th><th>SKU</th><th>현재고</th><th>발주 진행 중</th><th>안전재고</th><th>상태</th><th></th></tr>
+          <tr style={S.headRow}><th>품목명</th><th>SKU</th><th style={S.num}>현재고</th><th style={S.num}>발주 진행 중</th><th style={S.num}>안전재고</th><th>상태</th><th></th></tr>
         </thead>
         <tbody>
           {stock.rows.map((s) => (
             <tr key={s.product_id} style={bodyRow(s.is_active)}>
               <td>{s.name}{!s.is_active && " (비활성)"}</td>
               <td>{s.sku}</td>
-              <td>{s.current_stock} {s.unit}</td>
-              <td>{s.in_transit}</td>
-              <td>{s.safety_stock}</td>
+              <td style={S.num}>{s.current_stock} {s.unit}</td>
+              <td style={S.num}>{s.in_transit}</td>
+              <td style={S.num}>{s.safety_stock}</td>
               <td title={s.status_reason?.message}>
-                {s.status === "SHORTAGE" ? <strong style={S.error}>부족</strong> : s.status ? STATUS_LABEL[s.status] : "-"}
-                {s.status_reason && <div><small>{s.status_reason.message}</small></div>}
+                {s.status ? <StatusBadge kind={STOCK_BADGE[s.status].kind}>{STOCK_BADGE[s.status].label}</StatusBadge> : "-"}
+                {s.status_reason && <span style={S.sub}>{s.status_reason.message}</span>}
                 {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 판단 불가는 이유를 작게 보인다. 비활성은 "-" */}
               </td>
               <td><button type="button" onClick={() => filter(setProductId, String(s.product_id))}>이력 보기</button></td>
@@ -138,7 +140,8 @@ export default function Page() {
           ))}
         </tbody>
       </table>
-      {stock.meta?.total === 0 && <p>{status ? "이 상태의 품목이 없습니다." : "품목이 없습니다. 품목을 먼저 등록하세요."}</p>}
+      </div>
+      {stock.meta?.total === 0 && <p style={S.empty}>{status ? "이 상태의 품목이 없습니다." : "품목이 없습니다. 품목을 먼저 등록하세요."}</p>}
       <Pager meta={stock.meta} onPage={stock.setPage} />
 
       <h2 style={S.sectionTitle}>입출고 이력</h2>
@@ -176,19 +179,20 @@ export default function Page() {
         </form>
       )}
 
+      <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>번호</th><th>입출고일</th><th>품목</th><th>유형</th><th>수량</th><th>사유·채널·메모</th><th></th></tr>
+          <tr style={S.headRow}><th>번호</th><th>입출고일</th><th>품목</th><th>유형</th><th style={S.num}>수량</th><th>사유·채널·메모</th><th></th></tr>
         </thead>
         <tbody>
           {rows.map((m) => (
             <tr key={m.id} style={S.row}>
               <td>#{m.id}</td>
-              <td>{m.movement_date}</td>
+              <td style={S.nowrap}>{m.movement_date}</td>
               <td>{m.product_name} ({m.product_sku})</td>
               <td>{TYPE_LABEL[m.movement_type] ?? m.movement_type}{m.reverses_movement_id !== null && ` (#${m.reverses_movement_id})`}</td>
               {/* 정정 행은 어떤 이력을 바로잡았는지 번호로 보인다 (예: 정정 (#2)) */}
-              <td>{m.direction === "IN" ? "+" : "−"}{m.quantity}</td>
+              <td style={S.num}>{m.direction === "IN" ? "+" : "−"}{m.quantity}</td>
               <td>{[m.sales_channel && CHANNEL_LABEL[m.sales_channel], m.reason, m.memo].filter(Boolean).join(" · ")}</td>
               <td>{m.movement_type !== "CORRECTION" && <button type="button" onClick={() => startCorrect(m)}>정정</button>}</td>
               {/* 정정 행에는 버튼을 숨긴다 (정정의 정정 금지) */}
@@ -196,7 +200,8 @@ export default function Page() {
           ))}
         </tbody>
       </table>
-      {meta?.total === 0 && <p>조건에 맞는 이력이 없습니다.</p>}
+      </div>
+      {meta?.total === 0 && <p style={S.empty}>조건에 맞는 이력이 없습니다.</p>}
       <Pager meta={meta} onPage={setPage} />
     </section>
   );

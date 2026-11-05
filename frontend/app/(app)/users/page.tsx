@@ -97,6 +97,7 @@ function UsersAdmin({ me }: { me: Me }) {
       <ListControls includeInactive={list.includeInactive} onToggleInactive={list.toggleInactive} />
       {/* 검색창 없이 "비활성 포함"만 */}
       <ErrorText error={list.error} />
+      <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}>
@@ -117,8 +118,8 @@ function UsersAdmin({ me }: { me: Me }) {
                   <option value="STAFF">{ROLE_LABEL.STAFF}</option>
                 </select>
               </td>
-              <td>{u.is_active ? "활성" : "비활성"}</td>
-              <td>
+              <td style={S.nowrap}>{u.is_active ? "활성" : "비활성"}</td>
+              <td style={S.nowrap}>
                 {u.is_active
                   ? <button type="button" onClick={() => update(u, { is_active: false })}>비활성</button>
                   : <button type="button" onClick={() => update(u, { is_active: true })}>다시 활성</button>}
@@ -127,6 +128,7 @@ function UsersAdmin({ me }: { me: Me }) {
           ))}
         </tbody>
       </table>
+      </div>
       <Pager meta={list.meta} onPage={list.setPage} />
     </section>
   );

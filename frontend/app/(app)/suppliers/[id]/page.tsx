@@ -36,9 +36,10 @@ function Detail() {
 
       <h2 style={S.sectionTitle}>발주 이력</h2>
       <ErrorText error={list.error} />
+      <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>발주번호</th><th>상태</th><th>품목</th><th>발주 수량</th><th>단가(원)</th><th>약속 납기</th><th>실제 입고일</th></tr>
+          <tr style={S.headRow}><th>발주번호</th><th>상태</th><th>품목</th><th style={S.num}>발주 수량</th><th style={S.num}>단가(원)</th><th>약속 납기</th><th>실제 입고일</th></tr>
         </thead>
         <tbody>
           {list.rows.flatMap((o) =>
@@ -48,16 +49,17 @@ function Detail() {
                 <td>{index === 0 ? <Link href={`/purchase-orders/${o.id}`}>{o.po_number}</Link> : ""}</td>
                 <td>{index === 0 ? STATUS_LABEL[o.status] : ""}</td>
                 <td>{i.product_sku} · {i.product_name}</td>
-                <td>{i.quantity}</td>
-                <td>{i.unit_price}</td>
-                <td>{index === 0 ? (o.due_date ?? "-") : ""}</td>
-                <td>{index === 0 ? fmtDate(o.received_at) : ""}</td>
+                <td style={S.num}>{i.quantity}</td>
+                <td style={S.num}>{i.unit_price}</td>
+                <td style={S.nowrap}>{index === 0 ? (o.due_date ?? "-") : ""}</td>
+                <td style={S.nowrap}>{index === 0 ? fmtDate(o.received_at) : ""}</td>
               </tr>
             )),
           )}
         </tbody>
       </table>
-      {list.meta?.total === 0 && <p>이 공급업체의 발주 이력이 없습니다.</p>}
+      </div>
+      {list.meta?.total === 0 && <p style={S.empty}>이 공급업체의 발주 이력이 없습니다.</p>}
       {/* 빈 목록 안내 */}
       <Pager meta={list.meta} onPage={list.setPage} />
     </section>

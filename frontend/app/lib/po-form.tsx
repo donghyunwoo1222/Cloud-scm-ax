@@ -84,9 +84,10 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         <label>메모 <input value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
       </div>
 
+      <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>품목*</th><th>수량*</th><th>단가(원)*</th><th></th></tr>
+          <tr style={S.headRow}><th>품목*</th><th style={S.num}>수량*</th><th style={S.num}>단가(원)*</th><th></th></tr>
         </thead>
         <tbody>
           {lines.map((line, index) => (
@@ -97,19 +98,20 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
                   {options.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
                 </select>
               </td>
-              <td><input type="number" value={line.quantity} onChange={(e) => setLine(index, { quantity: e.target.value })} aria-label="수량" /></td>
-              <td><input type="number" value={line.unit_price} onChange={(e) => setLine(index, { unit_price: e.target.value })} aria-label="단가" /></td>
+              <td style={S.num}><input type="number" style={S.numInput} value={line.quantity} onChange={(e) => setLine(index, { quantity: e.target.value })} aria-label="수량" /></td>
+              <td style={S.num}><input type="number" style={S.numInput} value={line.unit_price} onChange={(e) => setLine(index, { unit_price: e.target.value })} aria-label="단가" /></td>
               <td><button type="button" onClick={() => setLines((rows) => rows.filter((_, i) => i !== index))}>줄 삭제</button></td>
               {/* 0줄이 되면 서버가 422 (품목 줄 1개 이상)로 막는다 */}
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
       <button type="button" onClick={() => setLines((rows) => [...rows, { ...EMPTY_LINE }])}>줄 추가</button>
 
-      <p style={S.buttons}>
+      <p style={{ ...S.buttons, marginTop: "var(--space-md)" }}>
         <button type="submit">{order ? "수정 저장" : "작성"}</button>
-        <Link href={order ? `/purchase-orders/${order.id}` : "/purchase-orders"}>취소</Link>
+        <Link href={order ? `/purchase-orders/${order.id}` : "/purchase-orders"} style={S.linkButtonGhost}>취소</Link>
       </p>
       <ErrorText error={error} labels={PO_LABELS} />
       {duplicate && <p><Link href={`/purchase-orders/${duplicate.purchase_order_id}`}>기존 발주서 {duplicate.po_number} 열기</Link></p>}
