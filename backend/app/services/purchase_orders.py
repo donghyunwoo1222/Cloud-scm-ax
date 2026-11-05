@@ -263,7 +263,7 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder]) -> list
     for i in items:
         p = products[i.product_id]
         by_order[i.purchase_order_id].append(ItemOut(
-            id=i.id, product_id=i.product_id, product_sku=p.sku, product_name=p.name, quantity=i.quantity,
+            id=i.id, product_id=i.product_id, product_sku=p.sku, product_name=p.name, unit=p.unit, quantity=i.quantity,
             unit_price=i.unit_price, recommended_quantity=i.recommended_quantity,
             recommendation_reason=i.recommendation_reason, received_quantity=int(received.get(i.id, 0)),
         ))

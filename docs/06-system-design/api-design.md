@@ -126,6 +126,8 @@
 
 예) 출고 등록 화면의 최근 출고 10건: `GET /inventory-movements?movement_type=SALE&movement_type=DISPOSAL&movement_type=OTHER_OUT&movement_type=ADJUSTMENT&sort=registered&page_size=10`
 
+발주서 응답(상세·목록·작성·수정·상태 변경·입고·추천 초안 공통)의 품목 줄 `items[]`에는 `product_sku`·`product_name`과 함께 `unit`(품목 단위, 예: "개")이 있다(#93). 값은 발주 시점이 아니라 품목 마스터의 현재 단위다(단가 `unit_price`만 발주 당시 값을 저장한다). 이미 있는 칸은 그대로다.
+
 ### 3) 발주 입고: POST /purchase-orders/{id}/receipts
 
 ```json
