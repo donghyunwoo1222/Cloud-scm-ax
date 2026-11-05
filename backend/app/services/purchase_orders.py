@@ -29,28 +29,36 @@ from app.schemas.purchase_orders import (  # 요청·응답 모양
     ReceiptCreate,
 )
 from app.services.stock import register_movement  # 이력을 쓰는 유일한 함수 (품목 잠금·flush)
-from app.services.tenant import check_ref, get_owned, scoped  # 회사 분리 도우미 (#23)
+from app.services.tenant import (  # 회사 분리 도우미 (#23), 404 문장
+    NOT_FOUND_MESSAGE,
+    check_ref,
+    get_owned,
+    scoped,
+)
 
 
 def inactive(field: str, message: str) -> AppError:
     return AppError(409, "INACTIVE_REFERENCE", message, [{"field": field, "reason": "inactive"}])  # 비활성은 새 발주에 못 쓴다
 
 
-def check_items(company_id: int, db: Session, items: list[ItemIn], keep: set[int]) -> dict[int, Product]:
+def check_items(company_id: int, db: Session, items: list[ItemIn], keep: set[int], lock: bool = False) -> dict[int, Product]:
     """품목 줄 검사: 같은 품목 두 줄이면 409 DUPLICATE_ITEM, 다른 회사 품목이면 404, 새로 넣는 비활성 품목이면 409.
 
     keep 은 이미 발주서에 있던 품목 id. 나중에 비활성이 된 품목은 줄을 유지할 수 있다(승인 때 막는다, #34).
+    품목은 한 번에 조회한다(품목 수와 무관하게 1번, #84). lock=True 면 품목 번호 순으로 잠근 뒤 최신 값으로 검사한다(추천 초안).
     """
     ids = [i.product_id for i in items]  # 요청의 품목 번호들
     if len(set(ids)) != len(ids):  # 같은 품목이 두 번 들어 있으면
         raise AppError(409, "DUPLICATE_ITEM", "같은 품목을 두 번 넣을 수 없습니다. 수량을 한 줄로 합쳐 주세요.",
                        [{"field": "items", "reason": "duplicate"}])
-    products = {}  # 품목 id → 품목
-    for product_id in ids:
-        product = check_ref(company_id, db, Product, product_id, "items")  # 다른 회사·없는 id 는 404
+    stmt = scoped(company_id, Product).where(Product.id.in_(ids)).order_by(Product.id)  # 우리 회사 품목만, 번호 순 (잠금 순서)
+    products = {p.id: p for p in db.scalars(stmt.with_for_update() if lock else stmt)}  # 품목 id → 품목 (잠금이면 FOR UPDATE)
+    for product_id in ids:  # 요청 순서대로 검사 (첫 번째로 걸린 줄의 오류를 낸다)
+        product = products.get(product_id)
+        if product is None:  # 없는 id 와 다른 회사 id 는 같은 404 (check_ref 와 같은 모양)
+            raise AppError(404, "NOT_FOUND", NOT_FOUND_MESSAGE, [{"field": "items", "reason": "not_found"}])
         if not product.is_active and product_id not in keep:  # 새로 넣는 줄이 비활성이면
             raise inactive("items", f"비활성 품목({product.sku})은 발주에 넣을 수 없습니다.")
-        products[product_id] = product
     return products
 
 

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
 
 from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
 from app.clock import seoul_today  # 서울 기준 오늘 (추천 계산 기준일)
-from app.db import DB  # 요청마다 DB 세션
+from app.db import ReadDB  # 한 시점으로 읽는 조회 세션 (상태 계산이 여러 번 나눠 읽는다, #84)
 from app.pagination import Page  # page·page_size
 from app.schemas.common import PathId  # 번호 칸 (DB 범위를 넘으면 422, #71)
 from app.schemas.stock import Status, StockOut  # 상태 값, 응답 모양
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/stock")  # 이 파일의 경로는 모두 /stock 으
 @router.get("")  # 품목별 현재고 목록
 def list_stock(
     user: CurrentUser,
-    db: DB,
+    db: ReadDB,  # 한 시점으로 읽기
     page: Page,
     include_inactive: Annotated[bool, Query()] = False,  # true 면 비활성 품목 포함 (기본은 숨김)
     status: Annotated[Status | None, Query()] = None,  # 상태로 거르기 (SHORTAGE·NORMAL·UNKNOWN, 그 밖은 422)
@@ -28,5 +28,5 @@ def list_stock(
 
 
 @router.get("/{product_id}")  # 품목 하나의 현재고
-def get_stock(product_id: PathId, user: CurrentUser, db: DB) -> dict:
+def get_stock(product_id: PathId, user: CurrentUser, db: ReadDB) -> dict:  # 한 시점으로 읽기
     return {"data": StockOut(**inventory_status.get_stock(user.company_id, db, seoul_today(), product_id)).model_dump(mode="json")}  # 다른 회사 404

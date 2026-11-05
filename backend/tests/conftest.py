@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, make_url, text  # DB 연결, 주소 해석
 from sqlalchemy.orm import Session  # ORM 세션
 
 from app.auth.security import hash_password  # 테스트 사용자 비밀번호 해시
-from app.db import get_db  # 앱이 쓰는 DB 세션 의존성
+from app.db import get_db, get_read_db  # 앱이 쓰는 DB 세션 의존성 (쓰기용, 한 시점 읽기용)
 from app.main import app  # 테스트할 앱
 from app.models import Company, Product, Supplier, User  # 준비 데이터 표
 from tests.concurrency import (  # 진짜 commit 하는 준비·정리 (committed_company)
@@ -79,6 +79,7 @@ def session(engine):
 def client(session):
     """앱이 개발 DB 대신 이 테스트의 세션(scm_test, 끝나면 되돌림)을 쓰게 바꾼 클라이언트."""
     app.dependency_overrides[get_db] = lambda: session  # get_db 를 테스트 세션으로 바꿔 끼운다
+    app.dependency_overrides[get_read_db] = lambda: session  # 읽기 세션도 같은 테스트 세션 (한 시점 읽기는 test_snapshot 에서 진짜 연결로 확인)
     with TestClient(app) as c:  # 쿠키를 기억하는 가짜 브라우저
         yield c
     app.dependency_overrides.clear()  # 다음 테스트에 영향 없게 원래대로
