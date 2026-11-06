@@ -10,7 +10,7 @@ from app.db import ReadDB  # 한 시점으로 읽는 조회 세션 (상태 계�
 from app.pagination import Page  # page·page_size
 from app.schemas.common import PathId  # 번호 칸 (DB 범위를 넘으면 422, #71)
 from app.schemas.stock import Status, StockOut  # 상태 값, 응답 모양
-from app.services import inventory_status  # 현재고 + 부족/정상/판단 불가 (#76)
+from app.services import inventory_status, stock  # 현재고 상태와 이력 기반 재고 추이
 
 router = APIRouter(prefix="/stock")  # 이 파일의 경로는 모두 /stock 으로 시작
 
@@ -33,3 +33,9 @@ def list_stock(
 @router.get("/{product_id}")  # 품목 하나의 현재고
 def get_stock(product_id: PathId, user: CurrentUser, db: ReadDB) -> dict:  # 한 시점으로 읽기
     return {"data": StockOut(**inventory_status.get_stock(user.company_id, db, seoul_today(), product_id)).model_dump(mode="json")}  # 다른 회사 404
+
+
+@router.get("/{product_id}/trend")  # 품목 하나의 최근 30일 마감 재고
+def get_stock_trend(product_id: PathId, user: CurrentUser, db: ReadDB) -> dict:
+    trend = stock.get_stock_trend(user.company_id, db, product_id, seoul_today())
+    return {"data": trend.model_dump(mode="json")}

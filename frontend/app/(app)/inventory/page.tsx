@@ -11,6 +11,7 @@ import { STOCK_BADGE, StatusBadge } from "../../lib/status-badge"; // 색 + 글�
 import { quantityLabel } from "../../lib/po"; // 입출고 이력에도 실제 단위를 붙인다.
 import { ProductSearch, useProductOptions } from "../../lib/product-search"; // 이력 품목도 서버에서 검색한다.
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
+import { StockTrend } from "./stock-trend"; // 선택한 품목의 30일 마감 재고
 
 // GET /api/v1/stock 의 한 행 (상태는 추천 계산과 같은 기준, #76)
 type Stock = {
@@ -32,6 +33,13 @@ type ProductOption = { id: number; sku: string; name: string }; // 이력 필터
 
 const LABELS = { quantity: "수량", reason: "사유" }; // 정정 오류 details 칸 이름
 
+function focusInView(target: HTMLElement | null, block: ScrollLogicalPosition) {
+  if (!target) return;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block });
+  target.focus({ preventScroll: true }); // 스크롤 위치를 유지하면서 키보드 포커스도 옮긴다
+}
+
 // 재고 현황 화면 (주소 /inventory): 품목별 현재고 + 입출고 이력(필터·정정)
 // 주소의 ?status= 는 화면이 열릴 때 알 수 있어 Suspense 로 감싼다 (Next.js 가 빌드 때 미리 그리는 동안 기다릴 자리)
 export default function Page() {
@@ -52,7 +60,7 @@ function Inventory() {
 
 function InventoryBody({ initialStatus }: { initialStatus: string }) {
   const [status, setStatus] = useState(initialStatus); // 고른 상태 ("" 이면 전체). 처음 값은 주소에서
-  const stock = useList<Stock>("/stock", { status }); // 같은 요청에 상태와 품목 검색어를 담는다
+  const stock = useList<Stock>("/stock", { status, page_size: "10" }); // 상태·검색 결과를 한 쪽에 10품목씩 보여 준다
   const [searchText, setSearchText] = useState(""); // 검색창에 적는 값은 즉시 표시한다
   const { q: appliedSearch, search: searchStock } = stock; // 현재 요청의 검색어와 검색 함수를 가져온다
   const waitingForSearch = searchText.trim() !== appliedSearch; // 입력을 적용하기 전에는 이전 결과를 숨긴다
@@ -67,6 +75,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
   const [historyProduct, setHistoryProduct] = useState<ProductOption>(); // 검색 결과와 별도로 선택을 유지한다.
   const products = productList.isCurrent ? productList.rows : [];
   const [productId, setProductId] = useState(""); // 이력 필터: 품목
+  const [trendRevision, setTrendRevision] = useState(0); // 정정 성공 후 같은 품목의 추이도 다시 읽는다
   const [type, setType] = useState(""); // 이력 필터: 유형
   const [from, setFrom] = useState(""); // 이력 필터: 시작일
   const [to, setTo] = useState(""); // 이력 필터: 종료일
@@ -81,9 +90,13 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
   const [notice, setNotice] = useState(""); // 정정 성공 안내
   const [busy, setBusy] = useState(false); // 정정 등록 중이면 버튼을 잠근다
   const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
+  const historyRequest = useRef(0); // 품목 전환 뒤에 도착한 이전 이력 응답은 버린다
+  const inventoryTitle = useRef<HTMLHeadingElement>(null); // 선택한 행이 현재 쪽에 없을 때 돌아갈 위치
   const historyTitle = useRef<HTMLHeadingElement>(null); // "입출고 이력" 제목 (이력 보기를 누르면 여기로 이동)
+  const selectedHistoryButton = useRef<HTMLButtonElement>(null); // 이력에서 목록으로 돌아갈 때 다시 포커스할 버튼
 
   const reloadMovements = useCallback(async () => {
+    const request = ++historyRequest.current;
     const params = new URLSearchParams({ page: String(page) }); // 쿼리 문자열 (예: page=1&movement_type=SALE)
     if (productId) params.set("product_id", productId);
     if (type) params.set("movement_type", type);
@@ -91,15 +104,17 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
     if (to) params.set("date_to", to);
     try {
       const r = await apiList<Movement>(`/inventory-movements?${params}`); // 최신순 한 쪽
+      if (request !== historyRequest.current) return;
       setRows(r.data); setMeta(r.meta); setError(null);
     } catch (e) {
-      setError(e); // 예: 시작일이 종료일보다 늦으면 서버 422 문장
+      if (request === historyRequest.current) setError(e); // 예: 시작일이 종료일보다 늦으면 서버 422 문장
     }
   }, [page, productId, type, from, to]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 이력을 서버에서 불러와 상태에 넣는 것이 이 효과의 목적이다
     reloadMovements(); // 처음 열 때와 쪽·필터가 바뀔 때
+    return () => { historyRequest.current += 1; };
   }, [reloadMovements]);
 
   // 필터를 바꾸면 1쪽부터 다시 본다
@@ -108,15 +123,29 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
     setPage(1);
   }
 
-  // 이 품목의 이력 보기: 이력을 품목으로 거르고 "입출고 이력" 제목으로 화면과 포커스를 옮긴다
-  function showHistory(row: Stock) {
+  function clearHistoryProduct() {
+    setHistoryProduct(undefined);
+    setRows([]);
+    setMeta(null);
+    filter(setProductId, "");
+  }
+
+  // 같은 품목을 다시 누르면 품목 선택을 풀고, 다른 품목을 누르면 해당 이력으로 이동한다.
+  function toggleHistory(row: Stock) {
+    const selectedId = String(row.product_id);
+    if (productId === selectedId) {
+      clearHistoryProduct();
+      return;
+    }
     setHistoryProduct({ id: row.product_id, sku: row.sku, name: row.name });
-    filter(setProductId, String(row.product_id));
-    const title = historyTitle.current;
-    if (!title) return;
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches; // OS 의 "움직임 줄이기" 설정이 켜져 있으면 스르륵 대신 바로 이동
-    title.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); // 아래로 스르륵 내려간다
-    title.focus({ preventScroll: true }); // 키보드·낭독기 사용자도 이력 영역으로 따라오게 (스크롤은 위에서 이미 했다)
+    filter(setProductId, selectedId);
+    focusInView(historyTitle.current, "start");
+  }
+
+  function returnToInventory() {
+    const button = selectedHistoryButton.current; // 선택을 해제하기 전에 돌아갈 행을 잡아 둔다
+    clearHistoryProduct();
+    focusInView(button ?? inventoryTitle.current, button ? "center" : "start");
   }
 
   function startCorrect(m: Movement) {
@@ -134,6 +163,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
       });
       setNotice(`정정했습니다. 현재고는 ${quantityLabel(r.stock_after, correcting.product_unit ?? undefined)}입니다.`);
       setCorrecting(null); // 폼 닫기
+      setTrendRevision((revision) => revision + 1);
       await Promise.all([reloadMovements(), stock.reload()]); // 이력·재고 숫자 다시 불러오기
     } catch (e) {
       setCError(e); // 폼은 열어 둔 채 입력값 유지. 서버 문장 그대로 (정정 수량 초과, 재고 부족 등)
@@ -145,19 +175,16 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
 
   return (
     <section>
-      <div style={S.detailHeader}><h1>재고 현황</h1><Link href="/shipments?type=ADJUSTMENT" style={S.linkButtonGhost}>실사 조정</Link></div>
+      <div style={S.detailHeader}><h1 ref={inventoryTitle} tabIndex={-1}>재고 현황</h1><Link href="/shipments?type=ADJUSTMENT" style={S.linkButtonGhost}>실사 조정</Link></div>
       {/* 기존 목록 검색창과 비활성 포함을 재고 API에 연결한다. */}
       <ListControls placeholder="품목명·SKU 검색" onSearch={searchStock} searchInput={{ value: searchText, onChange: setSearchText, maxLength: 100 }}
-        includeInactive={stock.includeInactive} onToggleInactive={stock.toggleInactive} />
-      <div style={S.toolbar}>
-        <label>상태
-          <select value={status} onChange={(e) => { setStatus(e.target.value); stock.setPage(1); }} style={S.block}>
-            <option value="">전체</option>
+        includeInactive={stock.includeInactive} onToggleInactive={stock.toggleInactive}
+        tableFilter={(
+          <select aria-label="재고 상태" value={status} onChange={(e) => { setStatus(e.target.value); stock.setPage(1); }} style={{ maxWidth: "100%" }}>
+            <option value="">전체 상태</option>
             {Object.entries(STATUS_LABEL).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
           </select>
-        </label>
-        {/* 상태를 고르면 서버가 회사 전체에서 거른 뒤 쪽을 나눈다. 비활성 품목은 상태가 없어 나오지 않는다 */}
-      </div>
+        )} />
       {stockReady && <ErrorText error={stock.error} />}{/* 현재 조건에서 난 오류만 보여준다. */}
       <div style={S.tableBox}>
       <table style={S.table}>
@@ -165,9 +192,11 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
           <tr style={S.headRow}><th>품목명</th><th>SKU</th><th style={S.num}>현재고</th><th style={S.num}>발주 진행 중</th><th style={S.num}>안전재고</th><th>상태</th><th></th></tr>
         </thead>
         <tbody>
-          {stockReady && !stock.error && stock.rows.map((s) => ( // 현재 검색의 결과만 표에 그린다
-            <tr key={s.product_id} style={bodyRow(s.is_active)}>
-              <td>{s.name}{!s.is_active && " (비활성)"}</td>
+          {stockReady && !stock.error && stock.rows.map((s) => { // 현재 검색의 결과만 표에 그린다
+            const selected = String(s.product_id) === productId; // 아래 추이와 이력이 열린 품목
+            return (
+            <tr key={s.product_id} style={selected ? { ...bodyRow(s.is_active), ...S.selectedRow } : bodyRow(s.is_active)}>
+              <td style={selected ? S.selectedMark : undefined}>{s.name}{!s.is_active && " (비활성)"}</td>
               <td style={S.nowrap}>{s.sku}</td>
               <td style={S.num}>{s.current_stock} {s.unit}</td>
               <td style={S.num}>{quantityLabel(s.in_transit, s.unit)}</td>
@@ -178,10 +207,15 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
                 {s.status_reason && <span style={S.sub}>{s.status_reason.message}</span>}
                 {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 판단 불가는 이유를 작게 보인다. 비활성은 "-" */}
               </td>
-              <td><button type="button" onClick={() => showHistory(s)}>이력 보기</button></td>
+              <td>
+                <button ref={selected ? selectedHistoryButton : undefined} type="button" aria-expanded={selected} onClick={() => toggleHistory(s)}>
+                  {selected ? "추이·이력 닫기" : "추이·이력 보기"}
+                </button>
+              </td>
               {/* 아래 이력을 이 품목으로 거른다 */}
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
       </div>
@@ -195,7 +229,10 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
       )}
       <Pager meta={stockReady && !stock.error ? stock.meta : null} onPage={stock.setPage} />{/* 이전 검색의 쪽 번호는 숨긴다. */}
 
-      <h2 ref={historyTitle} tabIndex={-1} style={S.sectionTitle}>입출고 이력</h2>
+      <div style={{ ...S.detailHeader, marginTop: S.sectionTitle.marginTop, marginBottom: 0 }}>
+        <h2 ref={historyTitle} tabIndex={-1} style={{ margin: 0 }}>입출고 이력</h2>
+        {productId && <button type="button" onClick={returnToInventory}>접고 목록으로 ↑</button>}
+      </div>
       {/* tabIndex -1: 키 이동 순서에는 넣지 않고, 코드로만 포커스를 줄 수 있게 */}
       <ProductSearch list={productList} label="이력 품목명·SKU 검색" />
       <div style={S.toolbar}>
@@ -221,6 +258,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
         <label>시작일 <input type="date" value={from} onChange={(e) => filter(setFrom, e.target.value)} /></label>
         <label>종료일 <input type="date" value={to} onChange={(e) => filter(setTo, e.target.value)} /></label>
       </div>
+      {productId && <StockTrend key={`${productId}:${trendRevision}`} productId={productId} />}
       <ErrorText error={error} />
       {notice && <p role="status" style={S.ok}>{notice}</p>}
 
