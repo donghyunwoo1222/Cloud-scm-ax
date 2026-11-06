@@ -22,6 +22,9 @@ def test_box_recommendation_and_receipts(client, session, world):
     [recommendation] = client.get(RECOMMENDATIONS).json()["data"]["items"]
     assert recommendation["recommended_quantity"] == 27
     assert recommendation["recommended_box_quantity"] == 3
+    for field in ("quantity", "box_quantity"):  # 명시적 null은 생략과 다르며 초안을 만들지 않는다
+        invalid = {"items": [{"product_id": product.id, field: None}]}
+        assert client.post(f"{RECOMMENDATIONS}/drafts", json=invalid).status_code == 422
     response = client.post(f"{RECOMMENDATIONS}/drafts", json={"items": [{"product_id": product.id}]})
     assert response.status_code == 201, response.json()
     [order] = response.json()["data"]
