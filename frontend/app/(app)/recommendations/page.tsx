@@ -5,7 +5,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react"; // �
 
 import { ApiError, api, apiList } from "../../lib/api"; // 공통 API 호출 함수·오류 종류
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
-import { PO_LABELS, PurchaseOrder } from "../../lib/po"; // 오류 칸 이름·발주서 모양
+import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PoItem, PurchaseOrder, quantityLabel } from "../../lib/po"; // 발주서와 박스 환산 표시
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S } from "../../lib/styles"; // 화면 공통 스타일
 import styles from "./page.module.css"; // 추천 화면 근거 버튼 스타일
@@ -17,9 +17,10 @@ type Item = {
   current_stock: number; in_transit: number; available: number; // 현재고, 발주 진행 중, 가용재고(= 둘의 합)
   avg_daily_sales: number; lead_time_days: number; safety_stock: number; // 일평균(소수), 리드타임, 안전재고
   reorder_point: number; recommended_quantity: number; reason: string; // 재주문점(소수), 추천 수량, 이유 문구
+  units_per_box: number | null; recommended_box_quantity: number | null; // 현재 입수와 서버가 올림한 기본 박스 수
 };
 type Excluded = { product_id: number; product_sku: string; product_name: string; message: string }; // 서버가 제외 사유 문장까지 내려준다
-type Draft = { id: number; po_number: string; quantity: number }; // 작성 중인 발주서와 그 안의 품목 수량
+type Draft = { id: number; po_number: string } & Pick<PoItem, "quantity" | "box_quantity" | "unit">;
 type Created = PurchaseOrder & { created: boolean }; // 초안 만들기 응답 한 장 (created: 새로 만들었는지)
 
 const REASON_TEXT: Record<string, string> = {
@@ -38,7 +39,7 @@ export default function Page() {
   const [loadError, setLoadError] = useState<unknown>(null); // 목록 불러오기 오류
   const [checked, setChecked] = useState<Record<number, boolean>>({}); // 품목 id → 골랐는지
   const [expandedId, setExpandedId] = useState<number | null>(null); // 펼친 품목 하나의 id만 기억한다
-  const [qty, setQty] = useState<Record<number, string>>({}); // 품목 id → 사용자가 고친 수량 (안 고쳤으면 없음 → 추천 수량)
+  const [qty, setQty] = useState<Record<number, { value: string; units: number | null }>>({}); // 입수가 바뀌면 이전 수량을 재사용하지 않는다
   const [busy, setBusy] = useState(false); // 만드는 중이면 버튼 잠금·글자 변경
   const sending = useRef(false); // 상태값은 다음 화면 갱신 뒤에야 바뀌어 더블클릭을 못 막으므로 즉시 바뀌는 ref 로 한 번 더 막는다
   const [result, setResult] = useState<Created[]>([]); // 마지막으로 성공한 초안들
@@ -54,7 +55,9 @@ export default function Page() {
       ]);
       const map: Record<number, Draft> = {}; // 품목 id → 작성 중 발주서
       for (const o of draftList.data) { // 조회한 초안에서 품목별로 표시할 값을 찾는다
-        for (const i of o.items) map[i.product_id] = { id: o.id, po_number: o.po_number, quantity: i.quantity }; // 저장된 수량을 그대로 쓴다
+        for (const i of o.items) map[i.product_id] = {
+          id: o.id, po_number: o.po_number, quantity: i.quantity, box_quantity: i.box_quantity, unit: i.unit,
+        }; // 저장된 수량과 단위를 그대로 쓴다
       }
       setItems(rec.items); setExcluded(rec.excluded); setDrafts(map); // 체크·수량 입력은 그대로 둔다
     } catch (e) {
@@ -71,15 +74,33 @@ export default function Page() {
   const selected = (items ?? []).filter((i) => checked[i.product_id] && !drafts[i.product_id]);
   const supplierCount = new Set(selected.map((i) => i.supplier_id)).size; // 같은 업체의 품목은 여러 개 골라도 업체 한 곳으로 센다
   const linkedDrafts = new Set<number>(); // 초안 상세 링크를 표에 먼저 배치하고 안내에서는 중복을 피한다
-  const quantityOf = (i: Item) => qty[i.product_id] ?? String(i.recommended_quantity); // 고친 값, 없으면 추천 수량
+  const editOf = (i: Item) => {
+    const edit = qty[i.product_id];
+    return edit && edit.units === i.units_per_box ? edit.value : undefined;
+  };
+  const quantityOf = (i: Item) => editOf(i) ?? String(i.recommended_box_quantity ?? i.recommended_quantity);
+  const maxFor = (i: Item) => i.units_per_box != null ? boxLimit(i.units_per_box) : MAX_ORDER_QUANTITY;
 
   async function createDrafts() {
     if (sending.current) return; // 이미 만드는 중이면 두 번째 클릭은 버린다
+    const invalid = selected.find((i) => {
+      const count = Number(quantityOf(i));
+      return !Number.isInteger(count) || count < 1 || count > maxFor(i);
+    });
+    if (invalid) {
+      setResult([]);
+      setError(`${invalid.product_sku} 발주 수량은 1~${maxFor(invalid).toLocaleString("ko-KR")}${invalid.units_per_box != null ? "박스" : " (재고 단위)"}로 입력하세요.`);
+      return;
+    }
     sending.current = true; // 즉시 잠금
     setBusy(true); // 버튼 잠금·"만드는 중…"
     const body = {
-      // 추천 수량 칸은 보내지 않는다 (서버가 다시 계산하고, 보내면 422)
-      items: selected.map((i) => ({ product_id: i.product_id, quantity: quantityOf(i) === "" ? null : Number(quantityOf(i)) })), // 1 이상 정수 검사는 서버가 한다
+      items: selected.map((i) => {
+        const product_id = i.product_id;
+        if (i.units_per_box == null) return { product_id, quantity: Number(quantityOf(i)) };
+        const edit = editOf(i); // 박스 수를 고치지 않았으면 서버가 최신 추천으로 다시 올림한다
+        return edit === undefined ? { product_id } : { product_id, box_quantity: Number(edit) };
+      }),
     };
     try {
       const orders = await api<Created[]>("/recommendations/drafts", { method: "POST", body });
@@ -150,6 +171,7 @@ export default function Page() {
                 const cell = picked ? S.selectedRow : undefined; // 선택한 품목은 본문과 펼친 근거의 배경을 강조한다
                 const open = expandedId === i.product_id; // 이 품목의 근거가 펼쳐졌는지 확인한다
                 const evidenceId = "recommendation-evidence-" + i.product_id; // 버튼과 펼쳐진 근거를 연결한다
+                const boxCount = Number(quantityOf(i)); // 보조 문구에는 입력한 박스를 재고 단위로 환산한다
                 return (
                   <Fragment key={i.product_id}>
                     <tr style={S.row}>
@@ -192,15 +214,21 @@ export default function Page() {
                           <>{/* 편집 칸 없이 서버에 저장된 초안 수량을 보여 준다 */}
                             <span className={styles.draftQuantity}>{/* 상태와 저장된 수량을 한 줄에서 읽는다 */}
                               <StatusBadge kind="unknown" icon="draft">초안</StatusBadge>{/* 연필 아이콘으로 작성 중인 수량임을 나타낸다 */}
-                              <strong>{draft.quantity}</strong>{/* 수량을 가장 먼저 볼 수 있도록 강조한다 */}
+                              <strong>{draft.box_quantity != null ? quantityLabel(draft.box_quantity, "박스") : draft.quantity}</strong>
                             </span>
-                            {draft.quantity !== i.recommended_quantity && <span style={S.sub}>추천 <strong>{i.recommended_quantity}</strong></span>}{/* 초안 수량과 다를 때 추천값을 함께 보여 준다 */}
+                            {draft.box_quantity != null && <span style={S.sub}>재고 {quantityLabel(draft.quantity, draft.unit)}</span>}
+                            {draft.quantity !== i.recommended_quantity && <span style={S.sub}>추천 <strong>{i.recommended_quantity}</strong></span>}
                           </>
                         ) : (
                           <>{/* 선택 가능한 품목만 수량을 고칠 수 있고 추천 수량은 서버 값이다 */}
-                            <input type="number" min={1} max={1_000_000} step={1} aria-label={i.product_sku + " 발주 수량"}
-                              style={S.numInput} value={quantityOf(i)} onChange={(e) => setQty({ ...qty, [i.product_id]: e.target.value })} />
-                            <span style={S.sub}>추천 {i.recommended_quantity}</span>
+                            <input type="number" min={1} max={maxFor(i)} step={1}
+                              aria-label={i.product_sku + (i.units_per_box != null ? " 발주 박스 수" : " 발주 수량")}
+                              style={S.numInput} value={quantityOf(i)}
+                              onChange={(e) => setQty({ ...qty, [i.product_id]: { value: e.target.value, units: i.units_per_box } })} />
+                            {i.units_per_box != null && <span style={S.sub}>
+                              {boxCount > 0 ? `${quantityLabel(boxCount, "박스")} · ${quantityLabel(boxCount * i.units_per_box)}` : `1박스 · ${quantityLabel(i.units_per_box)}`}
+                            </span>}
+                            <span style={S.sub}>{i.units_per_box != null ? "필요 수량" : "추천"} {i.recommended_quantity.toLocaleString("ko-KR")}</span>
                           </>
                         )}
                       </td>
@@ -265,6 +293,7 @@ export default function Page() {
 
 // 초안 만들기 오류 표시: 코드별로 안내를 덧붙이고, 그 밖은 서버 문장 그대로
 function DraftError({ error, linkedDrafts, onReload }: { error: unknown; linkedDrafts: ReadonlySet<number>; onReload: () => void }) {
+  if (typeof error === "string") return <p role="alert" style={S.error}>{error}</p>; // 화면에서 검증한 입력 오류
   if (!(error instanceof ApiError)) return <ErrorText error={error} />; // 오류 없음(null) 또는 알 수 없는 오류
   if (error.code === "NOT_RECOMMENDED" && Array.isArray(error.details)) return (
     <div role="alert" style={S.error}>

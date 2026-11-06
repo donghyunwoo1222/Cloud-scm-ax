@@ -6,14 +6,14 @@ import { FormEvent, useEffect, useState } from "react"; // 폼 제출, 처음 �
 
 import { api, ApiError, apiList } from "./api"; // 공통 API 호출 함수, 서버 오류
 import { ErrorText } from "./list"; // 서버 오류 표시
-import { PO_LABELS, PurchaseOrder } from "./po"; // 발주서 모양·칸 이름
+import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PurchaseOrder, quantityLabel } from "./po"; // 발주서와 박스 환산 표시
 import { S } from "./styles"; // 화면 공통 스타일
 
 type Option = { id: number; name: string }; // 공급업체 선택지
-type ProductOption = { id: number; sku: string; name: string; unit_cost: number }; // 품목 선택지
-type Line = { product_id: string; quantity: string; unit_price: string }; // 품목 줄 입력값 (모두 글자로 다루고 보낼 때 숫자로)
+type ProductOption = { id: number; sku: string; name: string; unit_cost: number; unit: string; units_per_box?: number | null; box_unit_cost?: number | null };
+type Line = { product_id: string; quantity: string; unit_price: string; box: boolean }; // 입력한 수량과 그 단위를 함께 기억한다
 
-const EMPTY_LINE: Line = { product_id: "", quantity: "", unit_price: "" }; // 빈 줄
+const EMPTY_LINE: Line = { product_id: "", quantity: "", unit_price: "", box: false }; // 빈 줄
 const num = (v: string) => (v === "" ? null : Number(v)); // "10" → 10, 비우면 null (서버가 422 로 막는다. 1 이상·0 이상 검사는 서버가 한다)
 
 // 발주서 작성·수정 폼 하나. order 가 있으면 수정(DRAFT 의 items 전체 교체), 없으면 새 작성
@@ -25,7 +25,10 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   const [dueDate, setDueDate] = useState(order?.due_date ?? ""); // 약속 납기
   const [memo, setMemo] = useState(order?.memo ?? ""); // 메모
   const [lines, setLines] = useState<Line[]>(
-    order ? order.items.map((i) => ({ product_id: String(i.product_id), quantity: String(i.quantity), unit_price: String(i.unit_price) })) : [{ ...EMPTY_LINE }],
+    order ? order.items.map((i) => ({
+      product_id: String(i.product_id), quantity: String(i.box_quantity ?? i.quantity),
+      unit_price: String(i.unit_price), box: i.box_quantity != null,
+    })) : [{ ...EMPTY_LINE }],
   ); // 품목 줄들 (수정이면 지금 줄들로 시작)
   const [error, setError] = useState<unknown>(null); // 저장 오류 (입력값은 지우지 않는다)
 
@@ -38,22 +41,40 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   // 선택 상자의 품목: 활성 품목 + (수정일 때) 이미 든 품목이 지금 비활성이어도 이름이 보이게 함께 넣는다
   const options = [
     ...products,
-    ...(order?.items ?? []).filter((i) => !products.some((p) => p.id === i.product_id)).map((i) => ({ id: i.product_id, sku: i.product_sku, name: i.product_name, unit_cost: i.unit_price })),
+    ...(order?.items ?? []).filter((i) => !products.some((p) => p.id === i.product_id)).map((i) => ({
+      id: i.product_id, sku: i.product_sku, name: i.product_name, unit_cost: i.unit_price, unit: i.unit,
+    })),
   ];
+
+  function packingFor(productId: string) {
+    const product: ProductOption | undefined = options.find((p) => String(p.id) === productId);
+    const saved = order?.items.find((i) => String(i.product_id) === productId);
+    const locked = saved?.units_per_box != null; // 기존 박스 줄은 품목 설정 변경·해제 이후에도 당시 값을 쓴다
+    return {
+      locked, product,
+      units: saved?.units_per_box ?? product?.units_per_box,
+      price: saved?.box_unit_price ?? product?.box_unit_cost,
+    };
+  }
 
   function setLine(index: number, patch: Partial<Line>) {
     setLines((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row))); // 그 줄만 바꾼다
   }
 
-  // 품목을 고르거나 바꾸면 단가 칸을 그 품목의 단가로 채운다 (단가를 직접 고치고 싶으면 품목을 고른 뒤에 고친다)
+  // 박스 단위가 바뀔 때 이전 수량을 적용하지 않도록 입력값을 비운다.
   function pickProduct(index: number, productId: string) {
-    const cost = options.find((p) => String(p.id) === productId)?.unit_cost; // 고른 품목의 단가
-    setLine(index, { product_id: productId, unit_price: cost === undefined ? "" : String(cost) }); // 선택을 비우면 단가도 비운다
+    const { product, units } = packingFor(productId);
+    const box = units != null;
+    setLine(index, { product_id: productId, unit_price: String(product?.unit_cost ?? ""), box,
+      ...(box || lines[index].box ? { quantity: "" } : {}) });
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
-    const items = lines.map((l) => ({ product_id: num(l.product_id), quantity: num(l.quantity), unit_price: num(l.unit_price) })); // 숫자로 바꿔 보낸다
+    const items = lines.map((l) => ({
+      product_id: num(l.product_id),
+      ...(l.box ? { box_quantity: num(l.quantity) } : { quantity: num(l.quantity), unit_price: num(l.unit_price) }),
+    })); // 서버는 보낸 단위에 맞춰 발주량과 당시 값을 저장한다
     try {
       const saved = order
         ? await api<PurchaseOrder>(`/purchase-orders/${order.id}`, { method: "PATCH", body: { due_date: dueDate || null, memo: memo || null, items } }) // 수정: items 전체 교체
@@ -90,20 +111,49 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
           <tr style={S.headRow}><th>품목*</th><th style={S.num}>수량*</th><th style={S.num}>단가(원)*</th><th></th></tr>
         </thead>
         <tbody>
-          {lines.map((line, index) => (
+          {lines.map((line, index) => {
+            const { locked, product, units, price } = packingFor(line.product_id);
+            const unit = product?.unit;
+            const count = Number(line.quantity);
+            const suffix = line.box ? "박스 수" : unit ? `${unit} 수량` : "수량";
+            return (
             <tr key={index}>
               <td>
-                <select value={line.product_id} onChange={(e) => pickProduct(index, e.target.value)} aria-label="품목">
+                <select required value={line.product_id} onChange={(e) => pickProduct(index, e.target.value)} aria-label={`품목 ${index + 1}`}>
                   <option value="">선택</option>
                   {options.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
                 </select>
               </td>
-              <td style={S.num}><input type="number" style={S.numInput} value={line.quantity} onChange={(e) => setLine(index, { quantity: e.target.value })} aria-label="수량" /></td>
-              <td style={S.num}><input type="number" style={S.numInput} value={line.unit_price} onChange={(e) => setLine(index, { unit_price: e.target.value })} aria-label="단가" /></td>
+              <td style={S.num}>
+                {units != null && !locked && (
+                  <select value={line.box ? "box" : "stock"} aria-label={`${index + 1}번 줄 발주 단위`}
+                    onChange={(e) => setLine(index, { box: e.target.value === "box", quantity: "" })}>
+                    <option value="box">박스</option>
+                    <option value="stock">재고 단위 ({unit})</option>
+                  </select>
+                )}{" "}
+                <input type="number" required min={1} step={1} max={line.box && units != null ? boxLimit(units) : MAX_ORDER_QUANTITY}
+                  style={S.numInput} value={line.quantity} onChange={(e) => setLine(index, { quantity: e.target.value })}
+                  aria-label={`${index + 1}번 줄 ${suffix}`} />
+                {line.box && units != null && (
+                  <span style={S.sub}>{count > 0 ? `${quantityLabel(count, "박스")} · 재고 ${quantityLabel(count * units, unit)}` : `1박스 · 재고 ${quantityLabel(units, unit)}`}</span>
+                )}
+              </td>
+              <td style={S.num}>
+                {line.box && price != null ? (
+                  <>{price.toLocaleString("ko-KR")}원/박스
+                    {count > 0 && <span style={S.sub}>합계 {(count * price).toLocaleString("ko-KR")}원</span>}
+                  </>
+                ) : (
+                  <input type="number" required min={0} max={100_000_000} step={1} style={S.numInput}
+                    value={line.unit_price} onChange={(e) => setLine(index, { unit_price: e.target.value })} aria-label={`${index + 1}번 줄 단가`} />
+                )}
+              </td>
               <td><button type="button" onClick={() => setLines((rows) => rows.filter((_, i) => i !== index))}>줄 삭제</button></td>
               {/* 0줄이 되면 서버가 422 (품목 줄 1개 이상)로 막는다 */}
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
       </div>

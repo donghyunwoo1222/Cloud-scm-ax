@@ -7,7 +7,7 @@ import { Suspense, useEffect, useState } from "react"; // 주소 읽는 부품 �
 import { apiList } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { seoulToday } from "../../lib/movement-form"; // 상세 화면과 같은 서울 날짜
-import { overdueDays, PurchaseOrder, receiptQuantitiesByUnit, STATUS_LABEL } from "../../lib/po"; // 발주서 모양·납기 지연·단위별 수량·상태 이름
+import { overdueDays, PurchaseOrder, quantityLabel, receiptQuantitiesByUnit, STATUS_LABEL } from "../../lib/po"; // 발주서 모양과 수량 표시
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../lib/status-badge"; // 상세 화면과 같은 상태·납기 지연 배지
 import { S } from "../../lib/styles"; // 화면 공통 스타일
 
@@ -87,6 +87,9 @@ function PurchaseOrdersBody({ initialStatus }: { initialStatus: string }) {
           {list.rows.map((o) => { // 각 발주서의 상태와 입고 현황을 한 줄에 표시한다
             const delay = overdueDays(o, today); // 상세와 같은 규칙으로 발주함 상태의 지연 일수를 구한다
             const quantities = receiptQuantitiesByUnit(o.items); // 개와 박스처럼 다른 단위는 따로 집계한다
+            const boxDetails = o.items.flatMap((i) => i.box_quantity != null && i.box_unit_price != null ? [{
+              id: i.id, sku: i.product_sku, boxes: i.box_quantity, price: i.box_unit_price, quantity: i.quantity, unit: i.unit,
+            }] : []); // 당시 입수·단가가 다른 줄은 따로 확인한다
             const showReceiptProgress = o.status === "ORDERED" || o.status === "RECEIVED"; // 발주함·입고 완료일 때 입고 현황을 표시한다
             return (
               <tr key={o.id} style={S.row}>
@@ -106,6 +109,16 @@ function PurchaseOrdersBody({ initialStatus }: { initialStatus: string }) {
                       </div>
                     );
                   })}
+                  {boxDetails.length > 0 && (
+                    <details>
+                      <summary>박스 발주 {boxDetails.length}품목</summary>
+                      {boxDetails.map((item) => (
+                        <div key={item.id} style={S.sub}>
+                          {item.sku} · {quantityLabel(item.boxes, "박스")} (재고 {quantityLabel(item.quantity, item.unit)}) · 박스당 {item.price.toLocaleString("ko-KR")}원
+                        </div>
+                      ))}
+                    </details>
+                  )}
                 </td>
                 <td style={S.nowrap}>
                   {o.due_date ?? "-"}{/* 약속 납기가 없으면 표시할 날짜가 없다 */}
