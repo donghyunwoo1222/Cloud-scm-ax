@@ -29,6 +29,10 @@ type Movement = {
   reverses_movement_id: number | null; created_at: string;
 };
 type ProductOption = { id: number; sku: string; name: string }; // 이력 필터의 품목 선택지
+type MonthTotals = {
+  month_start: string; month_end: string;
+  in_by_unit: Record<string, number>; out_by_unit: Record<string, number>;
+};
 
 const LABELS = { quantity: "수량", reason: "사유" }; // 정정 오류 details 칸 이름
 
@@ -58,11 +62,13 @@ function Inventory() {
   const historyId = params.get("product_id") ?? "";
   const from = params.get("date_from") ?? "";
   const to = params.get("date_to") ?? "";
-  return <InventoryBody key={JSON.stringify([initial, historyId, from, to])} initialStatus={initial} historyId={historyId} initialFrom={from} initialTo={to} />;
+  const monthSummary = params.get("summary") === "month";
+  return <InventoryBody key={JSON.stringify([initial, historyId, from, to, monthSummary])}
+    initialStatus={initial} historyId={historyId} initialFrom={from} initialTo={to} monthSummary={monthSummary} />;
 }
 
-function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
-  initialStatus: string; historyId: string; initialFrom: string; initialTo: string;
+function InventoryBody({ initialStatus, historyId, initialFrom, initialTo, monthSummary }: {
+  initialStatus: string; historyId: string; initialFrom: string; initialTo: string; monthSummary: boolean;
 }) {
   const [status, setStatus] = useState(initialStatus); // 고른 상태 ("" 이면 전체). 처음 값은 주소에서
   const stock = useList<Stock>("/stock", { status, page_size: "10" }); // 상태·검색 결과를 한 쪽에 10품목씩 보여 준다
@@ -83,6 +89,9 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
   const [type, setType] = useState(""); // 이력 필터: 유형
   const [from, setFrom] = useState(initialFrom); // 이력 필터: 시작일
   const [to, setTo] = useState(initialTo); // 이력 필터: 종료일
+  const [monthTotals, setMonthTotals] = useState<MonthTotals | null>(null);
+  const [monthError, setMonthError] = useState<unknown>(null);
+  const showMonthTotals = monthSummary && !productId && !type && from === initialFrom && to === initialTo;
   const [page, setPage] = useState(1); // 이력 쪽
   const [rows, setRows] = useState<Movement[]>([]); // 이력 행
   const [meta, setMeta] = useState<Meta | null>(null); // 이력 쪽 정보
@@ -98,6 +107,17 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
   const inventoryTitle = useRef<HTMLHeadingElement>(null); // 선택한 행이 현재 쪽에 없을 때 돌아갈 위치
   const historyTitle = useRef<HTMLHeadingElement>(null); // "입출고 이력" 제목 (이력 보기를 누르면 여기로 이동)
   const selectedHistoryButton = useRef<HTMLButtonElement>(null); // 이력에서 목록으로 돌아갈 때 다시 포커스할 버튼
+
+  useEffect(() => {
+    if (!showMonthTotals) return;
+    let alive = true;
+    api<MonthTotals>("/dashboard/month").then((totals) => {
+      if (!alive) return;
+      setMonthTotals(totals);
+      setMonthError(null);
+    }).catch((error) => { if (alive) setMonthError(error); });
+    return () => { alive = false; };
+  }, [showMonthTotals, trendRevision]); // 정정하면 월간 순수량도 다시 계산한다
 
   useEffect(() => {
     if (!historyId && !initialFrom && !initialTo) return;
@@ -255,6 +275,20 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
       <p style={S.hint}>{historyProduct
         ? historyProduct.name ? `${historyProduct.name} · ${historyProduct.sku}` : "선택한 품목의 이력입니다."
         : "전체 품목의 이력입니다. 특정 품목은 위 목록에서 추이·이력 보기를 누르세요."}</p>
+      {showMonthTotals && <ErrorText error={monthError} />}
+      {showMonthTotals && !monthError && monthTotals?.month_start === from && monthTotals.month_end === to && (
+        <section style={S.sectionCard} aria-label="이번 달 단위별 수량">
+          <h3>이번 달 단위별 수량</h3>
+          <div style={S.toolbar}>
+            {([["입고", monthTotals.in_by_unit], ["출고", monthTotals.out_by_unit]] as const).map(([label, totals]) => (
+              <div key={label}>
+                <strong>{label}</strong>{" "}
+                {Object.entries(totals).map(([unit, quantity]) => quantityLabel(quantity, unit)).join(" · ") || "없음"}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       <div style={S.toolbar}>
         {/* 유형과 기간은 선택한 품목의 이력에 적용한다. */}
         <label>유형

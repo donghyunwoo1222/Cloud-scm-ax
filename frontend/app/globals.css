@@ -147,6 +147,10 @@ button.primary-action:hover:not(:disabled) {
   min-inline-size: 0;
 }
 
+.purchase-order-actions:not(:empty) {
+  margin-top: var(--space-md);
+}
+
 .product-picker {
   position: relative;
 }

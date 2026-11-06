@@ -64,12 +64,13 @@ def open_orders(company_id: int, db: Session, today: date) -> dict:
 
 
 def month_movements(company_id: int, db: Session, today: date) -> dict:
-    """이번 달(1일~오늘) 입고·출고 수량. 정정은 원래 이력의 유형에서 뺀다(날짜도 원래 날짜). 조정은 입출고가 아니라 제외. 조회 1번."""
+    """이번 달 입출고 기록 건수와 단위별 순수량. 정정은 기록 건수에서 제외하고 해당 월의 수량에만 반영한다."""
     orig = aliased(InventoryMovement)  # 정정이 가리키는 원래 이력
     kind = func.coalesce(orig.movement_type, InventoryMovement.movement_type)  # 정정이면 원래 유형, 아니면 자기 유형
     signed = case((InventoryMovement.movement_type == "CORRECTION", -InventoryMovement.quantity), else_=InventoryMovement.quantity)  # 정정은 −
+    records = func.count().filter(InventoryMovement.movement_type != "CORRECTION")  # 정정은 별도 입출고 건이 아니다
     sums = db.execute(
-        select(kind, Product.unit, func.sum(signed))
+        select(kind, Product.unit, func.sum(signed), records)
         .select_from(InventoryMovement)
         .join(Product, Product.id == InventoryMovement.product_id)
         .outerjoin(orig, orig.id == InventoryMovement.reverses_movement_id)  # 정정만 원래 이력이 붙는다
@@ -81,12 +82,19 @@ def month_movements(company_id: int, db: Session, today: date) -> dict:
         ).group_by(kind, Product.unit)
     ).all()  # 유형과 단위별 정정 반영 수량
     inbound, outbound = defaultdict(int), defaultdict(int)
-    for movement_type, unit, quantity in sums:
+    in_count = out_count = 0
+    for movement_type, unit, quantity, count in sums:
         if movement_type == "RECEIPT":
             inbound[unit] += int(quantity)
+            in_count += count
         elif movement_type in ("SALE", "DISPOSAL", "OTHER_OUT"):
             outbound[unit] += int(quantity)
+            out_count += count
     return {
+        "month_start": today.replace(day=1),
+        "month_end": today,
+        "in_count": in_count,
+        "out_count": out_count,
         "in_quantity": sum(inbound.values()),  # 기존 호출자용 합계
         "out_quantity": sum(outbound.values()),
         "in_by_unit": {unit: qty for unit, qty in sorted(inbound.items()) if qty},
@@ -169,6 +177,6 @@ def get_dashboard(company_id: int, db: Session, today: date) -> dict:
     return {
         **shortage_and_overstock(company_id, db, today),  # shortage, overstock (#76)
         "purchase_orders": open_orders(company_id, db, today),
-        "month": {"month_start": today.replace(day=1), **month_movements(company_id, db, today)},
+        "month": month_movements(company_id, db, today),
         "dead_stock": dead_stock(company_id, db, today),
     }

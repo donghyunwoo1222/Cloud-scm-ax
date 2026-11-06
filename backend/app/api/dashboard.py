@@ -13,3 +13,8 @@ router = APIRouter(prefix="/dashboard")  # 이 파일의 경로는 모두 /dashb
 @router.get("")  # 요약 한 번에
 def get_dashboard(user: CurrentUser, db: ReadDB) -> dict:  # 진행 중 발주·부족·과잉을 같은 시점에서 읽는다
     return {"data": dashboard_service.get_dashboard(user.company_id, db, seoul_today())}  # 회사는 토큰 사용자에게서, 오늘은 서울 기준
+
+
+@router.get("/month")  # 입출고 이력에서 월간 수량만 다시 조회한다
+def get_month_movements(user: CurrentUser, db: ReadDB) -> dict:
+    return {"data": dashboard_service.month_movements(user.company_id, db, seoul_today())}

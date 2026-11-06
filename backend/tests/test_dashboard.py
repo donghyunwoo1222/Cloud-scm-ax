@@ -157,9 +157,14 @@ def test_month_movements_net_of_corrections(client, world, session):
     session.commit()
     d = get(client)["month"]
     assert d["month_start"] == TODAY.replace(day=1).isoformat()
+    assert d["month_end"] == TODAY.isoformat()
+    assert d["in_count"] == 2 and d["out_count"] == 2  # 정정·조정은 새 입출고 건이 아니다
     assert d["in_quantity"] == 52 and d["out_quantity"] == 15
     assert d["in_by_unit"] == {"개": 50, "박스": 2}
     assert d["out_by_unit"] == {"개": 15}
+    response = client.get(f"{URL}/month")
+    assert response.status_code == 200
+    assert response.json()["data"] == d
 
 
 # ----- 장기재고 -----

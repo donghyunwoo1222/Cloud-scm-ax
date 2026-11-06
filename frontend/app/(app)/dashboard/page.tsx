@@ -19,7 +19,7 @@ type Dashboard = {
     draft: number; approved: number; ordered: number; incoming_by_unit: UnitTotals;
     due_today?: number; overdue?: number; // 이전 API 응답에는 납기별 건수가 없을 수 있다
   };
-  month: { month_start: string; in_by_unit: UnitTotals; out_by_unit: UnitTotals }; // 이번 달 입고·출고 수량
+  month: { month_start: string; month_end: string; in_count: number; out_count: number }; // 이번 달 입고·출고 기록 건수
   dead_stock: { days: number; count: number; items: DeadItem[] }; // 장기재고 (기준 일수, 전체 건수, 화면에 보일 줄)
   shortage: { count: number; items: ShortItem[] }; // 부족 품목 (전체 건수, 화면에 보일 20줄)
   overstock: { days: number; count: number; items: OverItem[] }; // 과잉재고 (기준 일수 90, 전체 건수, 20줄)
@@ -254,11 +254,12 @@ export default function Page() {
         )}
       </section>
 
-      <div className={styles.monthRow} style={S.sectionCard}>
-        <div><strong>이번 달 입출고</strong> <span style={S.hint}>{month.month_start} ~ 오늘</span></div>
-        <span>입고 <strong>{unitTotals(month.in_by_unit)}</strong> · 출고 <strong>{unitTotals(month.out_by_unit)}</strong></span>
-        <Link href={`/inventory?date_from=${month.month_start}&date_to=${today}#movement-history`}>입출고 이력 보기 →</Link>
-      </div>
+      <Link className={`kpi-card ${styles.monthRow}`} style={S.sectionCard}
+        href={`/inventory?summary=month&date_from=${month.month_start}&date_to=${month.month_end}#movement-history`}>
+        <strong>이번 달 입출고</strong>
+        <span>입고 <strong>{won(month.in_count)}건</strong> · 출고 <strong>{won(month.out_count)}건</strong></span>
+        <span className={styles.monthLink}>입출고 이력 보기 →</span>
+      </Link>
     </section>
   );
 }
