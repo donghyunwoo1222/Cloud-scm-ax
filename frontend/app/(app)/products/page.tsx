@@ -14,6 +14,8 @@ type Product = {
   name: string; // 품목명
   unit: string; // 단위
   unit_cost: number; // 단가(원)
+  units_per_box: number | null; // 박스 한 개의 재고 단위 수량
+  box_unit_cost: number | null; // 박스당 구매 단가
   safety_stock: number; // 안전재고
   is_active: boolean; // 활성 여부
   default_supplier: { id: number; name: string; lead_time_days: number }; // 기본 공급업체 요약
@@ -21,11 +23,11 @@ type Product = {
 type SupplierOption = { id: number; name: string; lead_time_days: number; is_active: boolean }; // 활성·비활성 공급업체 선택지
 
 // 폼 입력값 (모두 글자로 다루고 보낼 때 바꾼다)
-const EMPTY = { sku: "", name: "", unit: "", unit_cost: "", safety_stock: "0", default_supplier_id: "" };
+const EMPTY = { sku: "", name: "", unit: "", unit_cost: "", safety_stock: "0", default_supplier_id: "", units_per_box: "", box_unit_cost: "" };
 type Form = typeof EMPTY;
 
 // 오류 details 의 칸 이름 → 화면 이름
-const LABELS = { sku: "SKU", name: "품목명", unit: "단위", unit_cost: "단가", safety_stock: "안전재고", default_supplier_id: "기본 공급업체" };
+const LABELS = { sku: "SKU", name: "품목명", unit: "재고 단위", unit_cost: "재고 단위 단가", safety_stock: "안전재고", default_supplier_id: "기본 공급업체", units_per_box: "박스 입수", box_unit_cost: "박스당 구매 단가" };
 
 // 폼 값 → 서버로 보낼 본문 (숫자 칸은 숫자로, 비우면 null → 서버가 422. 0 이상 정수 검사는 서버가 한다)
 function toBody(form: Form) {
@@ -37,6 +39,8 @@ function toBody(form: Form) {
     unit_cost: num(form.unit_cost),
     safety_stock: num(form.safety_stock),
     default_supplier_id: num(form.default_supplier_id),
+    units_per_box: num(form.units_per_box),
+    box_unit_cost: num(form.box_unit_cost),
   };
 }
 
@@ -82,6 +86,8 @@ export default function ProductsPage() {
     return {
       sku: p.sku, name: p.name, unit: p.unit, unit_cost: String(p.unit_cost),
       safety_stock: String(p.safety_stock), default_supplier_id: String(p.default_supplier.id),
+      units_per_box: p.units_per_box == null ? "" : String(p.units_per_box),
+      box_unit_cost: p.box_unit_cost == null ? "" : String(p.box_unit_cost),
     }; // 품목 → 폼 값
   }
 
@@ -134,8 +140,8 @@ export default function ProductsPage() {
         {/* 등록·수정 폼 */}
         <label>SKU* <input value={form.sku} onChange={(e) => set("sku", e.target.value)} /></label>
         <label>품목명* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
-        <label>단위* <input value={form.unit} onChange={(e) => set("unit", e.target.value)} placeholder="개, 박스" /></label>
-        <label>단가(원)* <input type="number" value={form.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} /></label>
+        <label>재고 단위* <input value={form.unit} onChange={(e) => set("unit", e.target.value)} placeholder="개, 병" /></label>
+        <label>재고 단위 단가(원)* <input type="number" value={form.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} /></label>
         <label>안전재고 <input type="number" value={form.safety_stock} onChange={(e) => set("safety_stock", e.target.value)} /></label>
         <label>
           기본 공급업체*
@@ -149,6 +155,15 @@ export default function ProductsPage() {
             ))}
           </select>
         </label>
+        <label>박스 입수
+          <input type="number" min={1} max={1_000_000} step={1} required={form.box_unit_cost !== ""}
+            value={form.units_per_box} onChange={(e) => set("units_per_box", e.target.value)} aria-describedby="product-box-hint" />
+        </label>
+        <label>박스당 구매 단가(원)
+          <input type="number" min={0} max={100_000_000} step={1} required={form.units_per_box !== ""}
+            value={form.box_unit_cost} onChange={(e) => set("box_unit_cost", e.target.value)} aria-describedby="product-box-hint" />
+        </label>
+        <p id="product-box-hint" style={{ ...S.hint, flexBasis: "100%", margin: 0 }}>박스로 구매할 때 두 칸을 채우세요. 둘 다 비워 저장하면 박스 설정을 해제합니다.</p>
         <div style={S.buttons}>
           <button type="submit">{editing === null ? "등록" : "수정 저장"}</button>
           {editing !== null && <button type="button" onClick={reset}>취소</button>}
@@ -181,7 +196,12 @@ export default function ProductsPage() {
               <td style={S.nowrap}>{p.sku}</td>
               <td>{p.name}</td>
               <td>{p.unit}</td>
-              <td style={S.num}>{p.unit_cost.toLocaleString()}원</td>
+              <td style={S.num}>
+                {p.unit_cost.toLocaleString("ko-KR")}원
+                {p.units_per_box != null && p.box_unit_cost != null && (
+                  <span style={S.sub}>{p.units_per_box.toLocaleString("ko-KR")}{p.unit}/박스 · {p.box_unit_cost.toLocaleString("ko-KR")}원/박스</span>
+                )}
+              </td>
               {/* 5000 → 5,000원 */}
               <td style={S.num}>{p.safety_stock}</td>
               <td>{p.default_supplier.name}</td>

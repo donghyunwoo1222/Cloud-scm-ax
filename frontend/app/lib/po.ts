@@ -10,6 +10,8 @@ export type PoItem = {
   quantity: number; // 발주 수량
   unit_price: number; // 발주 단가(원)
   box_unit_price?: number | null; // 박스 단가(원), 박스 발주 줄에서만 값이 있다
+  units_per_box?: number | null; // 발주 줄에 저장한 당시 입수
+  box_quantity?: number | null; // 발주 당시 박스 수
   line_total?: number; // 서버가 계산한 줄 금액(원), 이전 API 응답에는 없을 수 있다
   received_quantity: number; // 누적 입고량 (입고 − 입고 정정)
 };
@@ -39,7 +41,16 @@ export const STATUS_LABEL: Record<PoStatus, string> = {
 // 오류 details 의 칸 이름 → 화면 이름 (422 문장 뒤에 어느 칸인지 덧붙인다)
 export const PO_LABELS = {
   supplier_id: "공급업체", due_date: "약속 납기", memo: "메모", items: "품목 줄", product_id: "품목", quantity: "수량", unit_price: "단가", movement_date: "입고일",
+  box_quantity: "박스 수",
 };
+
+export const MAX_ORDER_QUANTITY = 1_000_000; // 박스를 환산해도 서버의 재고 단위 상한을 지킨다
+export const quantityLabel = (quantity: number, unit?: string) =>
+  unit ? `${quantity.toLocaleString("ko-KR")}${unit}` : `재고 단위 ${quantity.toLocaleString("ko-KR")}`;
+
+export function boxLimit(unitsPerBox: number, stockLimit = MAX_ORDER_QUANTITY) {
+  return Math.floor(Math.min(stockLimit, MAX_ORDER_QUANTITY) / unitsPerBox); // 남은 13개가 10개입이면 최대 1박스
+}
 
 export function formatOrderUnitPrice(item: PoItem) {
   if (item.box_unit_price == null) return item.unit_price.toLocaleString("ko-KR");

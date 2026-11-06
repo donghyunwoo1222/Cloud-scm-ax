@@ -2,13 +2,13 @@
 
 import Link from "next/link"; // 목록·수정 화면 링크
 import { useParams } from "next/navigation"; // 주소의 [id]
-import { Suspense, FormEvent, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 함수 기억, 처음 한 번 실행, 즉시 확인용 ref, 상태
+import { Suspense, FormEvent, useCallback, useEffect, useId, useRef, useState } from "react"; // 폼 제출, 연결용 ID, 상태
 
 import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { useMe } from "../../../lib/me"; // 내 역할 (승인 버튼은 관리자에게만)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { fmtDate, fmtTime, formatOrderUnitPrice, lineAmount, overdueDays, PO_LABELS, PoItemSort, PurchaseOrder, remainingQuantity, totalAmount, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 표시 품목 계산
+import { boxLimit, fmtDate, fmtTime, formatOrderUnitPrice, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, PoItemSort, PurchaseOrder, quantityLabel, remainingQuantity, totalAmount, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 
@@ -29,9 +29,10 @@ function Detail() {
   const [error, setError] = useState<unknown>(null); // 불러오기·버튼·입고 오류
   const [notice, setNotice] = useState(""); // 성공 안내 문장
   const [receiving, setReceiving] = useState(false); // 입고 등록 폼을 열었는지
+  const receiptFormId = useId(); // 표 안의 입력을 이 발주서의 폼에 연결한다
   const [busy, setBusy] = useState(false); // 입고 등록 중이면 버튼을 잠근다
   const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
-  const [qty, setQty] = useState<Record<number, string>>({}); // 줄 번호 → 이번 입고 수량 (글자)
+  const [qty, setQty] = useState<Record<number, { value: string; box: boolean }>>({}); // 줄 번호 → 이번 입고 수량과 단위
   const [date, setDate] = useState(""); // 입고일 (화면이 열린 뒤 서울 오늘로 채운다)
   const [today, setToday] = useState(""); // 입고일 상한 (미래 날짜 선택 불가)
   const [itemView, setItemView] = useState({ scope: "", ...DEFAULT_ITEM_VIEW }); // 발주서와 상태별로 표의 선택을 기억한다
@@ -64,6 +65,7 @@ function Detail() {
       setError(null); // 이전 오류 지우기
       setNotice("");
       setReceiving(false);
+      setQty({});
     } catch (e) {
       setError(e); // 서버 문장 그대로 (INVALID_STATUS, CANNOT_CANCEL_RECEIVED, INACTIVE_REFERENCE 등)
       load(); // 다른 사람이 먼저 바꿨을 수 있으니 최신 상태로 다시 불러온다
@@ -76,7 +78,10 @@ function Detail() {
     if (sending.current) return; // 이미 등록 중이면 두 번째 제출은 버린다
     sending.current = true; // 즉시 잠금
     setBusy(true); // 버튼 잠금·글자 변경
-    const items = Object.entries(qty).filter(([, v]) => v !== "").map(([itemId, v]) => ({ purchase_order_item_id: Number(itemId), quantity: Number(v) })); // 비운 줄은 보내지 않는다
+    const items = Object.entries(qty).filter(([, entry]) => entry.value !== "").map(([itemId, entry]) => ({
+      purchase_order_item_id: Number(itemId),
+      ...(entry.box ? { box_quantity: Number(entry.value) } : { quantity: Number(entry.value) }),
+    })); // 비운 줄은 보내지 않는다
     try {
       setOrder(await api<PurchaseOrder>(`/purchase-orders/${id}/receipts`, { method: "POST", body: { movement_date: date || null, items } })); // 서버가 입고 이력을 쌓고 상태도 바꾼다
       setError(null);
@@ -211,20 +216,45 @@ function Detail() {
           {shownItems.map((i) => { // 표시할 행만 그리며 입고 입력은 기존대로 발주 품목 ID에 연결한다
             const remaining = remainingQuantity(i); // 필터와 같은 기준으로 입고 잔량을 구한다
             const ordered = i.quantity.toLocaleString("ko-KR"); // 발주 수량과 입고 현황에 같은 쉼표 표기를 쓴다
+            const units = i.units_per_box; // 발주 당시의 입수로 입고 수량을 환산한다
+            const maxBoxes = units != null ? boxLimit(units, remaining) : 0;
+            const entry = qty[i.id];
+            const byBox = entry?.box ?? (maxBoxes > 0);
             return (
               <tr key={i.id} style={S.row}>
                 <td style={S.nowrap}>{i.product_sku}</td>
                 <td style={S.midCol}>{i.product_name}</td>
                 {/* 발주서에 저장된 단가로 이 줄의 발주 금액을 표시한다. */}
                 <td style={S.num}>{formatOrderUnitPrice(i)}</td>
-                <td style={S.num}>{ordered}{i.unit}</td>
+                <td style={S.num}>
+                  {i.box_quantity == null ? `${ordered}${i.unit}` : (
+                    <>{quantityLabel(i.box_quantity, "박스")}<span style={S.sub}>재고 {ordered}{i.unit}</span></>
+                  )}
+                </td>
                 <td style={S.num}>{lineAmount(i).toLocaleString("ko-KR")}</td>
                 <td style={S.num}>
                   {/* 품목마다 실제 단위를 붙여 누적 입고와 남은 수량을 보여준다. */}
                   {remaining === 0 ? "전량 입고" : `${i.received_quantity.toLocaleString("ko-KR")} / ${ordered}${i.unit} 입고 · ${remaining.toLocaleString("ko-KR")}${i.unit} 남음`}
                 </td>
                 {receiving && (
-                  <td style={S.num}><input type="number" style={S.numInput} value={qty[i.id] ?? ""} onChange={(e) => setQty({ ...qty, [i.id]: e.target.value })} aria-label={`${i.product_name} 이번 입고 수량`} /></td>
+                  <td style={S.num}>{remaining > 0 && (
+                    <>
+                      {maxBoxes > 0 && (
+                        <select value={byBox ? "box" : "stock"} disabled={busy} aria-label={`${i.product_name} 입고 단위`}
+                          onChange={(e) => setQty({ ...qty, [i.id]: { value: "", box: e.target.value === "box" } })}>
+                          <option value="box">박스</option>
+                          <option value="stock">재고 단위 ({i.unit})</option>
+                        </select>
+                      )}{" "}
+                      <input type="number" form={receiptFormId} min={1} max={byBox ? maxBoxes : Math.min(remaining, MAX_ORDER_QUANTITY)} step={1}
+                        style={S.numInput} value={entry?.value ?? ""} disabled={busy}
+                        onChange={(e) => setQty({ ...qty, [i.id]: { value: e.target.value, box: byBox } })}
+                        aria-label={`${i.product_name} 이번 입고 ${byBox ? "박스 수" : "수량"}`} />
+                      {byBox && units != null && <span style={S.sub}>
+                        {entry?.value ? `재고 ${quantityLabel(Number(entry.value) * units, i.unit)}` : `1박스 · 재고 ${quantityLabel(units, i.unit)}`}
+                      </span>}
+                    </>
+                  )}</td>
                 )}
               </tr>
             );
@@ -252,7 +282,7 @@ function Detail() {
 
       {receiving && (
         // 취소 등 발주서 버튼과 입고 폼을 카드로 구분한다.
-        <form style={S.sectionCard} onSubmit={receive}>
+        <form id={receiptFormId} style={S.sectionCard} onSubmit={receive}>
           <p style={S.hint}>품목 표에 이번에 받은 수량을 적으세요. 비워 둔 줄은 입고하지 않습니다.</p>{/* 수량 입력 위치를 알려준다. */}
           {/* 날짜와 버튼은 한 줄에 맞추고 좁은 화면에서는 줄을 바꾼다. */}
           <div style={S.formGrid}>
@@ -261,7 +291,7 @@ function Detail() {
             {/* 등록과 닫기 버튼은 한 묶음으로 배치한다. */}
             <div style={S.buttons}>
               <button type="submit" disabled={busy}>{busy ? "등록 중…" : "입고"}</button>{/* 전송 중에는 중복 제출을 막는다. */}
-              <button type="button" onClick={() => setReceiving(false)}>닫기</button>{/* 폼을 닫아 필터와 정렬을 다시 쓸 수 있게 한다. */}
+              <button type="button" disabled={busy} onClick={() => { setReceiving(false); setQty({}); }}>닫기</button>{/* 숨긴 줄의 입력값이 다음 입고에 섞이지 않게 비운다. */}
             </div>
           </div>
         </form>
