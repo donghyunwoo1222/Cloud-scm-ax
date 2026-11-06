@@ -1,0 +1,31 @@
+.receiptCard {
+  position: relative;
+}
+
+/* 카드 여백은 전체 목록으로, 두 건수는 각 납기 목록으로 연결한다. */
+.allReceipts::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-md);
+}
+
+.receiptLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
+  font-size: var(--text-sm);
+}
+
+.receiptLinks a {
+  position: relative;
+  z-index: 1;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.lateReceipts {
+  color: var(--color-destructive);
+}

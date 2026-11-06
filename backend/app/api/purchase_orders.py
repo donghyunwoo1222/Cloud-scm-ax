@@ -13,6 +13,7 @@ from app.schemas.purchase_orders import (  # 요청 모양
     PurchaseOrderCreate,
     PurchaseOrderUpdate,
     ReceiptCreate,
+    ReceiptDue,
 )
 from app.services import purchase_orders as po_service  # 업무 규칙
 
@@ -31,8 +32,9 @@ def list_orders(
     page: Page,
     supplier_id: QueryId = None,  # 이 공급업체의 발주만
     status: Annotated[PoStatus | None, Query()] = None,  # 이 상태의 발주만
+    receipt_due: Annotated[ReceiptDue | None, Query()] = None,  # 발주함 발주의 납기 구간
 ) -> dict:
-    rows, meta = po_service.list_orders(user.company_id, db, page, supplier_id, status)  # 회사는 토큰 사용자에게서
+    rows, meta = po_service.list_orders(user.company_id, db, page, supplier_id, status, receipt_due)  # 회사는 토큰 사용자에게서
     return {"data": po_service.build_out(user.company_id, db, rows), "meta": meta}
 
 

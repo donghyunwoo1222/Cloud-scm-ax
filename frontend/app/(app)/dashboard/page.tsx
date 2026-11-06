@@ -7,10 +7,14 @@ import { api, apiList } from "../../lib/api"; // 공통 API 호출 함수 (한 �
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
 import { useMe } from "../../lib/me"; // 내 역할 (세 번째 카드가 역할마다 다르다)
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
+import styles from "./page.module.css"; // 입고 카드의 전체·세부 목록 링크
 
 // GET /api/v1/dashboard 응답 (backend/app/services/dashboard.py)
 type Dashboard = {
-  purchase_orders: { draft: number; approved: number; ordered: number; incoming_quantity: number }; // 진행 중 발주 건수와 입고 예정 수량
+  purchase_orders: {
+    draft: number; approved: number; ordered: number; incoming_quantity: number;
+    due_today?: number; overdue?: number; // 이전 API 응답에는 납기별 건수가 없을 수 있다
+  };
   month: { month_start: string; in_quantity: number; out_quantity: number }; // 이번 달 입고·출고 수량
   dead_stock: { days: number; count: number; items: DeadItem[] }; // 장기재고 (기준 일수, 전체 건수, 화면에 보일 줄)
   shortage: { count: number; items: ShortItem[] }; // 부족 품목 (전체 건수, 화면에 보일 20줄)
@@ -25,6 +29,7 @@ type DeadItem = { product_id: number; sku: string; name: string; unit: string; c
 
 // 재주문점이 0이면 퍼센트를 만들 수 없어 수량만 보여 준다.
 const stockRatio = (item: ShortItem) => item.reorder_point > 0 ? item.available / item.reorder_point : null;
+const SHORTAGE_PREVIEW_LIMIT = 5; // 첫 화면에 보여 줄 부족 품목 수
 
 // 숫자 카드 하나: 이름 · 큰 숫자 · 보조 글자. href 가 있으면 카드 전체가 링크(사용자 결정)이고 맨 아래에 "… 보기 →" 를 항상 보여 누를 수 있음을 알린다
 function NumberCard({ label, value, sub, href, more }: { label: string; value: string; sub?: ReactNode; href?: string; more?: string }) {
@@ -75,7 +80,8 @@ export default function Page() {
   const { purchase_orders: po, month, dead_stock: dead, shortage, overstock: over } = data; // 이름 줄이기
   // 서버가 보낸 품목 안에서 현재고 0을 먼저, 그다음 재주문점에 가장 못 미치는 순으로 보여 준다.
   const shortageItems = [...shortage.items].sort((a, b) =>
-    Number(b.current_stock === 0) - Number(a.current_stock === 0) || (stockRatio(a) ?? 1) - (stockRatio(b) ?? 1));
+    Number(b.current_stock === 0) - Number(a.current_stock === 0) || (stockRatio(a) ?? 1) - (stockRatio(b) ?? 1)
+  ).slice(0, SHORTAGE_PREVIEW_LIMIT);
   const won = (n: number) => n.toLocaleString(); // 천 단위 쉼표 (예: 1497 → "1,497")
 
   return (
@@ -89,7 +95,18 @@ export default function Page() {
       <div role="group" aria-label="오늘 확인할 일" style={S.kpiGrid}>
         <NumberCard label="발주 추천" value={`${won(shortage.count)}건`} sub="재고 부족 품목 수와 같습니다" href="/recommendations" more="발주 추천 보기" />
         {/* 1. 지금 발주할 품목 수 (부족 판정과 추천은 같은 계산이라 새로 계산하지 않는다) */}
-        <NumberCard label="입고 대기 발주" value={`${won(po.ordered)}건`} sub={`입고 예정 ${won(po.incoming_quantity)}개`} href="/purchase-orders?status=ORDERED" more="입고 대기 발주 보기" />{/* 발주함 상태로 걸러진 목록으로 이동한다 */}
+        <div className={`kpi-card ${styles.receiptCard}`} style={S.kpiCard}>
+          <span style={S.kpiLabel}>입고 대기 발주</span>
+          <span style={S.kpiValue}>{won(po.ordered)}건</span>
+          {po.due_today != null && po.overdue != null && (
+            <div className={styles.receiptLinks}>
+              <Link href="/purchase-orders?status=ORDERED&receipt_due=TODAY">오늘 {won(po.due_today)}건</Link>
+              <Link href="/purchase-orders?status=ORDERED&receipt_due=OVERDUE"
+                className={po.overdue > 0 ? styles.lateReceipts : undefined}>지연 {won(po.overdue)}건</Link>
+            </div>
+          )}
+          <Link className={styles.allReceipts} href="/purchase-orders?status=ORDERED" style={S.kpiMore}>입고 대기 발주 보기 →</Link>
+        </div>
         {me?.role === "ADMIN" && (
           <NumberCard label="승인 대기" value={`${won(po.draft)}건`} sub="작성 중인 발주서 (승인은 관리자만)" href="/purchase-orders?status=DRAFT" more="승인 대기 발주 보기" />
         )}
@@ -158,8 +175,12 @@ export default function Page() {
                 </tbody>
               </table>
             </div>
-            {shortage.count > shortage.items.length && <p style={S.hint}>최근 등록한 부족 품목 {shortage.items.length}개 안에서 비교합니다.</p>}
-            <p><Link href="/inventory?status=SHORTAGE">재고 현황에서 보기</Link></p>{/* 표 아래에서는 부족으로 걸러진 재고 현황만 연결한다 */}
+            {shortage.count > shortageItems.length && <p style={S.hint}>
+              {shortage.count > shortage.items.length
+                ? `최근 등록한 부족 품목 ${won(shortage.items.length)}개 중 ${shortageItems.length}개를 표시합니다.`
+                : `부족 품목 ${won(shortage.count)}개 중 ${shortageItems.length}개를 표시합니다.`}
+            </p>}
+            <p><Link href="/inventory?status=SHORTAGE">부족 품목 전체 보기 →</Link></p>
           </>
         )}
       </div>

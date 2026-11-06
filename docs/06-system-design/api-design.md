@@ -46,7 +46,7 @@
 | F4 | POST /inventory-movements/{id}/corrections | 잘못 넣은 이력 {id}를 정정(CORRECTION 등록) | 둘 다 |
 | F4 | GET /inventory-movements | 이력 조회(품목·유형(여러 개 가능)·기간 필터, 정렬: 입출고일순 또는 등록순) | 둘 다 |
 | F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 안전재고. 발주 진행 중 수량(`in_transit`), 상태(`status`: 가용재고 ≤ 재주문점이면 SHORTAGE, 추천 제외 품목은 UNKNOWN + `status_reason`, 비활성은 null, 추천과 같은 계산, #76). `q`(최대 100자)는 공백을 다듬어 SKU·품목명 부분 일치 검색에 사용한다(대소문자 무시, `%`·`_`는 글자 그대로). `status`와 함께 주면 두 조건으로 거른 뒤 쪽을 나눈다. | 둘 다 |
-| F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status` 필터, #36), DRAFT 발주서 만들기(직접) | 둘 다 |
+| F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status`·`receipt_due` 필터), DRAFT 발주서 만들기(직접) | 둘 다 |
 | F6 | GET /purchase-orders/{id}, PATCH /purchase-orders/{id} | 상세, DRAFT 일 때만 품목·수량 수정 | 둘 다 |
 | F6 | POST /purchase-orders/{id}/approve | DRAFT → APPROVED | 관리자 |
 | F6 | POST /purchase-orders/{id}/order | APPROVED → ORDERED(공급업체에 발주했음 표시) | 둘 다 |
@@ -134,6 +134,12 @@
 - 수동 발주 작성·수정의 품목 줄은 기존 `{"product_id": 1, "quantity": 30, "unit_price": 1000}` 또는 박스 방식 `{"product_id": 1, "box_quantity": 3}`을 받는다. 두 방식은 한 발주서의 서로 다른 줄에서 함께 쓸 수 있다. 새 박스 줄은 품목의 박스 입수와 박스당 구매 단가를 복사한다. 기존 박스 줄은 DRAFT에서 박스 수를 고쳐도 당시 값으로 계산한다. 기존 화면이 그 줄을 재고 단위 방식으로 다시 보내면 수량이 당시 입수의 배수이고 `unit_price`가 그대로일 때만 반영한다.
 - 발주 줄 응답의 `quantity`, `received_quantity`, `recommended_quantity`는 모두 재고 단위다. 박스 줄에는 발주 당시 `units_per_box`와 `box_unit_price`, 발주한 `box_quantity`를 담고, 재고 단위 줄에는 이 세 칸이 null이다. 모든 줄에 `line_total`(원)을 담는다. 박스 줄의 `unit_price`는 당시 품목의 재고 단위 구매 단가이고, 실제 발주 금액은 `box_quantity × box_unit_price`다. 재고 단위 줄의 금액은 `quantity × unit_price`다. 예를 들어 10개입 3박스, 박스당 10,005원은 `quantity: 30`, `line_total: 30015`다.
 - 설정이 없는 품목에 박스 발주를 요청하거나, 박스 수를 환산한 재고 단위 수량이 기존 상한인 100만을 넘으면 422 `VALIDATION_ERROR`다.
+
+### 입고 납기 요약과 목록 필터 (#120)
+
+대시보드 입고 대기 카드의 `purchase_orders.due_today`와 `purchase_orders.overdue`는 서울 기준으로 오늘이 납기인 발주함(ORDERED) 건수와 오늘보다 납기가 이른 발주함 건수다(#120). 부분 입고 발주도 한 건으로 센다.
+
+발주 목록 `GET /purchase-orders?receipt_due=`에는 `TODAY`(오늘), `OVERDUE`(오늘보다 이전), `NEXT_7_DAYS`(내일~7일 뒤, 양 끝 포함), `UNSCHEDULED`(납기 미정)를 지정할 수 있다. 회사, 공급업체, 상태 조건과 함께 발주함(ORDERED)인 줄을 먼저 거른 뒤 최신순으로 쪽을 나눈다. 발주함 이외의 상태를 함께 지정하면 빈 목록이고, 알 수 없는 납기 구간은 422다.
 
 ### 3) 발주 입고: POST /purchase-orders/{id}/receipts
 

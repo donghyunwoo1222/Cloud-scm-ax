@@ -5,7 +5,7 @@
 
 from collections import defaultdict  # 없는 키는 빈 목록으로 시작하는 딕셔너리
 from collections.abc import Sequence  # 발주 줄과 추천 초안 줄을 공통으로 검사한다
-from datetime import datetime, time  # 날짜 → 시각 (received_at)
+from datetime import date, datetime, time, timedelta  # 납기 비교와 입고 시각
 
 from sqlalchemy import case, delete, func, select  # 삭제, 조건 합계, 합계, SELECT 문
 from sqlalchemy.orm import Session  # DB 세션 타입
@@ -29,6 +29,7 @@ from app.schemas.purchase_orders import (  # 요청·응답 모양
     PurchaseOrderOut,
     PurchaseOrderUpdate,
     ReceiptCreate,
+    ReceiptDue,
 )
 from app.schemas.recommendations import DraftItemIn  # 추천 초안의 요청 줄
 from app.services.stock import register_movement  # 이력을 쓰는 유일한 함수 (품목 잠금·flush)
@@ -218,13 +219,32 @@ def get_order(company_id: int, db: Session, order_id: int) -> PurchaseOrder:
     return get_owned(company_id, db, PurchaseOrder, order_id)  # 다른 회사·없는 id 는 404
 
 
-def list_orders(company_id: int, db: Session, page: PageParams, supplier_id: int | None, status: str | None = None) -> tuple[list[PurchaseOrder], dict]:
-    """GET /purchase-orders: 최신순, supplier_id 로 공급업체별·status 로 상태별 조회."""
+def receipt_due_condition(receipt_due: ReceiptDue, today: date):
+    """대시보드와 목록에 같은 납기 경계를 적용한다."""
+    due = PurchaseOrder.due_date  # 발주서의 약속 납기
+    match receipt_due:
+        case "OVERDUE":
+            return due < today
+        case "TODAY":
+            return due == today
+        case "NEXT_7_DAYS":
+            return due.between(today + timedelta(days=1), today + timedelta(days=7))
+        case "UNSCHEDULED":
+            return due.is_(None)
+
+
+def list_orders(
+    company_id: int, db: Session, page: PageParams, supplier_id: int | None,
+    status: str | None = None, receipt_due: ReceiptDue | None = None,
+) -> tuple[list[PurchaseOrder], dict]:
+    """GET /purchase-orders: 공급업체·상태·입고 납기로 거른 뒤 최신순으로 쪽을 나눈다."""
     stmt = scoped(company_id, PurchaseOrder)  # 회사 조건이 붙은 시작점
     if supplier_id is not None:
         stmt = stmt.where(PurchaseOrder.supplier_id == supplier_id)  # 이 업체 발주만 (남의 업체 id 면 빈 목록)
     if status is not None:
         stmt = stmt.where(PurchaseOrder.status == status)  # 이 상태의 발주만
+    if receipt_due is not None:
+        stmt = stmt.where(PurchaseOrder.status == "ORDERED", receipt_due_condition(receipt_due, seoul_today()))
     return paginate(db, stmt.order_by(PurchaseOrder.created_at.desc(), PurchaseOrder.id.desc()), page)
 
 
