@@ -27,6 +27,7 @@ export type PurchaseOrder = {
   memo: string | null; // 메모
   approved_at: string | null; // 승인 시각
   ordered_at: string | null; // 발주함 표시 시각
+  has_receipts: boolean; // 발주 취소를 막는 입고 이력 여부
   received_at: string | null; // 전량 입고 시각 (실제 입고일)
   cancelled_at: string | null; // 취소 시각
   items: PoItem[]; // 품목 줄

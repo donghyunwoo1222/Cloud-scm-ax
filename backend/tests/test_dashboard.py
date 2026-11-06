@@ -59,7 +59,7 @@ def get(client):
 def test_empty_company(client, world):
     """데이터가 하나도 없는 회사: 오류 없이 0과 빈 목록."""
     d = get(client)
-    assert d["purchase_orders"] == {"draft": 0, "approved": 0, "ordered": 0, "incoming_quantity": 0}
+    assert d["purchase_orders"] == {"draft": 0, "approved": 0, "ordered": 0, "incoming_quantity": 0, "incoming_by_unit": {}}
     assert d["month"]["in_quantity"] == 0 and d["month"]["out_quantity"] == 0
     assert d["dead_stock"]["count"] == 0 and d["dead_stock"]["items"] == [] and d["dead_stock"]["days"] == N
 
@@ -73,6 +73,7 @@ def test_open_orders_and_incoming(client, world, session):
     """상태별 건수와 입고 예정: ORDERED 100 중 입고 70 − 정정 10 = 60 입고 → 미입고 40. RECEIVED·CANCELLED 는 세지 않는다. 다른 회사 제외."""
     p = add_product(session, world, "a", "P1")
     q = add_product(session, world, "a", "P2")
+    q.unit = "박스"  # 다른 단위는 따로 보여준다.
     b = add_product(session, world, "b", "B1")
     add_po(session, world, "a", "PO-1", "DRAFT", p, 5)
     add_po(session, world, "a", "PO-2", "APPROVED", p, 5)
@@ -86,13 +87,16 @@ def test_open_orders_and_incoming(client, world, session):
     add_move(session, world, "a", p, "CORRECTION", "OUT", 10, 3, reverses=receipt.id, po_item=line.id)
     session.commit()
     d = get(client)["purchase_orders"]
-    assert d == {"draft": 1, "approved": 2, "ordered": 2, "incoming_quantity": 40 + 30}
+    assert d == {"draft": 1, "approved": 2, "ordered": 2, "incoming_quantity": 40 + 30, "incoming_by_unit": {"개": 40, "박스": 30}}
 
 
 def test_month_movements_net_of_corrections(client, world, session):
     """이번 달 입고·출고: 입고 50, 판매 100 − 정정 90 = 10, 폐기 5 → 출고 15. 조정·지난달·미래 아님·다른 회사는 제외."""
     p = add_product(session, world, "a", "P1")
     b = add_product(session, world, "b", "B1")
+    boxes = add_product(session, world, "a", "P2")
+    boxes.unit = "박스"
+    add_move(session, world, "a", boxes, "RECEIPT", "IN", 2, 0)
     month_day = TODAY.day - 1  # 이번 달 1일이면 0 → 오늘
     add_move(session, world, "a", p, "RECEIPT", "IN", 50, month_day)
     sale = add_move(session, world, "a", p, "SALE", "OUT", 100, month_day)
@@ -105,7 +109,9 @@ def test_month_movements_net_of_corrections(client, world, session):
     session.commit()
     d = get(client)["month"]
     assert d["month_start"] == TODAY.replace(day=1).isoformat()
-    assert d["in_quantity"] == 50 and d["out_quantity"] == 15
+    assert d["in_quantity"] == 52 and d["out_quantity"] == 15
+    assert d["in_by_unit"] == {"개": 50, "박스": 2}
+    assert d["out_by_unit"] == {"개": 15}
 
 
 # ----- 장기재고 -----

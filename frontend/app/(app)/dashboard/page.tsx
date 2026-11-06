@@ -9,9 +9,12 @@ import { useMe } from "../../lib/me"; // 내 역할 (세 번째 카드가 역할
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/dashboard 응답 (backend/app/services/dashboard.py)
+type UnitTotals = Record<string, number>; // 단위별 합계
+const unitTotals = (totals: UnitTotals) => Object.entries(totals).map(([unit, qty]) => qty.toLocaleString("ko-KR") + unit).join(" · ") || "없음";
+
 type Dashboard = {
-  purchase_orders: { draft: number; approved: number; ordered: number; incoming_quantity: number }; // 진행 중 발주 건수와 입고 예정 수량
-  month: { month_start: string; in_quantity: number; out_quantity: number }; // 이번 달 입고·출고 수량
+  purchase_orders: { draft: number; approved: number; ordered: number; incoming_by_unit: UnitTotals }; // 진행 중 발주 건수와 입고 예정 수량
+  month: { month_start: string; in_by_unit: UnitTotals; out_by_unit: UnitTotals }; // 이번 달 입고·출고 수량
   dead_stock: { days: number; count: number; items: DeadItem[] }; // 장기재고 (기준 일수, 전체 건수, 화면에 보일 줄)
   shortage: { count: number; items: ShortItem[] }; // 부족 품목 (전체 건수, 화면에 보일 20줄)
   overstock: { days: number; count: number; items: OverItem[] }; // 과잉재고 (기준 일수 90, 전체 건수, 20줄)
@@ -89,7 +92,7 @@ export default function Page() {
       <div role="group" aria-label="오늘 확인할 일" style={S.kpiGrid}>
         <NumberCard label="발주 추천" value={`${won(shortage.count)}건`} sub="재고 부족 품목 수와 같습니다" href="/recommendations" more="발주 추천 보기" />
         {/* 1. 지금 발주할 품목 수 (부족 판정과 추천은 같은 계산이라 새로 계산하지 않는다) */}
-        <NumberCard label="입고 대기 발주" value={`${won(po.ordered)}건`} sub={`입고 예정 ${won(po.incoming_quantity)}개`} href="/purchase-orders?status=ORDERED" more="입고 대기 발주 보기" />{/* 발주함 상태로 걸러진 목록으로 이동한다 */}
+        <NumberCard label="입고 대기 발주" value={`${won(po.ordered)}건`} sub={`입고 예정 ${unitTotals(po.incoming_by_unit)}`} href="/purchase-orders?status=ORDERED" more="입고 대기 발주 보기" />{/* 발주함 상태로 걸러진 목록으로 이동한다 */}
         {me?.role === "ADMIN" && (
           <NumberCard label="승인 대기" value={`${won(po.draft)}건`} sub="작성 중인 발주서 (승인은 관리자만)" href="/purchase-orders?status=DRAFT" more="승인 대기 발주 보기" />
         )}
@@ -171,14 +174,14 @@ export default function Page() {
           <span style={S.nowrap}><span aria-hidden="true">→ </span>승인됨 <strong style={S.kpiValue}>{won(po.approved)}건</strong></span>{/* 화살표는 보조기기에서 숨기고 다음 단계와 함께 줄을 바꾼다 */}
           <span style={S.nowrap}><span aria-hidden="true">→ </span>발주함 <strong style={S.kpiValue}>{won(po.ordered)}건</strong></span>{/* 발주함 건수와 단위를 붙여 표시한다 */}
         </div>{/* 세 단계의 현황 표시를 닫는다 */}
-        <span id="incoming-quantity" style={S.kpiSub}>입고 예정 수량 <strong style={S.nowrap}>{won(po.incoming_quantity)}개</strong> (발주함 발주서의 아직 안 들어온 수량)</span>{/* 미입고 수량과 단위가 갈라지지 않게 한다 */}
+        <span id="incoming-quantity" style={S.kpiSub}>입고 예정 수량 <strong style={S.nowrap}>{unitTotals(po.incoming_by_unit)}</strong> (발주함 발주서의 아직 안 들어온 수량)</span>{/* 미입고 수량과 단위가 갈라지지 않게 한다 */}
         <span id="all-purchase-orders" style={S.kpiMore}>발주 목록 전체 보기 →</span>{/* 카드에 보이는 문구를 보조기기의 링크 이름으로도 쓴다 */}
       </Link>
 
       <h2 style={S.sectionTitle}>이번 달 입출고 ({month.month_start} ~ 오늘)</h2>
       <div style={S.kpiGrid}>
-        <NumberCard label="입고량" value={`${won(month.in_quantity)}개`} />
-        <NumberCard label="출고량" value={`${won(month.out_quantity)}개`} />
+        <NumberCard label="입고량" value={unitTotals(month.in_by_unit)} />
+        <NumberCard label="출고량" value={unitTotals(month.out_by_unit)} />
         {/* 정정은 원래 이력에서 뺀 순수량, 재고 조정은 제외 (서버 계산 그대로) */}
       </div>
 
