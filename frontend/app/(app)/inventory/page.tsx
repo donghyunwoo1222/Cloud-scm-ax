@@ -69,6 +69,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
   const products = productList.isCurrent ? productList.rows : [];
   const [productId, setProductId] = useState(""); // 이력 필터: 품목
   const [trendRevision, setTrendRevision] = useState(0); // 정정 성공 후 같은 품목의 추이도 다시 읽는다
+  const [trendExpanded, setTrendExpanded] = useState(true); // 그래프만 접어 선택한 품목의 이력을 계속 볼 수 있다
   const [type, setType] = useState(""); // 이력 필터: 유형
   const [from, setFrom] = useState(""); // 이력 필터: 시작일
   const [to, setTo] = useState(""); // 이력 필터: 종료일
@@ -114,6 +115,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
   function showHistory(row: Stock) {
     setHistoryProduct({ id: row.product_id, sku: row.sku, name: row.name });
     filter(setProductId, String(row.product_id));
+    setTrendExpanded(true);
     const title = historyTitle.current;
     if (!title) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches; // OS 의 "움직임 줄이기" 설정이 켜져 있으면 스르륵 대신 바로 이동
@@ -151,16 +153,13 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
       <div style={S.detailHeader}><h1>재고 현황</h1><Link href="/shipments?type=ADJUSTMENT" style={S.linkButtonGhost}>실사 조정</Link></div>
       {/* 기존 목록 검색창과 비활성 포함을 재고 API에 연결한다. */}
       <ListControls placeholder="품목명·SKU 검색" onSearch={searchStock} searchInput={{ value: searchText, onChange: setSearchText, maxLength: 100 }}
-        includeInactive={stock.includeInactive} onToggleInactive={stock.toggleInactive} />
-      <div style={S.toolbar}>
-        <label>상태
-          <select value={status} onChange={(e) => { setStatus(e.target.value); stock.setPage(1); }} style={S.block}>
-            <option value="">전체</option>
+        includeInactive={stock.includeInactive} onToggleInactive={stock.toggleInactive}
+        tableFilter={(
+          <select aria-label="재고 상태" value={status} onChange={(e) => { setStatus(e.target.value); stock.setPage(1); }} style={{ maxWidth: "100%" }}>
+            <option value="">전체 상태</option>
             {Object.entries(STATUS_LABEL).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
           </select>
-        </label>
-        {/* 상태를 고르면 서버가 회사 전체에서 거른 뒤 쪽을 나눈다. 비활성 품목은 상태가 없어 나오지 않는다 */}
-      </div>
+        )} />
       {stockReady && <ErrorText error={stock.error} />}{/* 현재 조건에서 난 오류만 보여준다. */}
       <div style={S.tableBox}>
       <table style={S.table}>
@@ -207,6 +206,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
           <select value={productId} onChange={(e) => {
             setHistoryProduct(products.find((p) => String(p.id) === e.target.value) ?? historyProduct);
             filter(setProductId, e.target.value);
+            setTrendExpanded(true);
           }} style={S.block}>
             <option value="">전체</option>
             {historyProduct && String(historyProduct.id) === productId && !products.some((p) => p.id === historyProduct.id) && (
@@ -224,7 +224,8 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
         <label>시작일 <input type="date" value={from} onChange={(e) => filter(setFrom, e.target.value)} /></label>
         <label>종료일 <input type="date" value={to} onChange={(e) => filter(setTo, e.target.value)} /></label>
       </div>
-      {productId && <StockTrend key={`${productId}:${trendRevision}`} productId={productId} />}
+      {productId && <StockTrend key={`${productId}:${trendRevision}`} productId={productId}
+        expanded={trendExpanded} onToggle={() => setTrendExpanded((open) => !open)} />}
       <ErrorText error={error} />
       {notice && <p role="status" style={S.ok}>{notice}</p>}
 
