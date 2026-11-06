@@ -60,8 +60,8 @@
   position: sticky;
   bottom: 0;
   z-index: 2;
-  padding: var(--space-sm) var(--space-md);
-  padding-bottom: max(var(--space-sm), env(safe-area-inset-bottom));
+  padding: var(--space-xs) var(--space-md);
+  padding-bottom: max(var(--space-xs), env(safe-area-inset-bottom));
   border-radius: 0 0 var(--radius-md) var(--radius-md);
   background: var(--color-card);
   box-shadow: 0 -2px 8px rgb(30 41 59 / 8%);
@@ -76,11 +76,14 @@
 
 .receiptDate {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: var(--space-sm);
+  white-space: nowrap;
 }
 
 .receiptDate input {
+  inline-size: 9rem;
   min-width: 0;
 }
 
@@ -108,7 +111,7 @@
     font-size: var(--text-xs);
   }
 
-  .receiptFooterControls > div {
+  .receiptFooterControls > div:last-child {
     margin-inline-start: auto;
   }
 }
