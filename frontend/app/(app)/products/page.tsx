@@ -1,6 +1,7 @@
 "use client"; // 목록·폼을 다루는 화면이라 브라우저에서 실행
 
-import { FormEvent, useEffect, useState } from "react"; // 폼 제출, 처음 한 번 실행, 상태
+import Link from "next/link"; // 공급업체와 첫 입고로 이동한다.
+import { FormEvent, useEffect, useRef, useState } from "react"; // 폼 제출, 처음 한 번 실행, 상태
 
 import { api, apiList } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
@@ -59,6 +60,8 @@ export default function ProductsPage() {
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]); // 목록 필터에 쓸 활성·비활성 공급업체
   const [form, setForm] = useState<Form>(EMPTY); // 폼 입력값
   const [editing, setEditing] = useState<Product | null>(null); // 수정 중인 품목 (null 이면 새 등록)
+  const registration = useRef<HTMLDetailsElement>(null); // 목록에서 수정할 때 같은 폼을 연다.
+  const [created, setCreated] = useState(false); // 첫 입고로 바로 이어갈 수 있게 한다.
   const [error, setError] = useState<unknown>(null); // 저장·버튼 오류
 
   useEffect(() => {
@@ -92,6 +95,8 @@ export default function ProductsPage() {
   }
 
   function startEdit(p: Product) {
+    if (registration.current) registration.current.open = true;
+    registration.current?.querySelector("input")?.focus();
     setEditing(p); // 수정 모드
     setForm(formOf(p)); // 그 품목 값으로 폼 채우기
     setError(null);
@@ -110,7 +115,9 @@ export default function ProductsPage() {
         const body = changedFields(toBody(form), toBody(formOf(editing))); // 바뀐 칸만
         await api(`/products/${editing.id}`, { method: "PATCH", body }); // 수정
       }
+      setCreated(editing === null);
       reset(); // 성공하면 폼 비우기
+      if (registration.current) registration.current.open = false;
       setError(null);
       await list.reload(); // 목록 다시 불러오기
     } catch (e) {
@@ -119,6 +126,7 @@ export default function ProductsPage() {
   }
 
   async function setActive(p: Product, active: boolean) {
+    if (!active && !window.confirm(`${p.name}을 비활성화할까요? 새 발주와 추천에서는 제외되며 기존 이력은 남습니다.`)) return;
     try {
       await api(`/products/${p.id}`, { method: "PATCH", body: { is_active: active } }); // 비활성·다시 활성 (삭제는 없다)
       setError(null);
@@ -136,6 +144,10 @@ export default function ProductsPage() {
     <section>
       <h1>품목</h1>
 
+      {created && <p role="status" style={S.ok}>품목을 등록했습니다. <Link href="/receipts#direct-receipt">입고 등록으로 이동</Link></p>}
+      <details ref={registration} style={S.sectionCard}>
+      <summary>{editing ? `${editing.name} 수정` : "품목 등록"}</summary>
+      {!editing && activeSuppliers.length === 0 && <p>기본 공급업체가 필요합니다. <Link href="/suppliers">공급업체 등록</Link></p>}
       <form onSubmit={save} style={S.formGrid}>
         {/* 등록·수정 폼 */}
         <label>SKU* <input value={form.sku} onChange={(e) => set("sku", e.target.value)} /></label>
@@ -165,10 +177,11 @@ export default function ProductsPage() {
         </label>
         <p id="product-box-hint" style={{ ...S.hint, flexBasis: "100%", margin: 0 }}>박스로 구매할 때 두 칸을 채우세요. 둘 다 비워 저장하면 박스 설정을 해제합니다.</p>
         <div style={S.buttons}>
-          <button type="submit">{editing === null ? "등록" : "수정 저장"}</button>
+          <button type="submit" disabled={!editing && activeSuppliers.length === 0}>{editing === null ? "등록" : "수정 저장"}</button>
           {editing !== null && <button type="button" onClick={reset}>취소</button>}
         </div>
       </form>
+      </details>
       <ErrorText error={error} labels={LABELS} />
 
       {/* 검색·기본 공급업체·비활성 포함을 표 위 한 줄에 묶는다. */}

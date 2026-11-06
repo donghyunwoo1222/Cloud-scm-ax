@@ -25,13 +25,13 @@ from app.services.tenant import get_owned  # 경로 id 로 우리 회사 품목 
 
 
 def status_of(result) -> tuple:
-    """계산 결과 하나 → (상태, 판단 불가 이유). 이유는 추천 화면의 제외 목록과 같은 코드·문장이다."""
+    """계산 결과 하나 → (상태, 판단 불가 이유, 재주문점). 이유는 추천 화면과 같은 코드·문장이다."""
     reason = {"code": result.code, "message": result.message} if isinstance(result, Excluded) else None  # 판단 불가면 이유
-    return stock_status(result), reason
+    return stock_status(result), reason, None if isinstance(result, Excluded) else float(result.reorder_point)
 
 
 def status_map(company_id: int, db: Session, today: date, product_ids: list[int] | None = None) -> dict[int, tuple]:
-    """품목 id → (상태, 판단 불가 이유). 활성 품목만 계산한다(비활성은 추천처럼 계산하지 않아 키가 없다)."""
+    """품목 id → (상태, 판단 불가 이유, 재주문점). 활성 품목만 계산한다."""
     return {product.id: status_of(result) for product, *_, result in calculate_for(company_id, db, today, product_ids)}
 
 
@@ -42,8 +42,8 @@ def with_status(company_id: int, db: Session, today: date, products: list[Produc
         statuses = status_map(company_id, db, today, [p.id for p in products if p.is_active])
     transit = in_transit(company_id, db)  # 비활성 품목도 진행 중 발주는 있을 수 있어 따로 구한다 (쿼리 2번)
     for row in rows:
-        status, reason = statuses.get(row["product_id"], (None, None))  # 비활성이면 (None, None)
-        row.update(in_transit=transit.get(row["product_id"], 0), status=status, status_reason=reason)
+        status, reason, reorder_point = statuses.get(row["product_id"], (None, None, None))  # 비활성이면 (None, None)
+        row.update(in_transit=transit.get(row["product_id"], 0), status=status, status_reason=reason, reorder_point=reorder_point)
     return rows
 
 
@@ -61,7 +61,7 @@ def list_stock(
         return with_status(company_id, db, today, products), meta
     # shortcut: 검색에 맞는 활성 품목의 상태를 파이썬에서 계산하고 쪽을 나눈다. 수천 개에서 느려지면 계산 결과 저장을 검토한다
     rows = calculate_for(company_id, db, today, q=q)  # 검색이 맞는 활성 품목만 계산한다 (비활성은 상태가 없다)
-    statuses = {p.id: status_of(r) for p, *_, r in rows}  # 품목 id → (상태, 이유)
+    statuses = {p.id: status_of(r) for p, *_, r in rows}  # 품목 id → (상태, 이유, 재주문점)
     products = [p for p, *_ in rows if statuses[p.id][0] == status]  # 고른 상태만
     start = (page.page - 1) * page.page_size  # 예) 2쪽, 20개씩 → 20번째부터
     page_products = products[start:start + page.page_size]

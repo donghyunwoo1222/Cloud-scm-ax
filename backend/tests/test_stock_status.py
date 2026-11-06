@@ -87,7 +87,8 @@ def test_stock_status_shortage_normal_and_fields(client, world, session):
     session.commit()
     r = rows(client)
     assert r["S1"] == {"product_id": s1.id, "sku": "S1", "name": "S1 이름", "unit": "개", "safety_stock": 20,
-                       "is_active": True, "current_stock": 50, "in_transit": 0, "status": "SHORTAGE", "status_reason": None}
+                       "is_active": True, "current_stock": 50, "in_transit": 0, "status": "SHORTAGE", "status_reason": None,
+                       "reorder_point": 70.0}
     assert r["N71"]["status"] == "NORMAL" and r["O900"]["status"] == "NORMAL"
 
 

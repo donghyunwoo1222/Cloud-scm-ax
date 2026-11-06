@@ -46,13 +46,13 @@
 | F4 | POST /inventory-movements/{id}/corrections | 잘못 넣은 이력 {id}를 정정(CORRECTION 등록) | 둘 다 |
 | F4 | GET /inventory-movements | 이력 조회(품목·유형(여러 개 가능)·기간 필터, 정렬: 입출고일순 또는 등록순) | 둘 다 |
 | F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 안전재고. 발주 진행 중 수량(`in_transit`), 상태(`status`: 가용재고 ≤ 재주문점이면 SHORTAGE, 추천 제외 품목은 UNKNOWN + `status_reason`, 비활성은 null, 추천과 같은 계산, #76). `q`(최대 100자)는 공백을 다듬어 SKU·품목명 부분 일치 검색에 사용한다(대소문자 무시, `%`·`_`는 글자 그대로). `status`와 함께 주면 두 조건으로 거른 뒤 쪽을 나눈다. | 둘 다 |
-| F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status` 필터, #36), DRAFT 발주서 만들기(직접) | 둘 다 |
+| F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status` 필터, `q` 발주번호 부분 검색), DRAFT 발주서 만들기(직접). 응답의 `has_receipts`는 전량 정정된 입고 이력도 포함한다. | 둘 다 |
 | F6 | GET /purchase-orders/{id}, PATCH /purchase-orders/{id} | 상세, DRAFT 일 때만 품목·수량 수정 | 둘 다 |
 | F6 | POST /purchase-orders/{id}/approve | DRAFT → APPROVED | 관리자 |
 | F6 | POST /purchase-orders/{id}/order | APPROVED → ORDERED(공급업체에 발주했음 표시) | 둘 다 |
 | F6 | POST /purchase-orders/{id}/receipts | 발주 품목 입고(부분 가능). 이력 등록 + 상태 갱신을 한 번에 | 둘 다 |
 | F6 | POST /purchase-orders/{id}/cancel | 입고 이력이 없는 발주만 취소 | 둘 다 |
-| F7 대시보드 | GET /dashboard | 부족(`shortage`, 추천 대상과 같음)·과잉(`overstock`, 현재고 ≥ 일평균 × 90일, 임시값)·장기재고·진행 중 발주·이번 달 입출고 요약(목록은 20줄 + 전체 건수) | 둘 다 |
+| F7 대시보드 | GET /dashboard | 부족·과잉·장기재고·진행 중 발주·이번 달 입출고 요약. 입고 예정과 월 입출고는 각각 `incoming_by_unit`, `in_by_unit`, `out_by_unit`에 재고 단위별 합계를 반환한다. | 둘 다 |
 | F8 발주 추천 | GET /recommendations | 현재 시점 추천 목록 계산·반환 | 둘 다 |
 | F8 | POST /recommendations/drafts | 선택한 품목으로 공급업체별 DRAFT 발주서 생성·품목 추가 | 둘 다 |
 
@@ -125,6 +125,8 @@
 - 응답은 `{"data": [...], "meta": {page, page_size, total}}`. 각 줄에 품목 `product_sku`·`product_name`, `purchase_order_item_id`(발주 입고면 값이 있다), 정정이면 `reverses_movement_id`가 들어 있다
 
 예) 출고 등록 화면의 최근 출고 10건: `GET /inventory-movements?movement_type=SALE&movement_type=DISPOSAL&movement_type=OTHER_OUT&movement_type=ADJUSTMENT&sort=registered&page_size=10`
+
+이력의 `product_unit`은 품목 재고 단위이고, `purchase_order_id`는 연결된 발주서가 있을 때만 값이 있다. `correctable_quantity`는 원본 수량에서 누적 정정을 뺀 값이며 정정 행은 null이다. `include_current_stock=true`를 주면 응답에 포함된 품목들의 `current_stock`을 함께 받는다.
 
 발주서 응답(상세·목록·작성·수정·상태 변경·입고·추천 초안 공통)의 품목 줄 `items[]`에는 `product_sku`·`product_name`과 함께 품목 마스터의 현재 `unit`(예: "개")이 있다(#93).
 

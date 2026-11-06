@@ -113,7 +113,7 @@ def calculate_for(
         result = calculate_recommendation(  # 공식은 이 함수 한 곳에만 있다
             today=today, first_movement_date=first_day, supplier_active=supplier.is_active,
             sales_30d=sales.get(product.id, 0), stock=stock, in_transit=transit.get(product.id, 0),
-            lead_time=supplier.lead_time_days, safety_stock=product.safety_stock,
+            lead_time=supplier.lead_time_days, safety_stock=product.safety_stock, unit=product.unit,
         )
         rows.append((product, supplier, stock, transit.get(product.id, 0), result))
     return rows

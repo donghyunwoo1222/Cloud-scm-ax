@@ -40,7 +40,7 @@ function Detail() {
       <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>발주번호</th><th>상태</th><th>품목</th><th style={S.num}>발주 수량</th><th style={S.num}>단가(원)</th><th>약속 납기</th><th>실제 입고일</th></tr>
+          <tr style={S.headRow}><th>발주번호</th><th>상태</th><th>품목</th><th style={S.num}>발주 수량</th><th style={S.num}>단가(원)</th><th>약속 납기</th><th>입고 완료일</th></tr>
         </thead>
         <tbody>
           {list.rows.flatMap((o) =>
@@ -48,7 +48,7 @@ function Detail() {
               <tr key={i.id} style={index === 0 ? S.row : undefined}>
                 {/* 발주서 첫 줄에만 구분선·발주 정보를 보인다 (단가는 줄마다 다르다) */}
                 <td>{index === 0 ? <Link href={`/purchase-orders/${o.id}`}>{o.po_number}</Link> : ""}</td>
-                <td>{index === 0 ? STATUS_LABEL[o.status] : ""}</td>
+                <td>{index === 0 ? (o.status === "ORDERED" && o.items.some((i) => i.received_quantity > 0) ? "부분 입고" : STATUS_LABEL[o.status]) : ""}</td>
                 <td><span style={S.nowrap}>{i.product_sku}</span> · {i.product_name}</td>
                 <td style={S.num}>{i.quantity}</td>
                 <td style={S.num}>{formatOrderUnitPrice(i)}</td>

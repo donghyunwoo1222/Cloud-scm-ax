@@ -150,6 +150,19 @@ button.primary-action:hover:not(:disabled) {
 .receipt-line legend {
   padding-inline: var(--space-xs);
   font-weight: 600;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+}
+
+.receipt-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.receipt-controls select {
+  max-width: 100%;
 }
 
 button:disabled {
