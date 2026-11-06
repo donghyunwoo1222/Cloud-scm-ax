@@ -5,7 +5,7 @@ import { FormEvent, useCallback, useEffect, useId, useRef, useState } from "reac
 
 import { api, apiList } from "./api"; // 공통 API 호출 함수
 import { ErrorText } from "./list"; // 서버 오류 표시
-import { StatusBadge } from "./status-badge"; // 색 + 글자 + 아이콘 배지 (발주 입고 표시에 재사용)
+import { ShipmentTypeBadge, StatusBadge } from "./status-badge"; // 출고 유형과 발주 입고 배지
 import { ProductOption, ProductPicker } from "./product-picker"; // 전체 품목에서 검색해 바로 선택한다
 import { quantityLabel } from "./po"; // 품목 단위로 재고·수량을 표시한다.
 import { S } from "./styles"; // 화면 공통 스타일
@@ -240,7 +240,7 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
                   <td>{m.product_name}<span style={S.sub}>{m.product_sku}</span></td>
                   {!isReceipt && (
                     <td style={S.nowrap}>
-                      {TYPE_LABEL[m.movement_type] ?? m.movement_type}
+                      <ShipmentTypeBadge type={m.movement_type}>{TYPE_LABEL[m.movement_type] ?? m.movement_type}</ShipmentTypeBadge>
                       {m.sales_channel && <span style={S.sub}>{CHANNEL_LABEL[m.sales_channel] ?? m.sales_channel}</span>}
                       {/* 판매는 채널을 유형 아래에 작게 보인다 */}
                     </td>
