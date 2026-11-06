@@ -9,7 +9,6 @@ import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목
 import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
 import { STOCK_BADGE, StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { quantityLabel } from "../../lib/po"; // 입출고 이력에도 실제 단위를 붙인다.
-import { ProductSearch, useProductOptions } from "../../lib/product-search"; // 이력 품목도 서버에서 검색한다.
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 import { StockTrend } from "./stock-trend"; // 선택한 품목의 30일 마감 재고
 
@@ -71,10 +70,8 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
     const timer = window.setTimeout(() => searchStock(searchText), 300); // 입력이 멈춘 뒤 첫 쪽을 조회한다
     return () => window.clearTimeout(timer); // 다시 입력하거나 화면을 닫으면 이전 타이머를 취소한다
   }, [waitingForSearch, searchStock, searchText]);
-  const productList = useProductOptions(true); // 이전 비활성 품목의 이력도 검색할 수 있다.
-  const [historyProduct, setHistoryProduct] = useState<ProductOption>(); // 검색 결과와 별도로 선택을 유지한다.
-  const products = productList.isCurrent ? productList.rows : [];
-  const [productId, setProductId] = useState(""); // 이력 필터: 품목
+  const [historyProduct, setHistoryProduct] = useState<ProductOption>(); // 위 목록에서 선택한 품목
+  const productId = historyProduct ? String(historyProduct.id) : ""; // 이력 필터: 품목
   const [trendRevision, setTrendRevision] = useState(0); // 정정 성공 후 같은 품목의 추이도 다시 읽는다
   const [type, setType] = useState(""); // 이력 필터: 유형
   const [from, setFrom] = useState(""); // 이력 필터: 시작일
@@ -127,7 +124,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
     setHistoryProduct(undefined);
     setRows([]);
     setMeta(null);
-    filter(setProductId, "");
+    setPage(1);
   }
 
   // 같은 품목을 다시 누르면 품목 선택을 풀고, 다른 품목을 누르면 해당 이력으로 이동한다.
@@ -138,7 +135,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
       return;
     }
     setHistoryProduct({ id: row.product_id, sku: row.sku, name: row.name });
-    filter(setProductId, selectedId);
+    setPage(1);
     focusInView(historyTitle.current, "start");
   }
 
@@ -234,21 +231,11 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
         {productId && <button type="button" onClick={returnToInventory}>접고 목록으로 ↑</button>}
       </div>
       {/* tabIndex -1: 키 이동 순서에는 넣지 않고, 코드로만 포커스를 줄 수 있게 */}
-      <ProductSearch list={productList} label="이력 품목명·SKU 검색" />
+      <p style={S.hint}>{historyProduct
+        ? `${historyProduct.name} · ${historyProduct.sku}`
+        : "전체 품목의 이력입니다. 특정 품목은 위 목록에서 추이·이력 보기를 누르세요."}</p>
       <div style={S.toolbar}>
-        {/* 필터: 품목·유형·기간 */}
-        <label>품목
-          <select value={productId} onChange={(e) => {
-            setHistoryProduct(products.find((p) => String(p.id) === e.target.value) ?? historyProduct);
-            filter(setProductId, e.target.value);
-          }} style={S.block}>
-            <option value="">전체</option>
-            {historyProduct && String(historyProduct.id) === productId && !products.some((p) => p.id === historyProduct.id) && (
-              <option value={historyProduct.id}>{historyProduct.sku} · {historyProduct.name}</option>
-            )}
-            {products.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
-          </select>
-        </label>
+        {/* 유형과 기간은 선택한 품목의 이력에 적용한다. */}
         <label>유형
           <select value={type} onChange={(e) => filter(setType, e.target.value)} style={S.block}>
             <option value="">전체</option>

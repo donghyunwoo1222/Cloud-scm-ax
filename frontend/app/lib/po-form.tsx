@@ -2,31 +2,32 @@
 
 import Link from "next/link"; // 기존 발주서로 가는 링크
 import { useRouter } from "next/navigation"; // 저장 후 상세 화면으로 이동
-import { FormEvent, useEffect, useState } from "react"; // 폼 제출, 처음 한 번 실행, 상태
+import { FormEvent, useEffect, useRef, useState } from "react"; // 폼 제출, 최초 조회, 줄 번호와 상태
 
 import { api, ApiError, apiList } from "./api"; // 공통 API 호출 함수, 서버 오류
 import { ErrorText } from "./list"; // 서버 오류 표시
 import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PurchaseOrder, quantityLabel } from "./po"; // 발주서와 박스 환산 표시
-import { ProductOption, ProductSearch, useProductOptions } from "./product-search"; // 발주 품목을 서버에서 검색한다.
+import { ProductOption, ProductPicker } from "./product-picker"; // 발주 줄에서 품목을 검색해 바로 선택한다
 import { S } from "./styles"; // 화면 공통 스타일
 
 type Option = { id: number; name: string }; // 공급업체 선택지
-type Line = { product_id: string; quantity: string; unit_price: string; box: boolean }; // 입력한 수량과 그 단위를 함께 기억한다
+type Line = { key: number; product_id: string; quantity: string; unit_price: string; box: boolean }; // 줄 번호와 입력값
 
-const EMPTY_LINE: Line = { product_id: "", quantity: "", unit_price: "", box: false }; // 빈 줄
+const EMPTY_LINE: Line = { key: 0, product_id: "", quantity: "", unit_price: "", box: false }; // 빈 줄
 const num = (v: string) => (v === "" ? null : Number(v)); // "10" → 10, 비우면 null (서버가 422 로 막는다. 1 이상·0 이상 검사는 서버가 한다)
 
 // 발주서 작성·수정 폼 하나. order 가 있으면 수정(DRAFT 의 items 전체 교체), 없으면 새 작성
 export function PoForm({ order }: { order?: PurchaseOrder }) {
   const router = useRouter(); // 저장 후 이동
   const [suppliers, setSuppliers] = useState<Option[]>([]); // 활성 공급업체 (작성할 때만 고른다)
-  const productList = useProductOptions(); // 새 발주 품목은 활성만 조회한다.
   const [pickedProducts, setPickedProducts] = useState<Record<number, ProductOption>>({}); // 검색이 바뀌어도 고른 품목과 입수를 유지한다.
   const [supplierId, setSupplierId] = useState(""); // 고른 공급업체
   const [dueDate, setDueDate] = useState(order?.due_date ?? ""); // 약속 납기
   const [memo, setMemo] = useState(order?.memo ?? ""); // 메모
+  const nextLineKey = useRef(order?.items.length ?? 1); // 앞 줄을 지워도 다른 줄의 검색 상태가 섞이지 않는다
   const [lines, setLines] = useState<Line[]>(
-    order ? order.items.map((i) => ({
+    order ? order.items.map((i, key) => ({
+      key,
       product_id: String(i.product_id), quantity: String(i.box_quantity ?? i.quantity),
       unit_price: String(i.unit_price), box: i.box_quantity != null,
     })) : [{ ...EMPTY_LINE }],
@@ -35,18 +36,18 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
 
   useEffect(() => {
     if (!order) apiList<Option>("/suppliers?page_size=100").then((r) => setSuppliers(r.data)).catch(setError);
+    else apiList<ProductOption>("/products").then((r) => setPickedProducts((picked) => ({
+      ...Object.fromEntries(r.data.map((p) => [p.id, p])), ...picked,
+    }))).catch(setError); // 기존 작성 중 품목의 포장 설정을 첫 목록에서 보완한다
   }, [order]);
 
   // 선택 상자의 품목: 활성 품목 + (수정일 때) 이미 든 품목이 지금 비활성이어도 이름이 보이게 함께 넣는다
-  const searchOptions = productList.isCurrent ? productList.rows : [];
   const options = new Map<number, ProductOption>((order?.items ?? []).map((i) => [i.product_id, {
     id: i.product_id, sku: i.product_sku, name: i.product_name, unit_cost: i.unit_price, unit: i.unit, is_active: false,
   }]));
   Object.values(pickedProducts).forEach((p) => options.set(p.id, p)); // 앞선 검색에서 고른 품목
-  searchOptions.forEach((p) => options.set(p.id, p)); // 현재 검색 결과가 있으면 최신 값을 쓴다.
 
-  function packingFor(productId: string) {
-    const product: ProductOption | undefined = options.get(Number(productId));
+  function packingFor(productId: string, product = options.get(Number(productId))) {
     const saved = order?.items.find((i) => String(i.product_id) === productId);
     const locked = saved?.units_per_box != null; // 기존 박스 줄은 품목 설정 변경·해제 이후에도 당시 값을 쓴다
     return {
@@ -61,11 +62,13 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   }
 
   // 박스 단위가 바뀔 때 이전 수량을 적용하지 않도록 입력값을 비운다.
-  function pickProduct(index: number, productId: string) {
-    const { product, units } = packingFor(productId);
-    if (product?.is_active) setPickedProducts((picked) => ({ ...picked, [product.id]: product }));
+  function pickProduct(index: number, product: ProductOption) {
+    const productId = String(product.id);
+    const { units } = packingFor(productId, product);
+    setPickedProducts((picked) => ({ ...picked, [product.id]: product }));
+    if (lines[index].product_id === productId) return; // 같은 품목을 재선택해도 작성한 단가·수량은 보존한다
     const box = units != null;
-    setLine(index, { product_id: productId, unit_price: String(product?.unit_cost ?? ""), box,
+    setLine(index, { product_id: productId, unit_price: String(product.unit_cost), box,
       ...(box || lines[index].box ? { quantity: "" } : {}) });
   }
 
@@ -112,7 +115,6 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         <label>메모 <input value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
       </div>
 
-      <ProductSearch list={productList} />
       <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
@@ -125,13 +127,9 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
             const count = Number(line.quantity);
             const suffix = line.box ? "박스 수" : unit ? `${unit} 수량` : "수량";
             return (
-            <tr key={index}>
-              <td>
-                <select required value={line.product_id} onChange={(e) => pickProduct(index, e.target.value)} aria-label={`품목 ${index + 1}`}>
-                  <option value="">선택</option>
-                  {product && !searchOptions.some((p) => p.id === product.id) && <option value={product.id}>{product.sku} · {product.name}</option>}
-                  {searchOptions.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
-                </select>
+            <tr key={line.key}>
+              <td style={{ minWidth: 220 }}>
+                <ProductPicker label={`품목 ${index + 1}`} value={product} onSelect={(picked) => pickProduct(index, picked)} />
               </td>
               <td style={S.num}>
                 {units != null && !locked && (
@@ -167,7 +165,10 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         </tbody>
       </table>
       </div>
-      <button type="button" onClick={() => setLines((rows) => [...rows, { ...EMPTY_LINE }])}>줄 추가</button>
+      <button type="button" onClick={() => {
+        const key = nextLineKey.current++;
+        setLines((rows) => [...rows, { ...EMPTY_LINE, key }]);
+      }}>줄 추가</button>
       <p style={S.hint}>예상 합계 {estimatedAmount.toLocaleString("ko-KR")}원</p>
 
       <p style={{ ...S.buttons, marginTop: "var(--space-md)" }}>
