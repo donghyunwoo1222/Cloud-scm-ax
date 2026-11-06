@@ -177,9 +177,11 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
           <tr style={S.headRow}><th>품목명</th><th>SKU</th><th style={S.num}>현재고</th><th style={S.num}>발주 진행 중</th><th style={S.num}>안전재고</th><th>상태</th><th></th></tr>
         </thead>
         <tbody>
-          {stockReady && !stock.error && stock.rows.map((s) => ( // 현재 검색의 결과만 표에 그린다
-            <tr key={s.product_id} style={bodyRow(s.is_active)}>
-              <td>{s.name}{!s.is_active && " (비활성)"}</td>
+          {stockReady && !stock.error && stock.rows.map((s) => { // 현재 검색의 결과만 표에 그린다
+            const selected = String(s.product_id) === productId; // 아래 추이와 이력이 열린 품목
+            return (
+            <tr key={s.product_id} style={selected ? { ...bodyRow(s.is_active), ...S.selectedRow } : bodyRow(s.is_active)}>
+              <td style={selected ? S.selectedMark : undefined}>{s.name}{!s.is_active && " (비활성)"}</td>
               <td style={S.nowrap}>{s.sku}</td>
               <td style={S.num}>{s.current_stock} {s.unit}</td>
               <td style={S.num}>{quantityLabel(s.in_transit, s.unit)}</td>
@@ -191,13 +193,14 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
                 {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 판단 불가는 이유를 작게 보인다. 비활성은 "-" */}
               </td>
               <td>
-                <button type="button" aria-expanded={String(s.product_id) === productId} onClick={() => toggleHistory(s)}>
-                  {String(s.product_id) === productId ? "추이·이력 닫기" : "추이·이력 보기"}
+                <button type="button" aria-expanded={selected} onClick={() => toggleHistory(s)}>
+                  {selected ? "추이·이력 닫기" : "추이·이력 보기"}
                 </button>
               </td>
               {/* 아래 이력을 이 품목으로 거른다 */}
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
       </div>
