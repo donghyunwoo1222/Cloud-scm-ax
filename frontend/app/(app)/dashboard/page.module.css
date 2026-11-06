@@ -2,6 +2,13 @@
   position: relative;
 }
 
+.receiptSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs) var(--space-sm);
+}
+
 /* 카드 여백은 전체 목록으로, 두 건수는 각 납기 목록으로 연결한다. */
 .allReceipts::after {
   content: "";
@@ -13,19 +20,45 @@
 .receiptLinks {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-xs) var(--space-sm);
-  font-size: var(--text-sm);
+  gap: var(--space-xs);
+  margin-block: var(--space-xs);
 }
 
 .receiptLinks a {
   position: relative;
   z-index: 1;
-  min-height: 24px;
-  display: inline-flex;
+  flex: 1 1 0;
+  min-inline-size: max-content;
+  min-height: 36px;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-hover);
+  font-size: var(--text-xs);
+  text-decoration: none;
   white-space: nowrap;
 }
 
-.lateReceipts {
+.receiptLinks a:hover {
+  border-color: currentColor;
+}
+
+.receiptLinks strong {
+  font-size: var(--text-base);
+  font-variant-numeric: tabular-nums;
+}
+
+.receiptLinks .lateReceipts {
   color: var(--color-destructive);
+  background: var(--color-destructive-bg);
+}
+
+@media (pointer: coarse) {
+  .receiptLinks a {
+    min-height: 44px;
+  }
 }

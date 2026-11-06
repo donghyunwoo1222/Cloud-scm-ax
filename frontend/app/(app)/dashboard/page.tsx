@@ -112,15 +112,17 @@ export default function Page() {
         {/* 1. 지금 발주할 품목 수 (부족 판정과 추천은 같은 계산이라 새로 계산하지 않는다) */}
         <div className={`kpi-card ${styles.receiptCard}`} style={S.kpiCard}>
           <span style={S.kpiLabel}>입고 대기 발주</span>
-          <span style={S.kpiValue}>{won(po.ordered)}건</span>
+          <div className={styles.receiptSummary}>
+            <span style={S.kpiValue}>{won(po.ordered)}건</span>
+            <span style={S.kpiSub}>입고 예정 {unitTotals(po.incoming_by_unit)}</span>
+          </div>
           {po.due_today != null && po.overdue != null && (
             <div className={styles.receiptLinks}>
-              <Link href="/purchase-orders?status=ORDERED&receipt_due=TODAY">오늘 {won(po.due_today)}건</Link>
+              <Link href="/purchase-orders?status=ORDERED&receipt_due=TODAY"><span>오늘</span>{" "}<strong>{won(po.due_today)}건</strong></Link>
               <Link href="/purchase-orders?status=ORDERED&receipt_due=OVERDUE"
-                className={po.overdue > 0 ? styles.lateReceipts : undefined}>지연 {won(po.overdue)}건</Link>
+                className={po.overdue > 0 ? styles.lateReceipts : undefined}><span>지연</span>{" "}<strong>{won(po.overdue)}건</strong></Link>
             </div>
           )}
-          <span style={S.kpiSub}>입고 예정 {unitTotals(po.incoming_by_unit)}</span>
           <Link className={styles.allReceipts} href="/purchase-orders?status=ORDERED" style={S.kpiMore}>입고 대기 발주 보기 →</Link>
         </div>
         {me?.role === "ADMIN" && (
