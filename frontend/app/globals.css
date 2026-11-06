@@ -131,14 +131,38 @@ button:hover:not(:disabled) {
   background: var(--color-hover);
 }
 
-button[type="submit"] {
+button[type="submit"],
+button.primary-action {
   background: var(--color-primary);
   border-color: var(--color-primary);
   color: var(--color-on-primary);
 }
 
-button[type="submit"]:hover:not(:disabled) {
+button[type="submit"]:hover:not(:disabled),
+button.primary-action:hover:not(:disabled) {
   background: var(--color-primary-hover);
+}
+
+.receipt-line {
+  min-inline-size: 0;
+}
+
+.receipt-line legend {
+  padding-inline: var(--space-xs);
+  font-weight: 600;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+}
+
+.receipt-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.receipt-controls select {
+  max-width: 100%;
 }
 
 button:disabled {
@@ -263,10 +287,51 @@ details.reason > p {
   }
 }
 
+.sidebar-brand {
+  font-weight: 700;
+  font-size: var(--text-lg);
+  padding: var(--space-xs) 12px var(--space-md);
+}
+
+.mobile-menu-button {
+  display: none;
+}
+
 @media (max-width: 729px) {
   .sidebar {
     flex-basis: 100%;
+    border-bottom: 1px solid var(--color-border);
   }
+
+  .sidebar-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+  }
+
+  .sidebar-brand {
+    padding: 0 var(--space-sm);
+  }
+
+  .mobile-menu-button {
+    display: inline-block;
+    min-height: 44px;
+  }
+
+  /* 닫힌 메뉴는 키보드와 화면 읽기 도구의 탐색에서도 제외한다. */
+  #app-navigation[data-expanded="false"] {
+    display: none;
+  }
+
+  #app-navigation[data-expanded="true"] {
+    margin-top: var(--space-sm);
+  }
+
+  .side-nav a {
+    min-height: 44px;
+  }
+
 }
 
 /* 사이드 메뉴 고정: 화면(본문)을 스크롤해도 메뉴는 제자리. 메뉴가 본문 옆에 놓이는 폭(730px 이상)에서만

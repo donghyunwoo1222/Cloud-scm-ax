@@ -192,11 +192,7 @@ def change_status(company_id: int, db: Session, user_id: int, order_id: int, act
     elif action == "order":
         order.ordered_at = func.now()  # 발주함 표시 시각
     else:
-        received = db.scalar(select(InventoryMovement.id).join(  # 이 발주서 줄에 연결된 입고(RECEIPT) 행이 하나라도 있는지
-            PurchaseOrderItem, PurchaseOrderItem.id == InventoryMovement.purchase_order_item_id).where(
-            PurchaseOrderItem.purchase_order_id == order.id, InventoryMovement.company_id == company_id,
-            InventoryMovement.movement_type == "RECEIPT").limit(1))
-        if received is not None:  # 입고 40 → 정정 40 으로 누적 입고량이 0 이어도 입고 기록이 있으면 막는다 (임시 확정)
+        if orders_with_receipts(company_id, db, [order.id]):  # 전량 정정한 입고도 취소를 막는다.
             raise AppError(409, "CANNOT_CANCEL_RECEIVED", "입고 기록이 있는 발주서는 취소할 수 없습니다.")
         order.cancelled_at = func.now()  # 취소 시각
     order.status = target  # 한 단계만 바꾼다
@@ -233,11 +229,23 @@ def receipt_due_condition(receipt_due: ReceiptDue, today: date):
             return due.is_(None)
 
 
+def orders_with_receipts(company_id: int, db: Session, order_ids: list[int]) -> set[int]:
+    """입고 기록이 있는 발주서 ID를 한 번에 조회한다."""
+    if not order_ids:
+        return set()
+    return set(db.scalars(select(PurchaseOrderItem.purchase_order_id).distinct().join(
+        InventoryMovement, InventoryMovement.purchase_order_item_id == PurchaseOrderItem.id
+    ).where(
+        PurchaseOrderItem.company_id == company_id, InventoryMovement.company_id == company_id,
+        PurchaseOrderItem.purchase_order_id.in_(order_ids), InventoryMovement.movement_type == "RECEIPT",
+    )))
+
+
 def list_orders(
     company_id: int, db: Session, page: PageParams, supplier_id: int | None,
-    status: str | None = None, receipt_due: ReceiptDue | None = None,
+    status: str | None = None, q: str | None = None, receipt_due: ReceiptDue | None = None,
 ) -> tuple[list[PurchaseOrder], dict]:
-    """GET /purchase-orders: 공급업체·상태·입고 납기로 거른 뒤 최신순으로 쪽을 나눈다."""
+    """GET /purchase-orders: 모든 조건을 적용한 뒤 최신순으로 쪽을 나눈다."""
     stmt = scoped(company_id, PurchaseOrder)  # 회사 조건이 붙은 시작점
     if supplier_id is not None:
         stmt = stmt.where(PurchaseOrder.supplier_id == supplier_id)  # 이 업체 발주만 (남의 업체 id 면 빈 목록)
@@ -245,6 +253,8 @@ def list_orders(
         stmt = stmt.where(PurchaseOrder.status == status)  # 이 상태의 발주만
     if receipt_due is not None:
         stmt = stmt.where(PurchaseOrder.status == "ORDERED", receipt_due_condition(receipt_due, seoul_today()))
+    if q and (term := q.strip()):
+        stmt = stmt.where(PurchaseOrder.po_number.icontains(term, autoescape=True))  # 쪽을 나누기 전에 검색한다.
     return paginate(db, stmt.order_by(PurchaseOrder.created_at.desc(), PurchaseOrder.id.desc()), page)
 
 
@@ -322,6 +332,7 @@ def receive_order(company_id: int, db: Session, user_id: int, order_id: int, dat
 def build_out(company_id: int, db: Session, orders: list[PurchaseOrder]) -> list[dict]:
     """발주서들을 응답 모양으로. 줄·품목·업체·누적 입고량을 목록 전체에 대해 각각 한 번의 조회로 가져온다(N+1 없음)."""
     ids = [o.id for o in orders]
+    has_receipts = orders_with_receipts(company_id, db, ids)  # 취소 검사와 같은 기준을 화면에 전달한다.
     items = list(db.scalars(scoped(company_id, PurchaseOrderItem).where(
         PurchaseOrderItem.purchase_order_id.in_(ids)).order_by(PurchaseOrderItem.id))) if ids else []  # 모든 줄
     products = {p.id: p for p in db.scalars(scoped(company_id, Product).where(
@@ -342,8 +353,8 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder]) -> list
         ))
     return [
         PurchaseOrderOut(
-            **{c: getattr(o, c) for c in PurchaseOrderOut.model_fields if c not in ("supplier_name", "items")},
-            supplier_name=suppliers[o.supplier_id].name, items=by_order[o.id],
+            **{c: getattr(o, c) for c in PurchaseOrderOut.model_fields if c not in ("supplier_name", "items", "has_receipts")},
+            supplier_name=suppliers[o.supplier_id].name, items=by_order[o.id], has_receipts=o.id in has_receipts,
         ).model_dump(mode="json")
         for o in orders
     ]

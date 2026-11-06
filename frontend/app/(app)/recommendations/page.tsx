@@ -14,7 +14,7 @@ import styles from "./page.module.css"; // 추천 화면 근거 버튼 스타일
 // GET /api/v1/recommendations 응답의 추천 한 줄 (backend/app/services/recommendations.py)
 type Item = {
   product_id: number; product_sku: string; product_name: string; // 품목
-  supplier_id: number; supplier_name: string; // 기본 공급업체
+  supplier_id: number; supplier_name: string; unit: string; // 기본 공급업체
   current_stock: number; in_transit: number; available: number; // 현재고, 발주 진행 중, 가용재고(= 둘의 합)
   avg_daily_sales: number; lead_time_days: number; safety_stock: number; // 일평균(소수), 리드타임, 안전재고
   reorder_point: number; recommended_quantity: number; reason: string; // 재주문점(소수), 추천 수량, 이유 문구
@@ -212,7 +212,7 @@ function Recommendations({ productId }: { productId: number | null }) {
                         {/* 접힌 상태에서도 서버가 준 두 숫자로 짧은 판단 근거를 보여 준다 */}
                         <button type="button" className={styles.evidenceToggle} aria-expanded={open} aria-controls={evidenceId}
                           onClick={() => setExpandedId(open ? null : i.product_id)}>{/* 다른 품목을 열면 이전 근거는 닫힌다 */}
-                          <span>가용 {i.available} ≤ 재주문점 {fmt(i.reorder_point)}</span>
+                          <span>현재 {quantityLabel(i.current_stock, i.unit)} · 하루 {fmt(i.avg_daily_sales)}{i.unit} 판매 · 입고까지 {i.lead_time_days}일</span>
                           <span className={styles.evidenceAction}>{open ? "접기" : "자세히"}</span>
                         </button>
                       </td>
@@ -222,8 +222,8 @@ function Recommendations({ productId }: { productId: number | null }) {
                         {cover <= i.lead_time_days ? <StatusBadge kind="danger">품절 위험</StatusBadge> : <StatusBadge kind="info">발주 필요</StatusBadge>}
                         {draft && <span style={S.sub}>초안 작성 중 ({linkDraft ? <Link href={"/purchase-orders/" + draft.id}>{draft.po_number}</Link> : draft.po_number})</span>}
                       </td>
-                      <td className={styles.numericColumn} style={{ ...S.num, ...S.key, ...cell }}>{i.available}</td>{/* 서버의 가용재고 */}
-                      <td className={styles.numericColumn} style={{ ...S.num, ...S.key, ...cell }}>{fmt(i.reorder_point)}</td>{/* 서버의 재주문점 */}
+                      <td className={styles.numericColumn} style={{ ...S.num, ...S.key, ...cell }}>{quantityLabel(i.available, i.unit)}</td>{/* 서버의 가용재고 */}
+                      <td className={styles.numericColumn} style={{ ...S.num, ...S.key, ...cell }}>{fmt(i.reorder_point)}{i.unit}</td>{/* 서버의 재주문점 */}
                       <td className={styles.numericColumn} style={{ ...S.num, ...cell }}>
                         {draft ? (
                           <>{/* 편집 칸 없이 서버에 저장된 초안 수량을 보여 준다 */}
@@ -232,7 +232,7 @@ function Recommendations({ productId }: { productId: number | null }) {
                               <strong>{draft.box_quantity != null ? quantityLabel(draft.box_quantity, "박스") : draft.quantity}</strong>
                             </span>
                             {draft.box_quantity != null && <span style={S.sub}>재고 {quantityLabel(draft.quantity, draft.unit)}</span>}
-                            {draft.quantity !== i.recommended_quantity && <span style={S.sub}>추천 <strong>{i.recommended_quantity}</strong></span>}
+                            {draft.quantity !== i.recommended_quantity && <span style={S.sub}>추천 <strong>{quantityLabel(i.recommended_quantity, i.unit)}</strong></span>}
                           </>
                         ) : (
                           <>{/* 선택 가능한 품목만 수량을 고칠 수 있고 추천 수량은 서버 값이다 */}
@@ -241,9 +241,9 @@ function Recommendations({ productId }: { productId: number | null }) {
                               style={S.numInput} value={quantityOf(i)}
                               onChange={(e) => setQty({ ...qty, [i.product_id]: { value: e.target.value, units: i.units_per_box } })} />
                             {i.units_per_box != null && <span style={S.sub}>
-                              {boxCount > 0 ? `${quantityLabel(boxCount, "박스")} · ${quantityLabel(boxCount * i.units_per_box)}` : `1박스 · ${quantityLabel(i.units_per_box)}`}
+                              {boxCount > 0 ? `${quantityLabel(boxCount, "박스")} · ${quantityLabel(boxCount * i.units_per_box, i.unit)}` : `1박스 · ${quantityLabel(i.units_per_box, i.unit)}`}
                             </span>}
-                            <span style={S.sub}>{i.units_per_box != null ? "필요 수량" : "추천"} {i.recommended_quantity.toLocaleString("ko-KR")}</span>
+                            <span style={S.sub}>{i.units_per_box != null ? "필요 수량" : "추천"} {quantityLabel(i.recommended_quantity, i.unit)}</span>
                           </>
                         )}
                       </td>
@@ -259,6 +259,7 @@ function Recommendations({ productId }: { productId: number | null }) {
                             <div><dt>일평균 판매</dt><dd style={S.num}>{fmt(i.avg_daily_sales)}</dd></div>{/* 서버의 일평균을 표시용으로 반올림한다 */}
                             <div><dt>재고 커버 일수</dt><dd style={S.num}>{fmt(cover)}일</dd></div>{/* 기존 화면의 커버 일수 */}
                           </dl>
+                          <p className={styles.evidenceReason}>가용 {quantityLabel(i.available, i.unit)} ≤ 재주문점 {fmt(i.reorder_point)}{i.unit}</p>
                           <p className={styles.evidenceReason}>{i.reason}</p>{/* 서버의 전체 이유를 그대로 보여 준다 */}
                         </div>
                       </td>

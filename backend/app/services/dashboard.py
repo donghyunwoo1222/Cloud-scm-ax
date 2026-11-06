@@ -4,6 +4,7 @@
 모든 함수는 company_id 를 첫 번째 인자로 받고(R1), 오늘 날짜(today)는 인자로 받는다(테스트가 날짜를 고정할 수 있게).
 """
 
+from collections import defaultdict  # 단위별 합계
 from datetime import date, timedelta  # 날짜, 날짜 빼기
 
 from sqlalchemy import case, func, select  # 조건 합계, 합계, SELECT 문
@@ -42,15 +43,23 @@ def open_orders(company_id: int, db: Session, today: date) -> dict:
         )
     ).one()  # 발주서 건수만 집계하므로 품목 줄 수의 영향을 받지 않는다
     items = db.execute(
-        select(PurchaseOrderItem.id, PurchaseOrderItem.quantity).join(
+        select(PurchaseOrderItem.id, PurchaseOrderItem.quantity, Product.unit).join(
             PurchaseOrder, PurchaseOrder.id == PurchaseOrderItem.purchase_order_id
-        ).where(PurchaseOrder.company_id == company_id, PurchaseOrder.status == "ORDERED")  # 발주함 상태의 줄만
+        ).join(Product, Product.id == PurchaseOrderItem.product_id).where(
+            PurchaseOrder.company_id == company_id, Product.company_id == company_id, PurchaseOrder.status == "ORDERED",
+        )
     ).all()  # (줄 id, 발주 수량)
     received = received_quantities(company_id, db, [i.id for i in items])  # 줄별 누적 입고량 (입고 − 정정)
-    incoming = sum(i.quantity - received.get(i.id, 0) for i in items)  # 예) 발주 100 중 70 입고 → 30개가 들어오는 중
+    incoming = defaultdict(int)
+    for item in items:
+        remaining = item.quantity - received.get(item.id, 0)
+        if remaining > 0:
+            incoming[item.unit] += remaining  # 발주 수량은 재고 단위로 환산돼 있다.
     return {
         "draft": draft, "approved": approved, "ordered": ordered,
-        "incoming_quantity": incoming, "due_today": due_today, "overdue": overdue,
+        "incoming_quantity": sum(incoming.values()),  # 기존 호출자용 합계
+        "incoming_by_unit": dict(sorted(incoming.items())),
+        "due_today": due_today, "overdue": overdue,
     }
 
 
@@ -59,19 +68,29 @@ def month_movements(company_id: int, db: Session, today: date) -> dict:
     orig = aliased(InventoryMovement)  # 정정이 가리키는 원래 이력
     kind = func.coalesce(orig.movement_type, InventoryMovement.movement_type)  # 정정이면 원래 유형, 아니면 자기 유형
     signed = case((InventoryMovement.movement_type == "CORRECTION", -InventoryMovement.quantity), else_=InventoryMovement.quantity)  # 정정은 −
-    sums = dict(db.execute(
-        select(kind, func.sum(signed))
+    sums = db.execute(
+        select(kind, Product.unit, func.sum(signed))
         .select_from(InventoryMovement)
+        .join(Product, Product.id == InventoryMovement.product_id)
         .outerjoin(orig, orig.id == InventoryMovement.reverses_movement_id)  # 정정만 원래 이력이 붙는다
         .where(
             InventoryMovement.company_id == company_id,  # 우리 회사만 (R1)
+            Product.company_id == company_id,
             InventoryMovement.movement_date >= today.replace(day=1),  # 이번 달 1일부터
             InventoryMovement.movement_date <= today,  # 오늘까지
-        ).group_by(kind)
-    ).all())  # 유형 → 순수량. 예) SALE: 100 − 정정 90 = 10
+        ).group_by(kind, Product.unit)
+    ).all()  # 유형과 단위별 정정 반영 수량
+    inbound, outbound = defaultdict(int), defaultdict(int)
+    for movement_type, unit, quantity in sums:
+        if movement_type == "RECEIPT":
+            inbound[unit] += int(quantity)
+        elif movement_type in ("SALE", "DISPOSAL", "OTHER_OUT"):
+            outbound[unit] += int(quantity)
     return {
-        "in_quantity": int(sums.get("RECEIPT", 0)),  # 입고 = 발주·직접 입고
-        "out_quantity": int(sum(sums.get(t, 0) for t in ("SALE", "DISPOSAL", "OTHER_OUT"))),  # 출고 = 판매·폐기·기타 출고
+        "in_quantity": sum(inbound.values()),  # 기존 호출자용 합계
+        "out_quantity": sum(outbound.values()),
+        "in_by_unit": {unit: qty for unit, qty in sorted(inbound.items()) if qty},
+        "out_by_unit": {unit: qty for unit, qty in sorted(outbound.items()) if qty},
     }
 
 

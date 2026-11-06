@@ -113,7 +113,7 @@ def calculate_for(
         result = calculate_recommendation(  # 공식은 이 함수 한 곳에만 있다
             today=today, first_movement_date=first_day, supplier_active=supplier.is_active,
             sales_30d=sales.get(product.id, 0), stock=stock, in_transit=transit.get(product.id, 0),
-            lead_time=supplier.lead_time_days, safety_stock=product.safety_stock,
+            lead_time=supplier.lead_time_days, safety_stock=product.safety_stock, unit=product.unit,
         )
         rows.append((product, supplier, stock, transit.get(product.id, 0), result))
     return rows
@@ -133,7 +133,7 @@ def list_recommendations(company_id: int, db: Session, today: date) -> dict:
         elif result.recommended_quantity is not None:  # 추천: 가용재고 ≤ 재주문점 (충분한 품목은 어느 목록에도 넣지 않는다)
             items.append({
                 "product_id": product.id, "product_sku": product.sku, "product_name": product.name,
-                "supplier_id": supplier.id, "supplier_name": supplier.name,
+                "supplier_id": supplier.id, "supplier_name": supplier.name, "unit": product.unit,
                 "current_stock": stock, "in_transit": transit_qty, "available": result.available,
                 "avg_daily_sales": float(result.avg_daily_sales),  # 분수 → 소수 그대로 (예: 7/30 → 0.2333…). 표시는 화면이 첫째 자리로
                 "lead_time_days": supplier.lead_time_days, "safety_stock": product.safety_stock,

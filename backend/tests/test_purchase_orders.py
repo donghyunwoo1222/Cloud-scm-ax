@@ -175,6 +175,18 @@ def test_list_latest_first(client, world, data):
     assert [o["id"] for o in client.get(URL).json()["data"]] == [b["id"], a["id"]]
 
 
+def test_search_order_number_before_paging(client, world, data):
+    login_as(client)
+    older = client.post(URL, json=body(world, line(data["p1"]))).json()["data"]
+    client.post(URL, json={"supplier_id": new_supplier(client, "검색용업체"), "items": [line(data["p1"])]})
+    result = client.get(URL, params={"q": older["po_number"].lower(), "page_size": 1, "status": "DRAFT"}).json()
+    assert result["meta"]["total"] == 1
+    assert [row["id"] for row in result["data"]] == [older["id"]]
+    assert client.get(URL, params={"q": "%"}).json()["meta"]["total"] == 0  # 와일드카드는 문자 그대로 검색한다.
+    login_as(client, "staff@b.test")
+    assert client.get(URL, params={"q": older["po_number"]}).json()["meta"]["total"] == 0
+
+
 def test_list_filter_by_status(client, world, data):
     login_as(client)
     a = client.post(URL, json=body(world, line(data["p1"]))).json()["data"]  # DRAFT

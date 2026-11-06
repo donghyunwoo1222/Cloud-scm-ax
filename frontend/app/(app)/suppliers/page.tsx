@@ -1,7 +1,7 @@
 "use client"; // 목록·폼을 다루는 화면이라 브라우저에서 실행
 
 import Link from "next/link"; // 공급업체 상세 화면 링크
-import { FormEvent, useState } from "react"; // 폼 제출, 상태
+import { FormEvent, useRef, useState } from "react"; // 폼 제출, 상태
 
 import { api } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
@@ -44,6 +44,8 @@ export default function SuppliersPage() {
   const list = useList<Supplier>("/suppliers"); // 목록 상태 (20개씩, 최신순, 검색, 비활성 포함)
   const [form, setForm] = useState<Form>(EMPTY); // 폼 입력값
   const [editingId, setEditingId] = useState<number | null>(null); // 수정 중인 업체 번호 (null 이면 새 등록)
+  const registration = useRef<HTMLDetailsElement>(null); // 목록에서 수정할 때 폼을 펼친다.
+  const [created, setCreated] = useState(false);
   const [error, setError] = useState<unknown>(null); // 저장·버튼 오류
 
   function set(field: keyof Form, value: string) {
@@ -51,6 +53,8 @@ export default function SuppliersPage() {
   }
 
   function startEdit(s: Supplier) {
+    if (registration.current) registration.current.open = true;
+    registration.current?.querySelector("input")?.focus();
     setEditingId(s.id); // 수정 모드
     setForm({
       name: s.name, lead_time_days: String(s.lead_time_days), contact_name: s.contact_name ?? "",
@@ -69,7 +73,9 @@ export default function SuppliersPage() {
     try {
       if (editingId === null) await api("/suppliers", { method: "POST", body: toBody(form) }); // 등록
       else await api(`/suppliers/${editingId}`, { method: "PATCH", body: toBody(form) }); // 수정
+      setCreated(editingId === null);
       reset(); // 성공하면 폼 비우기
+      if (registration.current) registration.current.open = false;
       setError(null);
       await list.reload(); // 목록 다시 불러오기
     } catch (e) {
@@ -78,6 +84,7 @@ export default function SuppliersPage() {
   }
 
   async function setActive(s: Supplier, active: boolean) {
+    if (!active && !window.confirm(`${s.name}을 비활성화할까요? 새 발주에서는 제외되며 기존 이력은 남습니다.`)) return;
     try {
       await api(`/suppliers/${s.id}`, { method: "PATCH", body: { is_active: active } }); // 비활성·다시 활성 (삭제는 없다)
       setError(null);
@@ -91,10 +98,15 @@ export default function SuppliersPage() {
     <section>
       <h1>공급업체</h1>
 
+      {created && <p role="status" style={S.ok}>공급업체를 등록했습니다. <Link href="/products">품목 등록으로 이동</Link></p>}
+      <details ref={registration} style={S.sectionCard}>
+      <summary>{editingId === null ? "공급업체 등록" : "공급업체 수정"}</summary>
       <form onSubmit={save} style={S.formGrid}>
         {/* 등록·수정 폼: 칸을 가로로 나열 */}
         <label>업체명* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
-        <label>리드타임(일)* <input type="number" value={form.lead_time_days} onChange={(e) => set("lead_time_days", e.target.value)} /></label>
+        <label>입고 소요일(일)* <input type="number" value={form.lead_time_days} onChange={(e) => set("lead_time_days", e.target.value)} />
+          <small>발주 후 입고까지 걸리는 기간(리드타임)</small>
+        </label>
         {/* 음수·소수 검사는 서버가 한다 (화면은 서버 message 를 보여준다) */}
         <label>담당자 <input value={form.contact_name} onChange={(e) => set("contact_name", e.target.value)} /></label>
         <label>연락처 <input value={form.phone} onChange={(e) => set("phone", e.target.value)} /></label>
@@ -106,6 +118,7 @@ export default function SuppliersPage() {
           {/* 수정 중일 때만 취소 */}
         </div>
       </form>
+      </details>
       <ErrorText error={error} labels={LABELS} />
 
       <ListControls placeholder="업체명 검색" includeInactive={list.includeInactive} onSearch={list.search} onToggleInactive={list.toggleInactive} />
@@ -114,7 +127,7 @@ export default function SuppliersPage() {
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}>
-            <th>업체명</th><th style={S.num}>리드타임</th><th>담당자</th><th>연락처</th><th>상태</th><th></th>
+            <th>업체명</th><th style={S.num}>입고 소요일</th><th>담당자</th><th>연락처</th><th>상태</th><th></th>
           </tr>
         </thead>
         <tbody>

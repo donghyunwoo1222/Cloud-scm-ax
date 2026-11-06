@@ -1,10 +1,13 @@
 "use client"; // 입력을 다루는 폼이라 브라우저에서 실행
 
+import Link from "next/link"; // 발주 입고 이력에서 발주서로 이동한다.
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 불러오기 함수 고정, 처음·변경 시 실행, 즉시 확인용 ref, 상태
 
 import { api, apiList } from "./api"; // 공통 API 호출 함수
 import { ErrorText } from "./list"; // 서버 오류 표시
 import { StatusBadge } from "./status-badge"; // 색 + 글자 + 아이콘 배지 (발주 입고 표시에 재사용)
+import { ProductOption, ProductSearch, useProductOptions } from "./product-search"; // 전체 품목 서버 검색
+import { quantityLabel } from "./po"; // 품목 단위로 재고·수량을 표시한다.
 import { S } from "./styles"; // 화면 공통 스타일
 
 export type MovementType = "RECEIPT" | "SALE" | "DISPOSAL" | "OTHER_OUT" | "ADJUSTMENT"; // 서버가 받는 유형 5개
@@ -18,15 +21,16 @@ const LABELS = { product_id: "품목", quantity: "수량", direction: "방향", 
 // 서울 기준 오늘 (YYYY-MM-DD). 서버도 서울 기준이라 브라우저 시간대와 상관없이 맞춘다
 export const seoulToday = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
 
-type ProductOption = { id: number; sku: string; name: string; is_active: boolean }; // 선택 상자에 쓸 품목
-
 // 입출고 등록 폼. types 로 이 화면에서 고를 수 있는 유형을 정한다 (입고 화면은 입고만, 출고 화면은 나머지)
-export function MovementForm({ types }: { types: MovementType[] }) {
-  const dateLabel = types.length === 1 && types[0] === "RECEIPT" ? "입고일" : "출고일"; // 입고 화면은 "입고일", 출고 화면은 "출고일" (서버 칸 이름은 그대로 movement_date)
+export function MovementForm({ types, initialType = types[0] }: { types: MovementType[]; initialType?: MovementType }) {
+  const [type, setType] = useState<MovementType>(initialType); // 직접 열었으면 실사 조정도 기본으로 고를 수 있다.
+  const dateLabel = type === "ADJUSTMENT" ? "조정일" : type === "RECEIPT" ? "입고일" : "출고일";
   const labels = { ...LABELS, movement_date: dateLabel }; // 오류 문장의 칸 이름도 같은 글자로
-  const [products, setProducts] = useState<ProductOption[]>([]); // 품목 선택지 (비활성 포함: 비활성 품목도 입고·출고·조정은 허용, 데이터 원칙 8)
-  const [productId, setProductId] = useState(""); // 고른 품목
-  const [type, setType] = useState<MovementType>(types[0]); // 고른 유형
+  const productList = useProductOptions(true); // 비활성 품목도 입고·출고·조정할 수 있다.
+  const [product, setProduct] = useState<ProductOption>(); // 검색 결과가 바뀌어도 고른 품목은 유지한다.
+  const productId = product?.id; // 현재고 조회와 등록에 쓸 품목 번호
+  const products = productList.isCurrent ? productList.rows : [];
+  const options = product && !products.some((p) => p.id === product.id) ? [product, ...products] : products;
   const [quantity, setQuantity] = useState(""); // 수량 (글자로 다루고 보낼 때 숫자로)
   const [channel, setChannel] = useState("OWN_MALL"); // 판매 채널 (판매일 때만 보낸다)
   const [direction, setDirection] = useState("OUT"); // 조정 방향 (조정일 때만 보낸다)
@@ -48,11 +52,6 @@ export function MovementForm({ types }: { types: MovementType[] }) {
   }, []);
 
   useEffect(() => {
-    // shortcut: 품목 100개까지만 불러온다(서버 page_size 최대). 100개를 넘으면 검색형 선택 상자로 바꾼다
-    apiList<ProductOption>("/products?page_size=100&include_inactive=true").then((r) => setProducts(r.data)).catch(setError);
-  }, []);
-
-  useEffect(() => {
     if (!done) return; // 안내가 없으면 할 일 없음
     const timer = setTimeout(() => setDone(""), 8000); // 약 8초 뒤 성공 안내를 지운다
     return () => clearTimeout(timer); // 그 전에 안내가 바뀌거나 화면을 떠나면 이전 타이머는 취소
@@ -71,10 +70,9 @@ export function MovementForm({ types }: { types: MovementType[] }) {
     sending.current = true; // 즉시 잠금
     setBusy(true); // 버튼 잠금·글자 변경
     setDone(""); // 다음 등록을 누르면 이전 성공 안내는 지운다
-    const sku = products.find((p) => String(p.id) === productId)?.sku ?? ""; // 등록 직전에 품목 SKU 를 잡아 둔다 (응답을 기다리는 동안 선택이 바뀌어도 안내는 이 등록 기준)
-    const label = `${sku} ${TYPE_LABEL[type]} ${quantity}개`; // 예: "KB-101 입고 5개" (유형·수량도 등록 직전 값)
+    const label = `${product?.sku ?? ""} ${TYPE_LABEL[type]} ${quantityLabel(Number(quantity), product?.unit)}`; // 예: "KB-101 입고 5개" (유형·수량도 등록 직전 값)
     const body: Record<string, unknown> = {
-      product_id: productId === "" ? null : Number(productId), // 비우면 null → 서버가 422
+      product_id: productId ?? null, // 비우면 null → 서버가 422
       movement_type: type,
       quantity: quantity === "" ? null : Number(quantity), // 1 이상 정수 검사는 서버가 한다
       movement_date: date || null, // 비우면 서버가 오늘로
@@ -85,7 +83,7 @@ export function MovementForm({ types }: { types: MovementType[] }) {
     try {
       const r = await api<{ stock_after: number }>("/inventory-movements", { method: "POST", body });
       setError(null);
-      setDone(`${label}를 등록했습니다 · 현재고 ${r.stock_after}개`); // 예: "KB-101 입고 5개를 등록했습니다 · 현재고 27개" (현재고는 서버가 돌려준 등록 직후 값)
+      setDone(`${label}를 등록했습니다 · 현재고 ${quantityLabel(r.stock_after, product?.unit)}`); // 예: "KB-101 입고 5개를 등록했습니다 · 현재고 27개" (현재고는 서버가 돌려준 등록 직후 값)
       setStock(r.stock_after); // 품목 아래 현재고도 바로 갱신
       setQuantity(""); setReason(""); setMemo(""); // 다음 입력을 위해 비운다 (품목·유형·날짜는 유지)
       setSavedCount((n) => n + 1); // 방금 등록한 줄이 최근 이력 맨 위에 보이도록 다시 불러오게 한다
@@ -100,14 +98,15 @@ export function MovementForm({ types }: { types: MovementType[] }) {
 
   return (
     <>
+    <ProductSearch list={productList} />
     <form onSubmit={submit} style={S.formGridWide}>
       <label>
         품목*
-        <select value={productId} onChange={(e) => { setProductId(e.target.value); setStock(null); setDone(""); }} style={S.block}>
+        <select disabled={busy} value={productId ?? ""} onChange={(e) => { setProduct(options.find((p) => p.id === Number(e.target.value))); setStock(null); setDone(""); }} style={S.block}>
           <option value="">선택하세요</option>
-          {products.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}{p.is_active ? "" : " (비활성)"}</option>)}
+          {options.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}{p.is_active ? "" : " (비활성)"}</option>)}
         </select>
-        {productId && stock !== null && <small>현재고 {stock}개</small>}
+        {productId && stock !== null && <small>현재고 {quantityLabel(stock, product?.unit)}</small>}
         {/* 고른 품목의 현재고 */}
       </label>
       {types.length > 1 && (
@@ -135,7 +134,7 @@ export function MovementForm({ types }: { types: MovementType[] }) {
           </select>
         </label>
       )}
-      <label>수량* <input type="number" min={1} step={1} value={quantity} onChange={(e) => setQuantity(e.target.value)} /></label>
+      <label>수량{product && ` (${product.unit})`}* <input type="number" min={1} step={1} value={quantity} onChange={(e) => setQuantity(e.target.value)} /></label>
       <label>
         {dateLabel}
         <input type="date" max={today || undefined} value={date} onChange={(e) => setDate(e.target.value)} />
@@ -163,6 +162,9 @@ type Recent = {
   movement_type: string; direction: "IN" | "OUT"; // 유형, 늘림·줄임
   quantity: number; movement_date: string; // 수량, 입출고일
   sales_channel: string | null; reason: string | null; memo: string | null; // 판매 채널, 조정 사유, 메모
+  product_unit: string | null; // 이력에 붙일 품목 단위
+  purchase_order_id: number | null; // 연결된 발주서 번호
+  current_stock: number | null; // 최근 이력 품목의 현재고
   purchase_order_item_id: number | null; // 값이 있으면 발주 입고 (발주 화면에서 들어온 줄)
 };
 
@@ -172,21 +174,15 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
   const typesKey = types.join(","); // 유형 묶음을 글자 하나로 만든다 (아래 함수의 의존성으로 쓰기 쉽게)
   const [rows, setRows] = useState<Recent[] | null>(null); // 불러온 줄 (불러오기 전에는 null)
   const [loadError, setLoadError] = useState<unknown>(null); // 이력 불러오기 오류 (등록 폼의 오류와 따로 둔다)
-  const [stockNow, setStockNow] = useState<Map<number, number>>(new Map()); // 품목 번호 → 지금 현재고 (못 불러오면 비어 있어 "-")
   const latest = useRef(0); // 가장 마지막으로 보낸 요청 번호 (늦게 도착한 이전 응답을 버리는 데 쓴다)
 
   const load = useCallback(async () => {
     const mine = ++latest.current; // 이 요청의 번호를 정한다
-    const params = new URLSearchParams({ sort: "registered", page_size: "10" }); // 등록 순서 최신순, 10건
+    const params = new URLSearchParams({ sort: "registered", page_size: "10", include_current_stock: "true" }); // 등록 순서 최신순, 10건
     typesKey.split(",").forEach((t) => params.append("movement_type", t)); // 유형을 하나씩 반복해 붙인다 (한 요청에 여러 유형)
-    // shortcut: 재고는 최신 품목 100개까지만 불러온다(서버 page_size 최대). 그보다 오래된 품목은 "-". 넘으면 품목별 조회 API 를 검토
-    const stockReq = apiList<{ product_id: number; current_stock: number }>("/stock?page_size=100&include_inactive=true")
-      .then((s) => new Map(s.data.map((x) => [x.product_id, x.current_stock] as [number, number]))) // 품목 번호로 찾기 쉽게 바꾼다
-      .catch(() => new Map<number, number>()); // 재고를 못 불러와도 이력은 보여 주고 열만 "-"
     try {
-      const [r, stocks] = await Promise.all([apiList<Recent>(`/inventory-movements?${params}`), stockReq]); // 이력과 재고를 함께 불러온다
+      const r = await apiList<Recent>(`/inventory-movements?${params}`); // 이력에 나온 품목의 현재고를 함께 받는다.
       if (mine !== latest.current) return; // 더 새로운 요청이 있으면 이 응답은 버린다
-      setStockNow(stocks); // 지금 재고 열 값
       setRows(r.data); // 불러온 줄을 보여 준다
       setLoadError(null); // 이전 실패 안내를 지운다
     } catch (e) {
@@ -220,7 +216,7 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
           <table style={S.table}>
             <thead>
               <tr style={S.headRow}>
-                <th>{isReceipt ? "입고일" : "출고일"}</th><th>품목</th>
+                <th>{isReceipt ? "입고일" : "출고·조정일"}</th><th>품목</th>
                 {!isReceipt && <th>유형</th>}
                 <th style={S.num}>수량</th><th style={S.num}>현재고(지금)</th><th>메모</th>
               </tr>
@@ -237,12 +233,13 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
                       {/* 판매는 채널을 유형 아래에 작게 보인다 */}
                     </td>
                   )}
-                  <td style={S.num}>{m.direction === "IN" ? "+" : "−"}{m.quantity}</td>
+                  <td style={S.num}>{m.direction === "IN" ? "+" : "−"}{quantityLabel(m.quantity, m.product_unit ?? undefined)}</td>
                   {/* 늘면 +, 줄면 − (실사 조정은 방향이 둘 다 있다) */}
-                  <td style={S.num}>{stockNow.get(m.product_id) ?? "-"}</td>
+                  <td style={S.num}>{m.current_stock == null ? "-" : quantityLabel(m.current_stock, m.product_unit ?? undefined)}</td>
                   {/* 이 품목의 지금 재고 (재고 목록에 없거나 못 불러왔으면 "-") */}
                   <td>
-                    {m.purchase_order_item_id !== null && <StatusBadge kind="info">발주 입고</StatusBadge>}
+                    {m.purchase_order_id != null ? <Link href={`/purchase-orders/${m.purchase_order_id}`}>발주 입고 보기</Link>
+                      : m.purchase_order_item_id != null && <StatusBadge kind="info">발주 입고</StatusBadge>}
                     {/* 발주 화면에서 들어온 줄은 "발주 입고" 배지로 구분한다 */}
                     {m.purchase_order_item_id !== null && (m.reason || m.memo) && " "}
                     {[m.reason, m.memo].filter(Boolean).join(" · ")}

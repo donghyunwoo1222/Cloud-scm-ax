@@ -61,7 +61,8 @@ def test_empty_company(client, world):
     """데이터가 하나도 없는 회사: 오류 없이 0과 빈 목록."""
     d = get(client)
     assert d["purchase_orders"] == {
-        "draft": 0, "approved": 0, "ordered": 0, "incoming_quantity": 0, "due_today": 0, "overdue": 0,
+        "draft": 0, "approved": 0, "ordered": 0, "incoming_quantity": 0, "incoming_by_unit": {},
+        "due_today": 0, "overdue": 0,
     }
     assert d["month"]["in_quantity"] == 0 and d["month"]["out_quantity"] == 0
     assert d["dead_stock"]["count"] == 0 and d["dead_stock"]["items"] == [] and d["dead_stock"]["days"] == N
@@ -76,6 +77,7 @@ def test_open_orders_and_incoming(client, world, session):
     """상태별 건수와 입고 예정: ORDERED 100 중 입고 70 − 정정 10 = 60 입고 → 미입고 40. RECEIVED·CANCELLED 는 세지 않는다. 다른 회사 제외."""
     p = add_product(session, world, "a", "P1")
     q = add_product(session, world, "a", "P2")
+    q.unit = "박스"  # 다른 단위는 따로 보여준다.
     b = add_product(session, world, "b", "B1")
     add_po(session, world, "a", "PO-1", "DRAFT", p, 5)
     add_po(session, world, "a", "PO-2", "APPROVED", p, 5)
@@ -90,7 +92,8 @@ def test_open_orders_and_incoming(client, world, session):
     session.commit()
     d = get(client)["purchase_orders"]
     assert d == {
-        "draft": 1, "approved": 2, "ordered": 2, "incoming_quantity": 40 + 30, "due_today": 0, "overdue": 0,
+        "draft": 1, "approved": 2, "ordered": 2, "incoming_quantity": 40 + 30,
+        "incoming_by_unit": {"개": 40, "박스": 30}, "due_today": 0, "overdue": 0,
     }
 
 
@@ -105,7 +108,7 @@ def test_receipt_schedule_counts_match_filtered_orders(client, world, session, m
     session.add(supplier)
     session.flush()
     late = add_po(session, world, "a", "LATE", "ORDERED", product, 30, due_date=today - timedelta(days=1))
-    add_move(session, world, "a", product, "RECEIPT", "IN", 20, 0, po_item=late.id)  # 부분 입고도 지연 1건
+    add_move(session, world, "a", product, "RECEIPT", "IN", 20, (TODAY - today).days, po_item=late.id)
     add_po(session, world, "a", "LATE2", "ORDERED", product, 1,
            due_date=today - timedelta(days=2), supplier_id=supplier.id)
     for name, days in (("TODAY", 0), ("TOMORROW", 1), ("DAY7", 7), ("DAY8", 8)):
@@ -130,6 +133,8 @@ def test_receipt_schedule_counts_match_filtered_orders(client, world, session, m
     assert len(late_page["data"]) == 1 and late_page["meta"]["total"] == dashboard["overdue"]
     supplier_page = client.get(url, params={"receipt_due": "OVERDUE", "supplier_id": supplier.id}).json()
     assert [order["po_number"] for order in supplier_page["data"]] == ["LATE2"]
+    search_page = client.get(url, params={"receipt_due": "OVERDUE", "q": "late2"}).json()
+    assert [order["po_number"] for order in search_page["data"]] == ["LATE2"]
     assert client.get(url, params={"receipt_due": "BAD"}).status_code == 422
 
 
@@ -137,6 +142,9 @@ def test_month_movements_net_of_corrections(client, world, session):
     """이번 달 입고·출고: 입고 50, 판매 100 − 정정 90 = 10, 폐기 5 → 출고 15. 조정·지난달·미래 아님·다른 회사는 제외."""
     p = add_product(session, world, "a", "P1")
     b = add_product(session, world, "b", "B1")
+    boxes = add_product(session, world, "a", "P2")
+    boxes.unit = "박스"
+    add_move(session, world, "a", boxes, "RECEIPT", "IN", 2, 0)
     month_day = TODAY.day - 1  # 이번 달 1일이면 0 → 오늘
     add_move(session, world, "a", p, "RECEIPT", "IN", 50, month_day)
     sale = add_move(session, world, "a", p, "SALE", "OUT", 100, month_day)
@@ -149,7 +157,9 @@ def test_month_movements_net_of_corrections(client, world, session):
     session.commit()
     d = get(client)["month"]
     assert d["month_start"] == TODAY.replace(day=1).isoformat()
-    assert d["in_quantity"] == 50 and d["out_quantity"] == 15
+    assert d["in_quantity"] == 52 and d["out_quantity"] == 15
+    assert d["in_by_unit"] == {"개": 50, "박스": 2}
+    assert d["out_by_unit"] == {"개": 15}
 
 
 # ----- 장기재고 -----

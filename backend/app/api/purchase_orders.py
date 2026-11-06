@@ -32,9 +32,10 @@ def list_orders(
     page: Page,
     supplier_id: QueryId = None,  # 이 공급업체의 발주만
     status: Annotated[PoStatus | None, Query()] = None,  # 이 상태의 발주만
+    q: Annotated[str | None, Query(max_length=100)] = None,  # 발주번호 부분 검색
     receipt_due: Annotated[ReceiptDue | None, Query()] = None,  # 발주함 발주의 납기 구간
 ) -> dict:
-    rows, meta = po_service.list_orders(user.company_id, db, page, supplier_id, status, receipt_due)  # 회사는 토큰 사용자에게서
+    rows, meta = po_service.list_orders(user.company_id, db, page, supplier_id, status, q, receipt_due)
     return {"data": po_service.build_out(user.company_id, db, rows), "meta": meta}
 
 
