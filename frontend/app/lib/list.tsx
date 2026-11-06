@@ -6,7 +6,7 @@ import { apiList, ApiError, Meta } from "./api"; // 목록 API 호출, 서버 �
 import { S } from "./styles"; // 화면 공통 스타일
 
 // 목록 화면 공통 상태: 쪽 번호·검색어·비활성 포함 여부를 바꾸면 서버에서 다시 불러온다 (서버 규칙: 20개씩, 최신순)
-export function useList<T>(basePath: string, filters: Record<string, string> = {}) {
+export function useList<T>(basePath: string, filters: Record<string, string> = {}, enabled = true) {
   const [page, setPage] = useState(1); // 지금 쪽 (1부터)
   const [q, setQ] = useState(""); // 적용된 검색어
   const [includeInactive, setIncludeInactive] = useState(false); // 비활성 포함 보기 (기본은 숨김)
@@ -41,10 +41,11 @@ export function useList<T>(basePath: string, filters: Record<string, string> = {
   }, []);
 
   useEffect(() => {
+    if (!enabled) return; // 발주 줄마다 있는 품목 선택창은 열린 줄만 조회한다
     activePath.current = path; // 재조회도 현재 필터와 쪽 번호로 요청한다
     reload(); // 처음 열 때와 쪽·검색어·필터가 바뀔 때마다 다시 불러온다
     return () => { latestRequest.current += 1; }; // 조건이 바뀌거나 화면을 닫으면 진행 중인 응답을 무효화한다
-  }, [path, reload]);
+  }, [enabled, path, reload]);
 
   // 검색어·필터가 바뀌면 1쪽부터 다시 본다
   const search = useCallback((nextQ: string) => {

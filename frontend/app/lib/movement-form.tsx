@@ -6,7 +6,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react"; // 
 import { api, apiList } from "./api"; // 공통 API 호출 함수
 import { ErrorText } from "./list"; // 서버 오류 표시
 import { StatusBadge } from "./status-badge"; // 색 + 글자 + 아이콘 배지 (발주 입고 표시에 재사용)
-import { ProductOption, ProductSearch, useProductOptions } from "./product-search"; // 전체 품목 서버 검색
+import { ProductOption, ProductPicker } from "./product-picker"; // 전체 품목에서 검색해 바로 선택한다
 import { quantityLabel } from "./po"; // 품목 단위로 재고·수량을 표시한다.
 import { S } from "./styles"; // 화면 공통 스타일
 
@@ -26,11 +26,8 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
   const [type, setType] = useState<MovementType>(initialType); // 직접 열었으면 실사 조정도 기본으로 고를 수 있다.
   const dateLabel = type === "ADJUSTMENT" ? "조정일" : type === "RECEIPT" ? "입고일" : "출고일";
   const labels = { ...LABELS, movement_date: dateLabel }; // 오류 문장의 칸 이름도 같은 글자로
-  const productList = useProductOptions(true); // 비활성 품목도 입고·출고·조정할 수 있다.
   const [product, setProduct] = useState<ProductOption>(); // 검색 결과가 바뀌어도 고른 품목은 유지한다.
   const productId = product?.id; // 현재고 조회와 등록에 쓸 품목 번호
-  const products = productList.isCurrent ? productList.rows : [];
-  const options = product && !products.some((p) => p.id === product.id) ? [product, ...products] : products;
   const [quantity, setQuantity] = useState(""); // 수량 (글자로 다루고 보낼 때 숫자로)
   const [channel, setChannel] = useState("OWN_MALL"); // 판매 채널 (판매일 때만 보낸다)
   const [direction, setDirection] = useState("OUT"); // 조정 방향 (조정일 때만 보낸다)
@@ -98,17 +95,17 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
 
   return (
     <>
-    <ProductSearch list={productList} />
     <form onSubmit={submit} style={S.formGridWide}>
-      <label>
-        품목*
-        <select disabled={busy} value={productId ?? ""} onChange={(e) => { setProduct(options.find((p) => p.id === Number(e.target.value))); setStock(null); setDone(""); }} style={S.block}>
-          <option value="">선택하세요</option>
-          {options.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}{p.is_active ? "" : " (비활성)"}</option>)}
-        </select>
+      <div style={{ flex: "1 1 220px", maxWidth: 320, minWidth: 0 }}>
+        <span style={{ display: "block", marginBottom: "var(--space-xs)" }}>품목*</span>
+        <ProductPicker label="품목" value={product} includeInactive disabled={busy} onSelect={(picked) => {
+          if (picked.id !== productId) setStock(null); // 같은 품목을 다시 골랐으면 현재고를 유지한다
+          setProduct(picked);
+          setDone("");
+        }} />
         {productId && stock !== null && <small>현재고 {quantityLabel(stock, product?.unit)}</small>}
         {/* 고른 품목의 현재고 */}
-      </label>
+      </div>
       {types.length > 1 && (
         <label>
           유형*
