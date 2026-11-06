@@ -101,7 +101,7 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
       <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>발주번호</th><th>공급업체</th><th>상태</th><th style={S.num}>품목 수</th><th style={S.num}>발주 수량·입고 잔량</th><th>약속 납기</th></tr>
+          <tr style={S.headRow}><th>발주번호</th><th>공급업체</th><th>상태</th><th style={S.num}>품목 수</th><th style={S.num} scope="col">발주 수량</th><th style={S.num} scope="col">입고 잔량</th><th>약속 납기</th></tr>
         </thead>
         <tbody>
           {list.rows.map((o) => { // 각 발주서의 상태와 입고 현황을 한 줄에 표시한다
@@ -117,18 +117,8 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
                 <td>{o.supplier_name}</td>{/* 서버의 공급업체 이름 */}
                 <td style={S.nowrap}><PurchaseOrderStatusBadge status={o.status} /></td>{/* 발주 상태를 글자와 아이콘으로 표시한다 */}
                 <td style={S.num}>{o.items.length}</td>{/* 품목 줄 수는 오른쪽 정렬한다 */}
-                <td style={S.num}>
-                  {Array.from(quantities, ([unit, totals]) => { // 단위 하나마다 수량을 한 줄로 표시한다
-                    const partial = showReceiptProgress && totals.received > 0 && totals.remaining > 0;
-                    const quantity = partial ? totals.remaining : totals.ordered;
-                    const status = !showReceiptProgress ? "" : totals.remaining === 0 ? " 입고 완료" : partial ? " 남음" : " 미입고";
-                    return (
-                      <div key={unit}>
-                        <strong>{quantityLabel(quantity, unit)}</strong>{status}
-                        {partial && <span style={{ color: "var(--color-muted-foreground)", fontSize: "var(--text-xs)" }}> · 발주 {quantityLabel(totals.ordered, unit)}</span>}
-                      </div>
-                    );
-                  })}
+                <td style={{ ...S.num, verticalAlign: "top" }}>
+                  {Array.from(quantities, ([unit, totals]) => <div key={unit}>{quantityLabel(totals.ordered, unit)}</div>)}
                   {boxDetails.length > 0 && (
                     <details>
                       <summary>박스 발주 {boxDetails.length}품목</summary>
@@ -139,6 +129,13 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
                       ))}
                     </details>
                   )}
+                </td>
+                <td style={{ ...S.num, verticalAlign: "top" }}>
+                  {showReceiptProgress ? Array.from(quantities, ([unit, totals]) => (
+                    <div key={unit}>
+                      {totals.remaining > 0 ? <strong>{quantityLabel(totals.remaining, unit)}</strong> : quantityLabel(0, unit)}
+                    </div>
+                  )) : "—"}
                 </td>
                 <td style={S.nowrap}>
                   {o.due_date ?? "-"}{/* 약속 납기가 없으면 표시할 날짜가 없다 */}
