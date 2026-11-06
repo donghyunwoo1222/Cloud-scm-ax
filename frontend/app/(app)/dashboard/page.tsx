@@ -23,6 +23,9 @@ type OverItem = { product_id: number; sku: string; name: string; unit: string; c
 const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 type DeadItem = { product_id: number; sku: string; name: string; unit: string; current_stock: number; last_sale_date: string | null };
 
+// 재주문점이 0이면 퍼센트를 만들 수 없어 수량만 보여 준다.
+const stockRatio = (item: ShortItem) => item.reorder_point > 0 ? item.available / item.reorder_point : null;
+
 // 숫자 카드 하나: 이름 · 큰 숫자 · 보조 글자. href 가 있으면 카드 전체가 링크(사용자 결정)이고 맨 아래에 "… 보기 →" 를 항상 보여 누를 수 있음을 알린다
 function NumberCard({ label, value, sub, href, more }: { label: string; value: string; sub?: ReactNode; href?: string; more?: string }) {
   const body = (
@@ -70,6 +73,9 @@ export default function Page() {
   if (!data) return <section><h1>대시보드</h1><p>불러오는 중…</p></section>; // 불러오기 전
 
   const { purchase_orders: po, month, dead_stock: dead, shortage, overstock: over } = data; // 이름 줄이기
+  // 서버가 보낸 품목 안에서 현재고 0을 먼저, 그다음 재주문점에 가장 못 미치는 순으로 보여 준다.
+  const shortageItems = [...shortage.items].sort((a, b) =>
+    Number(b.current_stock === 0) - Number(a.current_stock === 0) || (stockRatio(a) ?? 1) - (stockRatio(b) ?? 1));
   const won = (n: number) => n.toLocaleString(); // 천 단위 쉼표 (예: 1497 → "1,497")
 
   return (
@@ -94,21 +100,9 @@ export default function Page() {
         {/* 3-담당자: 승인이 나서 공급업체에 보낼 발주서 */}
       </div>
 
-      <h2 style={S.sectionTitle}>진행 중 발주</h2>
-      <Link href="/purchase-orders" className="kpi-card" style={S.kpiCard} aria-labelledby="all-purchase-orders" aria-describedby="purchase-order-flow incoming-quantity">{/* 카드 한 장을 발주 전체 목록에 연결한다 */}
-        <div id="purchase-order-flow" style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "var(--space-sm)" }}>{/* 폭이 모자라면 단계 단위로 줄을 바꾼다 */}
-          <span style={S.nowrap}>작성 중 <strong style={S.kpiValue}>{won(po.draft)}건</strong></span>{/* 작성 중 건수를 한 덩어리로 표시한다 */}
-          <span style={S.nowrap}><span aria-hidden="true">→ </span>승인됨 <strong style={S.kpiValue}>{won(po.approved)}건</strong></span>{/* 화살표는 보조기기에서 숨기고 다음 단계와 함께 줄을 바꾼다 */}
-          <span style={S.nowrap}><span aria-hidden="true">→ </span>발주함 <strong style={S.kpiValue}>{won(po.ordered)}건</strong></span>{/* 발주함 건수와 단위를 붙여 표시한다 */}
-        </div>{/* 세 단계의 현황 표시를 닫는다 */}
-        <span id="incoming-quantity" style={S.kpiSub}>입고 예정 수량 <strong style={S.nowrap}>{won(po.incoming_quantity)}개</strong> (발주함 발주서의 아직 안 들어온 수량)</span>{/* 미입고 수량과 단위가 갈라지지 않게 한다 */}
-        <span id="all-purchase-orders" style={S.kpiMore}>발주 목록 전체 보기 →</span>{/* 카드에 보이는 문구를 보조기기의 링크 이름으로도 쓴다 */}
-      </Link>
-
       {/* 항목마다 흰 카드 한 장. 카드 안 제목(h2)은 위 여백을 없앤다 */}
       <div style={S.sectionCard}>
-        <h2>재고 부족 품목 ({shortage.count}개)</h2>
-        <p style={S.hint}>가용재고(현재고 + 발주 진행 중)가 재주문점 이하인 품목입니다. 발주 추천과 같은 계산입니다.</p>
+        <h2>발주 검토가 필요한 품목 ({won(shortage.count)}개)</h2>
         {shortage.count === 0 ? (
           productTotal === 0 ? <p style={S.empty}>등록한 품목이 없습니다.</p> : (
             <p style={S.empty}>
@@ -121,32 +115,65 @@ export default function Page() {
           )
         ) : (
           <>
+            <p style={S.hint}>현재고 0인 품목을 먼저 표시합니다. 가용재고는 현재고와 입고 예정 수량의 합입니다.</p>
             <div style={S.tableBox}>
-              <table style={S.table}>
+              <table style={{ ...S.table, minWidth: 520 }}>
                 <thead>
                   <tr style={S.headRow}>
-                    <th>SKU</th><th>품목명</th><th style={S.num}>현재고</th><th style={S.num}>가용재고</th><th style={S.num}>재주문점</th><th style={S.num}>추천 수량</th>
+                    <th scope="col">품목</th><th scope="col" style={S.num}>현재고</th><th scope="col" style={S.num}>가용재고 / 재주문점</th><th scope="col" style={S.num}>추천 수량</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {shortage.items.map((i) => (
-                    <tr key={i.product_id} style={bodyRow(true)}>
-                      <td style={S.nowrap}>{i.sku}</td>{/* 같은 추천 화면으로 연결되는 SKU 링크를 없애고 식별자만 보여 준다 */}
-                      <td>{i.name}</td>
-                      <td style={S.num}>{i.current_stock.toLocaleString()}{i.unit}</td>
-                      <td style={S.num}>{i.available.toLocaleString()}</td>
-                      <td style={S.num}>{fmt(i.reorder_point)}</td>
-                      <td style={S.num}>{i.recommended_quantity.toLocaleString()}</td>
-                    </tr>
-                  ))}
+                  {shortageItems.map((i) => {
+                    const ratio = stockRatio(i);
+                    return (
+                      <tr key={i.product_id} style={bodyRow(true)}>
+                        <th scope="row" style={{ textAlign: "left", fontWeight: 500, background: "transparent", color: "var(--color-foreground)" }}>
+                          {i.name}<span style={S.sub}>{i.sku}</span>
+                          {/* 품목 바로 아래에 두어 좁은 화면에서도 작업 링크가 먼저 보인다. */}
+                          <Link href={`/recommendations?product_id=${i.product_id}`} style={S.nowrap}
+                            aria-label={`${i.name} (${i.sku}) 발주 검토`}>발주 검토 →</Link>
+                        </th>
+                        <td style={S.num}>
+                          {i.current_stock === 0 ? <strong style={{ color: "var(--color-destructive)" }}>0{i.unit}</strong> : <>{won(i.current_stock)}{i.unit}</>}
+                        </td>
+                        <td style={{ ...S.num, minWidth: "10rem" }}>
+                          <span style={S.nowrap}>{won(i.available)} / {fmt(i.reorder_point)}{i.unit}</span>
+                          {ratio === null ? <span style={S.sub}>재주문점 0</span> : (
+                            <>
+                              <span aria-hidden="true" style={{
+                                display: "block", marginBlock: "var(--space-xs)", height: "var(--space-sm)",
+                                background: "var(--color-muted)", borderRadius: "var(--radius-sm)", overflow: "hidden",
+                              }}>
+                                <span style={{ display: "block", width: `${ratio * 100}%`, height: "100%", background: "var(--color-primary)" }} />
+                              </span>
+                              <span style={S.sub}>재주문점의 {fmt(ratio * 100)}%</span>
+                            </>
+                          )}
+                        </td>
+                        <td style={S.num}>{won(i.recommended_quantity)}{i.unit}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-            {shortage.count > shortage.items.length && <p style={S.hint}>최신 품목 {shortage.items.length}개만 보입니다.</p>}
+            {shortage.count > shortage.items.length && <p style={S.hint}>최근 등록한 부족 품목 {shortage.items.length}개 안에서 비교합니다.</p>}
             <p><Link href="/inventory?status=SHORTAGE">재고 현황에서 보기</Link></p>{/* 표 아래에서는 부족으로 걸러진 재고 현황만 연결한다 */}
           </>
         )}
       </div>
+
+      <h2 style={S.sectionTitle}>진행 중 발주</h2>
+      <Link href="/purchase-orders" className="kpi-card" style={S.kpiCard} aria-labelledby="all-purchase-orders" aria-describedby="purchase-order-flow incoming-quantity">{/* 카드 한 장을 발주 전체 목록에 연결한다 */}
+        <div id="purchase-order-flow" style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "var(--space-sm)" }}>{/* 폭이 모자라면 단계 단위로 줄을 바꾼다 */}
+          <span style={S.nowrap}>작성 중 <strong style={S.kpiValue}>{won(po.draft)}건</strong></span>{/* 작성 중 건수를 한 덩어리로 표시한다 */}
+          <span style={S.nowrap}><span aria-hidden="true">→ </span>승인됨 <strong style={S.kpiValue}>{won(po.approved)}건</strong></span>{/* 화살표는 보조기기에서 숨기고 다음 단계와 함께 줄을 바꾼다 */}
+          <span style={S.nowrap}><span aria-hidden="true">→ </span>발주함 <strong style={S.kpiValue}>{won(po.ordered)}건</strong></span>{/* 발주함 건수와 단위를 붙여 표시한다 */}
+        </div>{/* 세 단계의 현황 표시를 닫는다 */}
+        <span id="incoming-quantity" style={S.kpiSub}>입고 예정 수량 <strong style={S.nowrap}>{won(po.incoming_quantity)}개</strong> (발주함 발주서의 아직 안 들어온 수량)</span>{/* 미입고 수량과 단위가 갈라지지 않게 한다 */}
+        <span id="all-purchase-orders" style={S.kpiMore}>발주 목록 전체 보기 →</span>{/* 카드에 보이는 문구를 보조기기의 링크 이름으로도 쓴다 */}
+      </Link>
 
       <h2 style={S.sectionTitle}>이번 달 입출고 ({month.month_start} ~ 오늘)</h2>
       <div style={S.kpiGrid}>

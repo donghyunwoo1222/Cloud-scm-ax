@@ -1,7 +1,8 @@
 "use client"; // 체크·수량 입력·버튼을 다루는 화면이라 브라우저에서 실행
 
 import Link from "next/link"; // 발주서 상세 링크
-import { Fragment, useCallback, useEffect, useRef, useState } from "react"; // 표 행 묶기, 목록 불러오기, 중복 제출 방지, 화면 상태
+import { useSearchParams } from "next/navigation"; // 대시보드에서 선택한 품목 번호
+import { Fragment, Suspense, useCallback, useEffect, useRef, useState } from "react"; // 주소를 읽는 화면과 추천 상태
 
 import { ApiError, api, apiList } from "../../lib/api"; // 공통 API 호출 함수·오류 종류
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
@@ -33,12 +34,23 @@ const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
 // 발주 추천 화면 (주소 /recommendations): 추천 목록 → 체크·수량 수정 → 발주서 초안 만들기
 export default function Page() {
+  return <Suspense fallback={<section><h1>발주 추천</h1><p>불러오는 중…</p></section>}><RecommendationRoute /></Suspense>;
+}
+
+function RecommendationRoute() {
+  const param = useSearchParams().get("product_id");
+  const parsed = Number(param);
+  const productId = param && /^[1-9]\d*$/.test(param) && Number.isSafeInteger(parsed) ? parsed : null;
+  return <Recommendations key={productId ?? "all"} productId={productId} />; // 다른 품목을 열면 선택·입력 상태도 새로 시작한다
+}
+
+function Recommendations({ productId }: { productId: number | null }) {
   const [items, setItems] = useState<Item[] | null>(null); // 추천 목록 (불러오기 전 null)
   const [excluded, setExcluded] = useState<Excluded[]>([]); // 제외된 품목
   const [drafts, setDrafts] = useState<Record<number, Draft>>({}); // 품목 id → 그 품목이 든 작성 중 발주서
   const [loadError, setLoadError] = useState<unknown>(null); // 목록 불러오기 오류
   const [checked, setChecked] = useState<Record<number, boolean>>({}); // 품목 id → 골랐는지
-  const [expandedId, setExpandedId] = useState<number | null>(null); // 펼친 품목 하나의 id만 기억한다
+  const [expandedId, setExpandedId] = useState<number | null>(productId); // 대시보드에서 온 품목은 근거를 펼쳐 둔다
   const [qty, setQty] = useState<Record<number, { value: string; units: number | null }>>({}); // 입수가 바뀌면 이전 수량을 재사용하지 않는다
   const [busy, setBusy] = useState(false); // 만드는 중이면 버튼 잠금·글자 변경
   const sending = useRef(false); // 상태값은 다음 화면 갱신 뒤에야 바뀌어 더블클릭을 못 막으므로 즉시 바뀌는 ref 로 한 번 더 막는다
@@ -59,11 +71,13 @@ export default function Page() {
           id: o.id, po_number: o.po_number, quantity: i.quantity, box_quantity: i.box_quantity, unit: i.unit,
         }; // 저장된 수량과 단위를 그대로 쓴다
       }
-      setItems(rec.items); setExcluded(rec.excluded); setDrafts(map); // 체크·수량 입력은 그대로 둔다
+      setItems(productId === null ? rec.items : rec.items.filter((i) => i.product_id === productId));
+      setExcluded(productId === null ? rec.excluded : rec.excluded.filter((i) => i.product_id === productId));
+      setDrafts(map); // 체크·수량 입력은 그대로 둔다
     } catch (e) {
       setLoadError(e); // 화면에 "다시 시도" 버튼과 함께 보인다
     }
-  }, []);
+  }, [productId]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 화면이 열릴 때 목록을 불러와 상태에 넣는 것이 이 효과의 목적이다
@@ -131,6 +145,7 @@ export default function Page() {
     <section>
       <h1>발주 추천</h1>
       <p style={S.hint}>최근 30일 판매를 기준으로 지금 발주가 필요한 품목입니다. 고른 품목은 공급업체별 발주서 초안(작성 중)으로 만들어지고, 승인은 발주 화면에서 합니다.</p>
+      {productId !== null && <p><Link href="/recommendations">전체 발주 추천 보기</Link></p>}
 
       {/* 선택 요약과 작업 버튼은 표의 가로 스크롤 밖에 둔다 */}
       {items.length > 0 && (
@@ -146,7 +161,7 @@ export default function Page() {
         </form>
       )}
 
-      {items.length === 0 ? <p style={S.empty}>지금 발주가 필요한 품목이 없습니다.</p> : (
+      {items.length === 0 ? <p style={S.empty}>{productId === null ? "지금 발주가 필요한 품목이 없습니다." : "선택한 품목은 현재 발주 추천 대상이 아닙니다."}</p> : (
         <div style={S.tableBox}>
           {/* 좁은 화면에서는 이 상자 안에서만 가로로 스크롤한다 */}
           <table style={S.table}>
@@ -270,8 +285,8 @@ export default function Page() {
       <DraftError error={error} linkedDrafts={linkedDrafts} onReload={() => { setError(null); load(); }} />
       {/* 새로고침하면 지난 오류 문장은 지운다 (체크·수량은 그대로) */}
 
-      <h2 style={S.sectionTitle}>추천에서 제외된 품목</h2>
-      {excluded.length === 0 ? <p style={S.empty}>제외된 품목이 없습니다.</p> : (
+      {(productId === null || excluded.length > 0) && <h2 style={S.sectionTitle}>추천에서 제외된 품목</h2>}
+      {excluded.length === 0 ? (productId === null && <p style={S.empty}>제외된 품목이 없습니다.</p>) : (
         <div style={S.tableBox}>
         <table style={S.table}>
           <thead><tr style={S.headRow}><th>품목</th><th>상태</th><th>제외 사유</th></tr></thead>
