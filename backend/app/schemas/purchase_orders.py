@@ -14,6 +14,7 @@ from app.schemas.common import (  # 공통 칸 타입(번호·수량·단가 상
 )
 
 PoStatus = Literal["DRAFT", "APPROVED", "ORDERED", "RECEIVED", "CANCELLED"]  # 목록 상태 필터 (그 밖의 값은 422)
+ReceiptDue = Literal["OVERDUE", "TODAY", "NEXT_7_DAYS", "UNSCHEDULED"]  # 발주함 발주의 납기 구간
 
 
 class OrderQuantity(BaseModel):

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, aliased  # DB 세션 타입, 같은 표를 �
 
 from app.models import InventoryMovement, Product, PurchaseOrder, PurchaseOrderItem  # 표
 from app.services.purchase_orders import (
+    receipt_due_condition,  # 발주 목록과 같은 납기 경계
     received_quantities,  # 발주 줄별 누적 입고량 (한 번의 GROUP BY)
 )
 from app.services.recommend import (  # 과잉 기준(일), 과잉 판정, 부족 판정
@@ -26,14 +27,21 @@ DEAD_STOCK_DAYS = 60
 LIST_LIMIT = 20  # 장기재고·부족·과잉 목록에서 화면에 보여줄 최대 줄 수 (전체 건수는 따로 센다)
 
 
-def open_orders(company_id: int, db: Session) -> dict:
+def open_orders(company_id: int, db: Session, today: date) -> dict:
     """진행 중 발주: 상태별 건수(DRAFT·APPROVED·ORDERED)와 입고 예정 수량(ORDERED 발주의 미입고 합계). 조회 3번."""
-    counts = dict(db.execute(
-        select(PurchaseOrder.status, func.count()).where(
+    ordered_status = PurchaseOrder.status == "ORDERED"  # 부분 입고를 포함해 아직 들어올 발주
+    draft, approved, ordered, due_today, overdue = db.execute(
+        select(
+            func.count().filter(PurchaseOrder.status == "DRAFT"),
+            func.count().filter(PurchaseOrder.status == "APPROVED"),
+            func.count().filter(ordered_status),
+            func.count().filter(ordered_status, receipt_due_condition("TODAY", today)),
+            func.count().filter(ordered_status, receipt_due_condition("OVERDUE", today)),
+        ).where(
             PurchaseOrder.company_id == company_id,  # 우리 회사만 (R1)
             PurchaseOrder.status.in_(["DRAFT", "APPROVED", "ORDERED"]),  # RECEIVED·CANCELLED 는 끝난 발주
-        ).group_by(PurchaseOrder.status)
-    ).all())  # 상태 → 건수
+        )
+    ).one()  # 발주서 건수만 집계하므로 품목 줄 수의 영향을 받지 않는다
     items = db.execute(
         select(PurchaseOrderItem.id, PurchaseOrderItem.quantity, Product.unit).join(
             PurchaseOrder, PurchaseOrder.id == PurchaseOrderItem.purchase_order_id
@@ -48,9 +56,10 @@ def open_orders(company_id: int, db: Session) -> dict:
         if remaining > 0:
             incoming[item.unit] += remaining  # 발주 수량은 재고 단위로 환산돼 있다.
     return {
-        "draft": counts.get("DRAFT", 0), "approved": counts.get("APPROVED", 0), "ordered": counts.get("ORDERED", 0),
+        "draft": draft, "approved": approved, "ordered": ordered,
         "incoming_quantity": sum(incoming.values()),  # 기존 호출자용 합계
         "incoming_by_unit": dict(sorted(incoming.items())),
+        "due_today": due_today, "overdue": overdue,
     }
 
 
@@ -157,7 +166,7 @@ def get_dashboard(company_id: int, db: Session, today: date) -> dict:
     """GET /dashboard 응답 본문. 쿼리는 품목 수와 무관하다(장기재고 1번 + 추천 계산 5번 + 그 밖)."""
     return {
         **shortage_and_overstock(company_id, db, today),  # shortage, overstock (#76)
-        "purchase_orders": open_orders(company_id, db),
+        "purchase_orders": open_orders(company_id, db, today),
         "month": {"month_start": today.replace(day=1), **month_movements(company_id, db, today)},
         "dead_stock": dead_stock(company_id, db, today),
     }

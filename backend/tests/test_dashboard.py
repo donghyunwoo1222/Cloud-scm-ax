@@ -1,9 +1,9 @@
 """대시보드 API (#37) 테스트: GET /dashboard. 준비 데이터 world 는 conftest. 이력·발주는 표에 직접 넣는다(조회만 시험)."""
 
-from datetime import timedelta  # 날짜 빼기
+from datetime import date, timedelta  # 날짜 고정·이동
 
 from app.clock import seoul_today  # 서울 기준 오늘
-from app.models import InventoryMovement, Product, PurchaseOrder, PurchaseOrderItem  # 표
+from app.models import InventoryMovement, Product, PurchaseOrder, PurchaseOrderItem, Supplier  # 표
 from app.services.dashboard import DEAD_STOCK_DAYS  # 장기재고 기준(일)
 from tests.helpers import login_as  # 공통 로그인
 
@@ -35,10 +35,11 @@ def add_move(session, world, key, product, mtype, direction, qty, day, reverses=
     return m
 
 
-def add_po(session, world, key, number, status, product, qty):
+def add_po(session, world, key, number, status, product, qty, **fields):
     """발주서 한 장에 줄 하나 → 발주 줄 반환."""
-    order = PurchaseOrder(company_id=world[f"{key}_company"].id, supplier_id=world[f"{key}_supplier"].id,
-                          po_number=number, status=status, created_by=world[f"{key}_staff"].id)
+    supplier_id = fields.pop("supplier_id", world[f"{key}_supplier"].id)
+    order = PurchaseOrder(company_id=world[f"{key}_company"].id, supplier_id=supplier_id,
+                          po_number=number, status=status, created_by=world[f"{key}_staff"].id, **fields)
     session.add(order)
     session.flush()
     line = PurchaseOrderItem(company_id=order.company_id, purchase_order_id=order.id, product_id=product.id,
@@ -59,7 +60,10 @@ def get(client):
 def test_empty_company(client, world):
     """데이터가 하나도 없는 회사: 오류 없이 0과 빈 목록."""
     d = get(client)
-    assert d["purchase_orders"] == {"draft": 0, "approved": 0, "ordered": 0, "incoming_quantity": 0, "incoming_by_unit": {}}
+    assert d["purchase_orders"] == {
+        "draft": 0, "approved": 0, "ordered": 0, "incoming_quantity": 0, "incoming_by_unit": {},
+        "due_today": 0, "overdue": 0,
+    }
     assert d["month"]["in_quantity"] == 0 and d["month"]["out_quantity"] == 0
     assert d["dead_stock"]["count"] == 0 and d["dead_stock"]["items"] == [] and d["dead_stock"]["days"] == N
 
@@ -87,7 +91,51 @@ def test_open_orders_and_incoming(client, world, session):
     add_move(session, world, "a", p, "CORRECTION", "OUT", 10, 3, reverses=receipt.id, po_item=line.id)
     session.commit()
     d = get(client)["purchase_orders"]
-    assert d == {"draft": 1, "approved": 2, "ordered": 2, "incoming_quantity": 40 + 30, "incoming_by_unit": {"개": 40, "박스": 30}}
+    assert d == {
+        "draft": 1, "approved": 2, "ordered": 2, "incoming_quantity": 40 + 30,
+        "incoming_by_unit": {"개": 40, "박스": 30}, "due_today": 0, "overdue": 0,
+    }
+
+
+def test_receipt_schedule_counts_match_filtered_orders(client, world, session, monkeypatch):
+    """카드 건수와 목록이 날짜 경계·회사·발주 상태를 같은 방식으로 처리한다."""
+    today = date(2026, 11, 6)
+    monkeypatch.setattr("app.api.dashboard.seoul_today", lambda: today)
+    monkeypatch.setattr("app.services.purchase_orders.seoul_today", lambda: today)
+    product = add_product(session, world, "a", "SCHEDULE")
+    foreign = add_product(session, world, "b", "FOREIGN")
+    supplier = Supplier(company_id=product.company_id, name="다른 업체", lead_time_days=2)
+    session.add(supplier)
+    session.flush()
+    late = add_po(session, world, "a", "LATE", "ORDERED", product, 30, due_date=today - timedelta(days=1))
+    add_move(session, world, "a", product, "RECEIPT", "IN", 20, (TODAY - today).days, po_item=late.id)
+    add_po(session, world, "a", "LATE2", "ORDERED", product, 1,
+           due_date=today - timedelta(days=2), supplier_id=supplier.id)
+    for name, days in (("TODAY", 0), ("TOMORROW", 1), ("DAY7", 7), ("DAY8", 8)):
+        add_po(session, world, "a", name, "ORDERED", product, 1, due_date=today + timedelta(days=days))
+    add_po(session, world, "a", "UNSCHEDULED", "ORDERED", product, 1)
+    add_po(session, world, "a", "APPROVED", "APPROVED", product, 1, due_date=today)
+    add_po(session, world, "a", "RECEIVED", "RECEIVED", product, 1, due_date=today)
+    add_po(session, world, "b", "OTHER", "ORDERED", foreign, 1, due_date=today)
+    session.commit()
+
+    dashboard = get(client)["purchase_orders"]
+    assert (dashboard["due_today"], dashboard["overdue"], dashboard["ordered"]) == (1, 2, 7)
+    url = "/api/v1/purchase-orders"
+    for period, expected in (
+        ("TODAY", {"TODAY"}), ("OVERDUE", {"LATE", "LATE2"}),
+        ("NEXT_7_DAYS", {"TOMORROW", "DAY7"}), ("UNSCHEDULED", {"UNSCHEDULED"}),
+    ):
+        response = client.get(url, params={"receipt_due": period})
+        assert response.status_code == 200, response.json()
+        assert {order["po_number"] for order in response.json()["data"]} == expected
+    late_page = client.get(url, params={"receipt_due": "OVERDUE", "page_size": 1}).json()
+    assert len(late_page["data"]) == 1 and late_page["meta"]["total"] == dashboard["overdue"]
+    supplier_page = client.get(url, params={"receipt_due": "OVERDUE", "supplier_id": supplier.id}).json()
+    assert [order["po_number"] for order in supplier_page["data"]] == ["LATE2"]
+    search_page = client.get(url, params={"receipt_due": "OVERDUE", "q": "late2"}).json()
+    assert [order["po_number"] for order in search_page["data"]] == ["LATE2"]
+    assert client.get(url, params={"receipt_due": "BAD"}).status_code == 422
 
 
 def test_month_movements_net_of_corrections(client, world, session):

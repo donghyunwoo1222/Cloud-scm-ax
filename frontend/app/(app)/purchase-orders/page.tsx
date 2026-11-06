@@ -12,6 +12,7 @@ import { PurchaseOrderStatusBadge, StatusBadge } from "../../lib/status-badge"; 
 import { S } from "../../lib/styles"; // 화면 공통 스타일
 
 type SupplierOption = { id: number; name: string }; // 거르기 선택 상자에 쓸 공급업체
+const RECEIPT_DUE_LABEL = { TODAY: "오늘", OVERDUE: "지연", NEXT_7_DAYS: "향후 7일", UNSCHEDULED: "납기 미정" };
 
 // 발주 화면 (주소 /purchase-orders): 최신순 목록 + 상태·공급업체로 거르기
 // 주소의 ?status= 는 화면이 열릴 때 알 수 있어 Suspense 로 감싼다 (Next.js 가 빌드 때 미리 그리는 동안 기다릴 자리)
@@ -26,18 +27,22 @@ export default function Page() {
 // 주소의 status 를 읽어 목록 부품에 넘긴다. key 를 status 로 주어, 화면이 열린 채(Next.js 가 보관한 화면) 다른 status 링크로 다시 들어와도
 // 목록 부품을 새로 만들어 초기값이 다시 적용되게 한다 (useState 초기값은 처음 만들 때 한 번만 쓰인다)
 function PurchaseOrders() {
-  const asked = useSearchParams().get("status") ?? ""; // 주소로 받은 상태 (예: ?status=ORDERED → "ORDERED")
-  const initial = Object.keys(STATUS_LABEL).includes(asked) ? asked : ""; // 발주 상태 5개만 초기값으로 쓰고 그 밖은 무시("" 이면 전체)
-  return <PurchaseOrdersBody key={initial} initialStatus={initial} />; // status 가 바뀔 때만 새로 만든다 (화면 안에서 필터를 바꾸는 건 주소를 안 바꾸므로 그대로)
+  const params = useSearchParams();
+  const asked = params.get("status") ?? ""; // 발주 상태는 주소에서 초기값만 읽는다
+  const due = params.get("receipt_due") ?? ""; // 대시보드에서 선택한 납기 구간
+  const initialDue = Object.keys(RECEIPT_DUE_LABEL).includes(due) ? due : "";
+  const initial = initialDue ? "ORDERED" : Object.keys(STATUS_LABEL).includes(asked) ? asked : "";
+  return <PurchaseOrdersBody key={`${initial}:${initialDue}`} initialStatus={initial} initialDue={initialDue} />;
 }
 
-function PurchaseOrdersBody({ initialStatus }: { initialStatus: string }) {
+function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: string; initialDue: string }) {
   const [status, setStatus] = useState(initialStatus); // 고른 상태 ("" 이면 전체). 처음 값은 주소에서
+  const [receiptDue, setReceiptDue] = useState(initialDue); // 발주함 상태에 적용할 납기 구간
   const [supplierId, setSupplierId] = useState(""); // 고른 공급업체 ("" 이면 전체)
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]); // 공급업체 선택지
   const [today, setToday] = useState(""); // 화면이 열리면 서울 기준 오늘을 기록한다
   const [error, setError] = useState<unknown>(null); // 선택지 불러오기 오류
-  const list = useList<PurchaseOrder>("/purchase-orders", { status, supplier_id: supplierId }); // 20개씩, 최신순, 조건이 바뀌면 다시 불러온다
+  const list = useList<PurchaseOrder>("/purchase-orders", { status, supplier_id: supplierId, receipt_due: receiptDue }); // 서버에서 거른 뒤 20개씩 읽는다
 
   useEffect(() => {
     // 비활성 업체가 낸 지난 발주서도 걸러 볼 수 있게 비활성도 포함한다
@@ -64,9 +69,23 @@ function PurchaseOrdersBody({ initialStatus }: { initialStatus: string }) {
       <ListControls placeholder="발주번호 검색" onSearch={list.search} />
       <div style={S.toolbar}>
         <label>상태
-          <select value={status} onChange={(e) => filter(setStatus, e.target.value)} style={S.block}>
+          <select value={status} onChange={(e) => {
+            const value = e.target.value;
+            filter(setStatus, value);
+            if (value !== "ORDERED") setReceiptDue(""); // 다른 상태에는 입고 예정 필터를 적용하지 않는다
+          }} style={S.block}>
             <option value="">전체</option>
             {Object.entries(STATUS_LABEL).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+          </select>
+        </label>
+        <label>입고 납기
+          <select value={receiptDue} onChange={(e) => {
+            const value = e.target.value;
+            filter(setReceiptDue, value);
+            if (value) setStatus("ORDERED"); // 납기 구간을 고르면 발주함만 본다
+          }} style={S.block}>
+            <option value="">전체</option>
+            {Object.entries(RECEIPT_DUE_LABEL).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
           </select>
         </label>
         <label>공급업체
