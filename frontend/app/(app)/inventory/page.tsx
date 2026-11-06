@@ -53,7 +53,7 @@ function Inventory() {
 
 function InventoryBody({ initialStatus }: { initialStatus: string }) {
   const [status, setStatus] = useState(initialStatus); // 고른 상태 ("" 이면 전체). 처음 값은 주소에서
-  const stock = useList<Stock>("/stock", { status }); // 같은 요청에 상태와 품목 검색어를 담는다
+  const stock = useList<Stock>("/stock", { status, page_size: "10" }); // 상태·검색 결과를 한 쪽에 10품목씩 보여 준다
   const [searchText, setSearchText] = useState(""); // 검색창에 적는 값은 즉시 표시한다
   const { q: appliedSearch, search: searchStock } = stock; // 현재 요청의 검색어와 검색 함수를 가져온다
   const waitingForSearch = searchText.trim() !== appliedSearch; // 입력을 적용하기 전에는 이전 결과를 숨긴다
