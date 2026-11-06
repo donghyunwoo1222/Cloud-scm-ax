@@ -119,13 +119,13 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
                 <td style={S.num}>{o.items.length}</td>{/* 품목 줄 수는 오른쪽 정렬한다 */}
                 <td style={S.num}>
                   {Array.from(quantities, ([unit, totals]) => { // 단위 하나마다 수량을 한 줄로 표시한다
-                    const withUnit = (quantity: number) => quantity.toLocaleString("ko-KR") + unit; // 서버의 실제 단위를 숫자에 붙인다
-                    const ordered = withUnit(totals.ordered); // 단위별 발주 수량을 먼저 표시한다
+                    const partial = showReceiptProgress && totals.received > 0 && totals.remaining > 0;
+                    const quantity = partial ? totals.remaining : totals.ordered;
+                    const status = !showReceiptProgress ? "" : totals.remaining === 0 ? " 입고 완료" : partial ? " 남음" : " 미입고";
                     return (
                       <div key={unit}>
-                        <strong>{ordered}</strong>{/* 기준이 되는 발주 수량을 강조한다 */}
-                        {showReceiptProgress && (totals.remaining === 0 ? " 전량 입고"
-                          : " 중 " + withUnit(totals.received) + " 입고 · " + withUnit(totals.remaining) + " 남음")}{/* 잔량이 있을 때만 입고량과 잔량을 나란히 표시한다 */}
+                        <strong>{quantityLabel(quantity, unit)}</strong>{status}
+                        {partial && <span style={{ color: "var(--color-muted-foreground)", fontSize: "var(--text-xs)" }}> · 발주 {quantityLabel(totals.ordered, unit)}</span>}
                       </div>
                     );
                   })}
