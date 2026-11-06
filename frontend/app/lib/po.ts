@@ -9,6 +9,8 @@ export type PoItem = {
   unit: string; // 입고 현황에 붙일 품목 단위 (예: 개, 박스)
   quantity: number; // 발주 수량
   unit_price: number; // 발주 단가(원)
+  box_unit_price?: number | null; // 박스 단가(원), 박스 발주 줄에서만 값이 있다
+  line_total?: number; // 서버가 계산한 줄 금액(원), 이전 API 응답에는 없을 수 있다
   received_quantity: number; // 누적 입고량 (입고 − 입고 정정)
 };
 
@@ -39,7 +41,15 @@ export const PO_LABELS = {
   supplier_id: "공급업체", due_date: "약속 납기", memo: "메모", items: "품목 줄", product_id: "품목", quantity: "수량", unit_price: "단가", movement_date: "입고일",
 };
 
-export const lineAmount = (item: PoItem) => BigInt(item.quantity) * BigInt(item.unit_price); // 발주 당시 단가를 곱해 원 단위까지 정확히 계산한다
+export function formatOrderUnitPrice(item: PoItem) {
+  if (item.box_unit_price == null) return item.unit_price.toLocaleString("ko-KR");
+  return `${item.box_unit_price.toLocaleString("ko-KR")} / 박스`;
+}
+
+export function lineAmount(item: PoItem) {
+  if (item.box_unit_price != null && item.line_total !== undefined) return BigInt(item.line_total); // 박스 금액은 서버의 정확한 원 단위 값
+  return BigInt(item.quantity) * BigInt(item.unit_price); // 재고 단위 줄은 곱셈부터 원 단위 정밀도를 유지한다
+}
 export const totalAmount = (order: PurchaseOrder) => order.items.reduce((sum, item) => sum + lineAmount(item), BigInt(0)); // 모든 품목 금액을 큰 정수로 더한다
 
 export type PoItemSort = "registered" | "name-asc" | "name-desc"; // 등록 순서와 품목명 정렬의 두 방향

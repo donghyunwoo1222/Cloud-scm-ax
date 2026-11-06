@@ -6,7 +6,7 @@ import { Suspense, useEffect, useState } from "react"; // 처음 한 번 실행,
 
 import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, Pager, useList } from "../../../lib/list"; // 목록 공통 부품
-import { fmtDate, PurchaseOrder, STATUS_LABEL } from "../../../lib/po"; // 발주서 모양·상태 이름·날짜 표시
+import { fmtDate, formatOrderUnitPrice, PurchaseOrder, STATUS_LABEL } from "../../../lib/po"; // 발주서 모양·상태 이름·날짜·단가 표시
 import { StatusBadge } from "../../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 
@@ -51,7 +51,7 @@ function Detail() {
                 <td>{index === 0 ? STATUS_LABEL[o.status] : ""}</td>
                 <td><span style={S.nowrap}>{i.product_sku}</span> · {i.product_name}</td>
                 <td style={S.num}>{i.quantity}</td>
-                <td style={S.num}>{i.unit_price}</td>
+                <td style={S.num}>{formatOrderUnitPrice(i)}</td>
                 <td style={S.nowrap}>{index === 0 ? (o.due_date ?? "-") : ""}</td>
                 <td style={S.nowrap}>{index === 0 ? fmtDate(o.received_at) : ""}</td>
               </tr>

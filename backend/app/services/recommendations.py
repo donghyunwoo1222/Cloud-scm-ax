@@ -27,6 +27,7 @@ from app.services.purchase_orders import (
     check_items,  # 요청 품목 검사: 같은 품목 두 줄 409, 다른 회사 404, 비활성 품목 409
     inactive,  # 409 INACTIVE_REFERENCE 오류
     next_po_number,  # 발주번호 (회사 행을 잠근 뒤에 불러야 순번이 안 겹친다)
+    order_item_values,  # 수동 발주와 같은 박스 환산·상한 검사
     received_quantities,  # 발주 줄별 누적 입고량 (입고 − 입고 정정)
 )
 from app.services.recommend import (  # 추천 계산 순수 함수와 결과 모양 (#38)
@@ -118,6 +119,10 @@ def calculate_for(
     return rows
 
 
+def boxes_for(quantity: int, units_per_box: int) -> int:
+    return (quantity + units_per_box - 1) // units_per_box  # 정수 올림: 27개 ÷ 10개 → 3박스
+
+
 def list_recommendations(company_id: int, db: Session, today: date) -> dict:
     """GET /recommendations 응답 본문: items(추천)와 excluded(계산하지 않은 품목). 활성 품목만, 최신 품목 먼저. 저장하지 않는다."""
     items, excluded = [], []  # 추천 목록, 제외 목록
@@ -134,6 +139,11 @@ def list_recommendations(company_id: int, db: Session, today: date) -> dict:
                 "lead_time_days": supplier.lead_time_days, "safety_stock": product.safety_stock,
                 "reorder_point": float(result.reorder_point),  # 예: 70.0, 19/6 → 3.1666…
                 "recommended_quantity": result.recommended_quantity, "reason": result.reason,
+                "units_per_box": product.units_per_box, "box_unit_cost": product.box_unit_cost,
+                "recommended_box_quantity": (
+                    boxes_for(result.recommended_quantity, product.units_per_box)
+                    if product.units_per_box is not None else None
+                ),
             })
     return {"items": items, "excluded": excluded}
 
@@ -150,8 +160,8 @@ def create_drafts(company_id: int, db: Session, user_id: int, today: date, data:
     drafts = {o.supplier_id: o for o in db.scalars(scoped(company_id, PurchaseOrder).where(
         PurchaseOrder.status == "DRAFT").order_by(PurchaseOrder.id).with_for_update())}  # 회사의 DRAFT 를 번호 순으로 잠금 (업체당 1장이라 많지 않다)
     check_items(company_id, db, data.items, keep=set(), lock=True)  # ① 품목 번호 순 잠금 → ② 같은 품목 두 줄 409, 다른 회사 404, 비활성 품목 409 (최신 값)
-    quantity = {i.product_id: i.quantity for i in data.items}  # 품목 id → 사용자가 고친 발주 수량
-    rows = calculate_for(company_id, db, today, list(quantity))  # ③ 잠근 뒤 조회 5번 + 순수 함수로 다시 계산
+    requested = {i.product_id: i for i in data.items}  # 품목 id → 요청 줄
+    rows = calculate_for(company_id, db, today, list(requested))  # ③ 잠근 뒤 조회 5번 + 순수 함수로 다시 계산
     not_recommended = []  # 지금은 추천 대상이 아닌 품목들
     for product, supplier, _, _, result in rows:
         if not supplier.is_active:  # 기본 공급업체가 비활성이면 새 발주에 못 쓴다 (MISSING_INFO 와 같은 경우)
@@ -164,10 +174,17 @@ def create_drafts(company_id: int, db: Session, user_id: int, today: date, data:
                        f"지금은 추천 대상이 아닌 품목이 있습니다({', '.join(n['sku'] for n in not_recommended)}). 추천 목록을 새로 불러오세요.",
                        not_recommended)
 
-    by_supplier = defaultdict(list)  # 공급업체 id → [(품목, 계산 결과)]
+    by_supplier = defaultdict(list)  # 공급업체 id → [(품목, 계산 결과, 환산한 발주 칸)]
     suppliers = {}  # 공급업체 id → 공급업체
     for product, supplier, _, _, result in rows:
-        by_supplier[supplier.id].append((product, result))
+        line = requested[product.id]
+        box_quantity = line.box_quantity
+        if line.quantity is None and box_quantity is None:  # 수량 생략 시 박스 기본값을 서버가 다시 계산한다
+            if product.units_per_box is None:
+                raise AppError(422, "VALIDATION_ERROR", "박스 입수가 없는 품목에는 quantity를 보내세요.")
+            box_quantity = boxes_for(result.recommended_quantity, product.units_per_box)
+        values = order_item_values(product, line.quantity, product.unit_cost, box_quantity)
+        by_supplier[supplier.id].append((product, result, values))
         suppliers[supplier.id] = supplier
     out = []  # (발주서, 새로 만들었는지)
     for supplier_id in sorted(by_supplier):  # ④ 공급업체 번호 순으로 처리
@@ -185,17 +202,16 @@ def create_drafts(company_id: int, db: Session, user_id: int, today: date, data:
         else:
             existing = set(db.scalars(select(PurchaseOrderItem.product_id).where(
                 PurchaseOrderItem.purchase_order_id == order.id)))  # 이 초안에 이미 있는 품목들
-            dup = [p.sku for p, _ in lines if p.id in existing]
+            dup = [p.sku for p, _, _ in lines if p.id in existing]
             if dup:  # 같은 품목은 한 발주서에 한 줄 (같은 요청을 두 번 보낸 경우도 여기서 막힌다)
                 raise AppError(409, "DUPLICATE_ITEM",
                                f"작성 중인 발주서({order.po_number})에 이미 있는 품목입니다({', '.join(dup)}). 그 발주서에서 수량을 고치세요.",
                                {"purchase_order_id": order.id, "po_number": order.po_number, "skus": dup})
         db.add_all(PurchaseOrderItem(
             company_id=company_id, purchase_order_id=order.id, product_id=p.id,
-            quantity=quantity[p.id],  # 사용자가 고친 수량 그대로
-            unit_price=p.unit_cost,  # 단가 = 품목에 저장된 단가
+            **values,  # 환산한 발주 수량·단가와 필요한 경우 박스 정보
             recommended_quantity=r.recommended_quantity, recommendation_reason=r.reason,  # 서버가 다시 계산한 추천 근거 (예: 160)
-        ) for p, r in lines)
+        ) for p, r, values in lines)
         db.flush()  # DB 에 보낸다 (같은 품목 두 줄이면 고유 제약이 마지막 방어)
         out.append((order, created))
     return out

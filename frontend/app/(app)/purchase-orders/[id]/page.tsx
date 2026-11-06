@@ -8,7 +8,7 @@ import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { useMe } from "../../../lib/me"; // 내 역할 (승인 버튼은 관리자에게만)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { fmtDate, fmtTime, lineAmount, overdueDays, PO_LABELS, PoItemSort, PurchaseOrder, remainingQuantity, totalAmount, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 표시 품목 계산
+import { fmtDate, fmtTime, formatOrderUnitPrice, lineAmount, overdueDays, PO_LABELS, PoItemSort, PurchaseOrder, remainingQuantity, totalAmount, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 표시 품목 계산
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 
@@ -216,7 +216,7 @@ function Detail() {
                 <td style={S.nowrap}>{i.product_sku}</td>
                 <td style={S.midCol}>{i.product_name}</td>
                 {/* 발주서에 저장된 단가로 이 줄의 발주 금액을 표시한다. */}
-                <td style={S.num}>{i.unit_price.toLocaleString("ko-KR")}</td>
+                <td style={S.num}>{formatOrderUnitPrice(i)}</td>
                 <td style={S.num}>{ordered}{i.unit}</td>
                 <td style={S.num}>{lineAmount(i).toLocaleString("ko-KR")}</td>
                 <td style={S.num}>

@@ -126,7 +126,14 @@
 
 예) 출고 등록 화면의 최근 출고 10건: `GET /inventory-movements?movement_type=SALE&movement_type=DISPOSAL&movement_type=OTHER_OUT&movement_type=ADJUSTMENT&sort=registered&page_size=10`
 
-발주서 응답(상세·목록·작성·수정·상태 변경·입고·추천 초안 공통)의 품목 줄 `items[]`에는 `product_sku`·`product_name`과 함께 `unit`(품목 단위, 예: "개")이 있다(#93). 값은 발주 시점이 아니라 품목 마스터의 현재 단위다(단가 `unit_price`만 발주 당시 값을 저장한다). 이미 있는 칸은 그대로다.
+발주서 응답(상세·목록·작성·수정·상태 변경·입고·추천 초안 공통)의 품목 줄 `items[]`에는 `product_sku`·`product_name`과 함께 품목 마스터의 현재 `unit`(예: "개")이 있다(#93).
+
+### 박스 단위 발주 (#110, MVP 이후)
+
+- 품목 등록·수정·조회에 선택 칸 `units_per_box`(박스 입수, 1~100만)와 `box_unit_cost`(박스당 구매 단가, 0~1억 원)를 추가한다. 두 값이 모두 있거나 모두 null이어야 한다. 설정한 뒤에는 하나만 수정할 수 있고, 둘 다 null을 보내면 해제한다.
+- 수동 발주 작성·수정의 품목 줄은 기존 `{"product_id": 1, "quantity": 30, "unit_price": 1000}` 또는 박스 방식 `{"product_id": 1, "box_quantity": 3}`을 받는다. 두 방식은 한 발주서의 서로 다른 줄에서 함께 쓸 수 있다. 새 박스 줄은 품목의 박스 입수와 박스당 구매 단가를 복사한다. 기존 박스 줄은 DRAFT에서 박스 수를 고쳐도 당시 값으로 계산한다. 기존 화면이 그 줄을 재고 단위 방식으로 다시 보내면 수량이 당시 입수의 배수이고 `unit_price`가 그대로일 때만 반영한다.
+- 발주 줄 응답의 `quantity`, `received_quantity`, `recommended_quantity`는 모두 재고 단위다. 박스 줄에는 발주 당시 `units_per_box`와 `box_unit_price`, 발주한 `box_quantity`를 담고, 재고 단위 줄에는 이 세 칸이 null이다. 모든 줄에 `line_total`(원)을 담는다. 박스 줄의 `unit_price`는 당시 품목의 재고 단위 구매 단가이고, 실제 발주 금액은 `box_quantity × box_unit_price`다. 재고 단위 줄의 금액은 `quantity × unit_price`다. 예를 들어 10개입 3박스, 박스당 10,005원은 `quantity: 30`, `line_total: 30015`다.
+- 설정이 없는 품목에 박스 발주를 요청하거나, 박스 수를 환산한 재고 단위 수량이 기존 상한인 100만을 넘으면 422 `VALIDATION_ERROR`다.
 
 ### 3) 발주 입고: POST /purchase-orders/{id}/receipts
 
@@ -140,6 +147,8 @@
 ```
 
 한 트랜잭션에서 품목별 입고 이력(RECEIPT)을 쌓고, 누적 입고량을 계산해 발주 상태를 정한다. 부분 입고면 ORDERED 유지, 모든 품목이 다 찬 뒤에만 RECEIVED다. 누적 입고량이 발주 수량을 넘으면 409 `OVER_RECEIPT`, 상태가 ORDERED가 아니면 409 `INVALID_STATUS`로 막는다. 누적 입고량은 연결된 RECEIPT 합계에서 연결된 CORRECTION 합계를 뺀 값이다. 품목이나 공급업체가 비활성이 되었어도 이미 ORDERED인 발주의 입고는 허용한다. 응답에는 갱신된 발주 상태와 품목별 누적 입고량을 담는다.
+
+박스 발주 줄은 입고 요청에서 `quantity` 대신 `box_quantity`를 보낼 수 있다(#110). 예를 들어 `{"purchase_order_item_id": 1, "box_quantity": 2}`는 발주 당시 입수가 10이면 재고 단위 20개로 검사·저장한다. 초과 입고 오류의 `requested`·`remaining`도 재고 단위다. 낱개 입고는 기존 `quantity`를 쓰고 입고 정정도 재고 단위로 요청한다. 박스 입수가 없는 발주 줄에 `box_quantity`를 보내면 422다.
 
 행 잠금 순서는 회사 → 발주서 → 품목이고, 여러 품목은 품목 번호 순으로 잠근다(교착 방지, PROGRESS.md의 행 잠금 순서).
 
@@ -186,6 +195,8 @@
 
 `avg_daily_sales`와 `reorder_point`는 소수 그대로 계산하고, `recommended_quantity`만 올림한 정수다. 예) 30일 판매 7, 리드타임 5, 안전재고 2, 가용재고 0 → 일평균 0.233…, 재주문점 3.17, 추천 수량 6.43 → 7(S12). 화면과 이유 문구에서는 일평균을 소수 첫째 자리까지 보여준다. 이유 문구는 AX 설계 문서의 문장 틀에 계산 숫자만 끼워 넣는다(확정, LLM은 C1).
 
+박스 설정 품목의 추천에는 현재 `units_per_box`, `box_unit_cost`, `recommended_box_quantity`를 함께 반환한다(#110). 27개를 10개입으로 발주할 때 `recommended_quantity`는 27이고 `recommended_box_quantity`는 3이다. 박스 설정이 없는 품목은 추가 세 칸이 null이다.
+
 ### 6) 추천으로 초안 만들기: POST /recommendations/drafts
 
 ```json
@@ -200,6 +211,8 @@
 서버는 받은 품목의 추천을 다시 계산해 `recommended_quantity`와 `recommendation_reason`을 저장하고(화면이 보낸 값을 믿지 않는다), `quantity`는 사용자가 고친 값 그대로 둔다. 그래야 나중에 "추천 대비 수정 비율"을 잴 수 있다. 품목을 공급업체별로 묶어 공급업체당 DRAFT 발주서 1장에 담는다(S9). 그 공급업체의 DRAFT가 이미 있으면 새로 만들지 않고 품목만 추가한다(S10). 응답은 품목이 들어간 발주서 목록이고, 각 발주서에 `created: true`(새로 만든 것) 또는 `false`(기존 초안에 추가한 것)를 붙인다. 이미 그 초안에 같은 품목이 있으면 409 `DUPLICATE_ITEM`으로 막는다(임시 확정). 비활성 품목이나 기본 공급업체가 비활성인 품목은 초안을 만들 수 없다(409 `INACTIVE_REFERENCE`).
 
 #40 구현에서 정한 것(2026-11-04): 한 요청의 `items`는 1~100개(넘으면 422), `quantity`는 1~100만, 추천 수량 칸을 보내면 422(서버만 정한다). 다시 계산했을 때 추천 대상이 아닌 품목(재고 충분·데이터 부족·30일 판매 없음)이 하나라도 있으면 409 `NOT_RECOMMENDED`로 전체를 거절한다(details에 품목별 `reason`: `ENOUGH_STOCK`·`INSUFFICIENT_DATA`·`NO_SALES_30D`). 같은 요청을 두 번 보내면 두 번째는 409 `DUPLICATE_ITEM`(details에 기존 초안 id·발주번호)이고 아무것도 바뀌지 않는다. 하나라도 막히면 앞 업체의 초안도 저장되지 않는다. 단가는 품목 단가, 납기는 오늘 + 리드타임, 응답은 201과 `data: [발주서 + created]`. 동시 요청은 회사 행을 잠가 한 줄로 세운다(부분 고유 인덱스는 마지막 방어).
+
+박스 설정 품목의 초안 요청은 `product_id`만 보내면 서버가 다시 계산한 추천량을 박스 수로 올림한다(#110). 박스 수를 직접 정하려면 `box_quantity`를 보낸다. `quantity`를 보내면 기존처럼 재고 단위로 발주한다. 두 수량 칸에 명시적으로 `null`을 보내면 422다. 박스 설정이 없는 품목에는 `quantity`가 필요하다. 박스 환산 후 수량 상한과 박스 설정 검사는 수동 발주와 같다.
 
 ## 권한과 오류 코드
 

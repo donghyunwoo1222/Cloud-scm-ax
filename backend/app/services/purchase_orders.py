@@ -4,6 +4,7 @@
 """
 
 from collections import defaultdict  # 없는 키는 빈 목록으로 시작하는 딕셔너리
+from collections.abc import Sequence  # 발주 줄과 추천 초안 줄을 공통으로 검사한다
 from datetime import datetime, time  # 날짜 → 시각 (received_at)
 
 from sqlalchemy import case, delete, func, select  # 삭제, 조건 합계, 합계, SELECT 문
@@ -20,6 +21,7 @@ from app.models import (  # 표들
     Supplier,
 )
 from app.pagination import PageParams, paginate  # 목록 쪽 나누기
+from app.schemas.common import MAX_QUANTITY  # 환산 후에도 기존 재고 단위 상한 적용
 from app.schemas.purchase_orders import (  # 요청·응답 모양
     ItemIn,
     ItemOut,
@@ -28,6 +30,7 @@ from app.schemas.purchase_orders import (  # 요청·응답 모양
     PurchaseOrderUpdate,
     ReceiptCreate,
 )
+from app.schemas.recommendations import DraftItemIn  # 추천 초안의 요청 줄
 from app.services.stock import register_movement  # 이력을 쓰는 유일한 함수 (품목 잠금·flush)
 from app.services.tenant import (  # 회사 분리 도우미 (#23), 404 문장
     NOT_FOUND_MESSAGE,
@@ -41,7 +44,10 @@ def inactive(field: str, message: str) -> AppError:
     return AppError(409, "INACTIVE_REFERENCE", message, [{"field": field, "reason": "inactive"}])  # 비활성은 새 발주에 못 쓴다
 
 
-def check_items(company_id: int, db: Session, items: list[ItemIn], keep: set[int], lock: bool = False) -> dict[int, Product]:
+def check_items(
+    company_id: int, db: Session, items: Sequence[ItemIn | DraftItemIn],
+    keep: set[int], lock: bool = False,
+) -> dict[int, Product]:
     """품목 줄 검사: 같은 품목 두 줄이면 409 DUPLICATE_ITEM, 다른 회사 품목이면 404, 새로 넣는 비활성 품목이면 409.
 
     keep 은 이미 발주서에 있던 품목 id. 나중에 비활성이 된 품목은 줄을 유지할 수 있다(승인 때 막는다, #34).
@@ -62,6 +68,40 @@ def check_items(company_id: int, db: Session, items: list[ItemIn], keep: set[int
     return products
 
 
+def stock_quantity(box_quantity: int, units_per_box: int | None) -> int:
+    if units_per_box is None:
+        raise AppError(422, "VALIDATION_ERROR", "박스 입수가 설정된 품목 또는 발주 줄만 박스 수를 보낼 수 있습니다.")
+    quantity = box_quantity * units_per_box  # 예: 3박스 × 10개 = 30개
+    if quantity > MAX_QUANTITY:
+        raise AppError(422, "VALIDATION_ERROR", "박스 수를 환산한 재고 단위 수량은 100만 이하여야 합니다.")
+    return quantity
+
+
+def order_item_values(
+    product: Product, quantity: int | None, unit_price: int | None, box_quantity: int | None,
+    existing: PurchaseOrderItem | None = None,
+) -> dict:
+    """수동·추천 발주에 같은 환산을 적용하고 기존 박스 줄은 당시 조건으로 수정한다."""
+    if existing is not None and existing.units_per_box is not None:
+        units_per_box, box_unit_price = existing.units_per_box, existing.box_unit_price  # 당시 값 유지
+        if box_quantity is None:  # 기존 화면의 재고 단위 요청도 기존 박스 줄을 보존한다
+            if quantity % units_per_box or unit_price != existing.unit_price:
+                raise AppError(422, "VALIDATION_ERROR", "박스 발주 줄은 box_quantity로 박스 수를 변경하세요.")
+            box_quantity = quantity // units_per_box
+        unit_price = existing.unit_price
+    elif box_quantity is not None:
+        units_per_box, box_unit_price = product.units_per_box, product.box_unit_cost  # 새 박스 줄의 조건
+        unit_price = product.unit_cost  # 기존 단가 응답 칸의 의미 유지
+    else:
+        return {"quantity": quantity, "unit_price": unit_price}
+    return {
+        "quantity": stock_quantity(box_quantity, units_per_box),
+        "unit_price": unit_price,
+        "units_per_box": units_per_box,
+        "box_unit_price": box_unit_price,
+    }
+
+
 def next_po_number(company_id: int, db: Session) -> str:
     """발주번호 = PO-서울 오늘 날짜-그날 회사의 발주 순번 (예: PO-20261104-003). 호출한 쪽이 회사 행을 잠근 상태여야 순번이 안 겹친다."""
     prefix = f"PO-{seoul_today():%Y%m%d}-"  # 예) PO-20261104-
@@ -75,7 +115,9 @@ def create_order(company_id: int, db: Session, user_id: int, data: PurchaseOrder
     supplier = check_ref(company_id, db, Supplier, data.supplier_id, "supplier_id")  # 다른 회사·없는 id 는 404
     if not supplier.is_active:  # 비활성 업체는 새 발주에 못 쓴다
         raise inactive("supplier_id", "비활성 공급업체에는 새 발주서를 만들 수 없습니다.")
-    check_items(company_id, db, data.items, keep=set())  # 품목 줄 검사
+    products = check_items(company_id, db, data.items, keep=set())  # 같은 회사의 품목으로 환산한다
+    lines = {i.product_id: order_item_values(products[i.product_id], i.quantity, i.unit_price, i.box_quantity)
+             for i in data.items}
     db.execute(select(Company.id).where(Company.id == company_id).with_for_update())  # 회사 행 잠금: 같은 회사의 동시 작성이 한 줄로 서서 발주번호·DRAFT 검사가 안 겹친다
     draft = db.scalar(scoped(company_id, PurchaseOrder).where(
         PurchaseOrder.supplier_id == supplier.id, PurchaseOrder.status == "DRAFT"))  # 이 업체의 기존 DRAFT
@@ -91,7 +133,8 @@ def create_order(company_id: int, db: Session, user_id: int, data: PurchaseOrder
     )
     db.add(order)
     db.flush()  # 발주서 id 받기 (확정은 아직)
-    db.add_all(PurchaseOrderItem(company_id=company_id, purchase_order_id=order.id, **i.model_dump()) for i in data.items)  # 품목 줄
+    db.add_all(PurchaseOrderItem(company_id=company_id, purchase_order_id=order.id, product_id=pid, **values)
+               for pid, values in lines.items())
     db.flush()
     return order
 
@@ -104,17 +147,19 @@ def update_order(company_id: int, db: Session, order_id: int, data: PurchaseOrde
     if data.items is not None:  # 품목 줄을 보냈으면
         existing = {i.product_id: i for i in db.scalars(scoped(company_id, PurchaseOrderItem).where(
             PurchaseOrderItem.purchase_order_id == order.id))}  # 지금 줄들 (품목 id → 줄)
-        check_items(company_id, db, data.items, keep=set(existing))  # 검사: 새로 넣는 줄만 활성 필요
-        wanted = {i.product_id for i in data.items}
-        gone = [i.id for pid, i in existing.items() if pid not in wanted]  # 목록에서 빠진 줄
+        products = check_items(company_id, db, data.items, keep=set(existing))  # 새로 넣는 줄만 활성 필요
+        lines = {i.product_id: order_item_values(
+            products[i.product_id], i.quantity, i.unit_price, i.box_quantity, existing.get(i.product_id),
+        ) for i in data.items}
+        gone = [i.id for pid, i in existing.items() if pid not in lines]  # 목록에서 빠진 줄
         if gone:
             db.execute(delete(PurchaseOrderItem).where(PurchaseOrderItem.id.in_(gone)))  # 삭제 (DRAFT 줄은 입고 이력이 없다)
-        for item in data.items:
-            if item.product_id in existing:  # 있던 줄은 수량·단가만 바꾼다 (추천 근거는 유지)
-                existing[item.product_id].quantity = item.quantity
-                existing[item.product_id].unit_price = item.unit_price
+        for pid, values in lines.items():
+            if pid in existing:  # 있던 줄의 추천 근거는 유지한다
+                for field, value in values.items():
+                    setattr(existing[pid], field, value)
             else:  # 새 줄
-                db.add(PurchaseOrderItem(company_id=company_id, purchase_order_id=order.id, **item.model_dump()))
+                db.add(PurchaseOrderItem(company_id=company_id, purchase_order_id=order.id, product_id=pid, **values))
     for field, value in data.model_dump(exclude_unset=True, exclude={"items"}).items():  # 납기·메모 중 보낸 칸 (줄 검사를 모두 통과한 뒤에 바꾼다)
         setattr(order, field, value)
     db.flush()
@@ -220,24 +265,29 @@ def receive_order(company_id: int, db: Session, user_id: int, order_id: int, dat
     if missing:
         raise AppError(404, "NOT_FOUND", "이 발주서에 없는 품목 줄입니다.", [{"field": "items", "reason": "not_found", "ids": missing}])
     received = received_quantities(company_id, db, list(items))  # ② 잠근 뒤에 읽어야 먼저 끝난 입고·정정이 반영된다
+    quantities = {}  # 발주 줄 id → 재고 단위로 환산한 입고량
     for line in data.items:  # 모든 줄을 쓰기 전에 검사: 하나라도 넘치면 아무것도 쓰지 않는다
         item = items[line.purchase_order_item_id]
+        quantity = (stock_quantity(line.box_quantity, item.units_per_box)
+                    if line.box_quantity is not None else line.quantity)  # 품목의 현재 입수 대신 발주 당시 입수
+        quantities[item.id] = quantity
         done = received.get(item.id, 0)  # 지금까지 누적 입고량
-        if done + line.quantity > item.quantity:  # 예) 100 중 70 입고, 40 요청 → 110 > 100
+        if done + quantity > item.quantity:  # 예) 100 중 70 입고, 40 요청 → 110 > 100
             remaining = item.quantity - done  # 남은 수량 (예: 30)
             raise AppError(
                 409, "OVER_RECEIPT",
                 f"발주 수량 {item.quantity}개 중 {done}개가 이미 입고되어 {remaining}개까지만 입고할 수 있습니다.",
                 {"purchase_order_item_id": item.id, "ordered": item.quantity, "received": done,
-                 "remaining": remaining, "requested": line.quantity},
+                 "remaining": remaining, "requested": quantity},
             )
     for line in sorted(data.items, key=lambda line: items[line.purchase_order_item_id].product_id):  # ③ 품목 번호 오름차순으로 잠근다 (교착 방지)
         item = items[line.purchase_order_item_id]
+        quantity = quantities[item.id]
         register_movement(  # 품목 잠금 + 저장(flush). 비활성 품목이어도 ORDERED 발주의 입고는 허용 (check_ref 는 활성을 보지 않는다)
             company_id, db, user_id, product_id=item.product_id, movement_type="RECEIPT", direction="IN",
-            quantity=line.quantity, movement_date=movement_date, purchase_order_item_id=item.id,
+            quantity=quantity, movement_date=movement_date, purchase_order_item_id=item.id,
         )
-        received[item.id] = received.get(item.id, 0) + line.quantity  # 누적 갱신
+        received[item.id] = received.get(item.id, 0) + quantity  # 누적 갱신
     if all(received.get(i.id, 0) >= i.quantity for i in items.values()):  # ④ 모든 줄이 다 찼으면
         order.status = "RECEIVED"  # 전량 입고 (부분이면 ORDERED 그대로)
         last = db.scalar(select(func.max(InventoryMovement.movement_date)).join(
@@ -262,9 +312,12 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder]) -> list
     by_order = defaultdict(list)  # 발주서 id → 줄 응답들
     for i in items:
         p = products[i.product_id]
+        box_quantity = i.quantity // i.units_per_box if i.units_per_box is not None else None
         by_order[i.purchase_order_id].append(ItemOut(
             id=i.id, product_id=i.product_id, product_sku=p.sku, product_name=p.name, unit=p.unit, quantity=i.quantity,
             unit_price=i.unit_price, recommended_quantity=i.recommended_quantity,
+            units_per_box=i.units_per_box, box_unit_price=i.box_unit_price, box_quantity=box_quantity,
+            line_total=i.quantity * i.unit_price if box_quantity is None else box_quantity * i.box_unit_price,
             recommendation_reason=i.recommendation_reason, received_quantity=int(received.get(i.id, 0)),
         ))
     return [
