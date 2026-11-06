@@ -2,13 +2,6 @@
   position: relative;
 }
 
-.receiptSummary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-xs) var(--space-sm);
-}
-
 /* 카드 여백은 전체 목록으로, 두 건수는 각 납기 목록으로 연결한다. */
 .allReceipts::after {
   content: "";
@@ -55,6 +48,84 @@
 .receiptLinks .lateReceipts {
   color: var(--color-destructive);
   background: var(--color-destructive-bg);
+}
+
+.orderLink {
+  margin-block: var(--space-sm) var(--space-md);
+  font-size: var(--text-sm);
+}
+
+.reviewGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: var(--space-lg);
+}
+
+.reviewGrid h3 {
+  font-size: var(--text-base);
+}
+
+.reviewGrid h3 span {
+  margin-inline-start: var(--space-xs);
+  color: var(--color-muted-foreground);
+  font-weight: 500;
+}
+
+.reviewList {
+  margin-block: var(--space-sm);
+  list-style: none;
+}
+
+.reviewList li {
+  padding-block: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+}
+
+.reviewList a {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 var(--space-sm);
+  font-weight: 600;
+}
+
+.coverageBar {
+  position: relative;
+  margin-block: var(--space-xs);
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-muted);
+}
+
+.coverageBar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+}
+
+.coverageBar i {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--color-foreground);
+}
+
+.reviewToggle {
+  margin-top: var(--space-sm);
+}
+
+.monthRow {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+}
+
+.monthRow a {
+  margin-inline-start: auto;
 }
 
 @media (pointer: coarse) {

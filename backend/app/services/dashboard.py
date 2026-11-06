@@ -144,7 +144,7 @@ def dead_stock(company_id: int, db: Session, today: date) -> dict:
 
 
 def shortage_and_overstock(company_id: int, db: Session, today: date) -> dict:
-    """부족(추천 대상)과 과잉(현재고 ≥ 일평균 × 90일) 품목. 활성 품목만, 최신 품목 먼저, 목록은 20줄까지.
+    """부족(추천 대상)과 과잉(현재고 ≥ 일평균 × 90일) 품목. 활성 품목만, 목록은 20줄까지.
 
     장기재고와는 겹치지 않는다: 과잉은 최근 30일 판매가 있어야 하고, 장기재고는 60일 넘게 판매가 없어야 한다.
     """
@@ -156,6 +156,8 @@ def shortage_and_overstock(company_id: int, db: Session, today: date) -> dict:
                              "recommended_quantity": result.recommended_quantity})
         if is_overstock(stock, result):  # 예) 현재고 900 ≥ 10 × 90
             overstock.append({**base, "avg_daily_sales": float(result.avg_daily_sales)})
+    # 대시보드에 가장 오래 남을 품목을 보여 주도록 자르기 전에 전체 후보를 정렬한다.
+    overstock.sort(key=lambda item: item["current_stock"] / item["avg_daily_sales"], reverse=True)
     return {
         "shortage": {"count": len(shortage), "items": shortage[:LIST_LIMIT]},  # 전체 건수와 앞 20줄
         "overstock": {"days": OVERSTOCK_DAYS, "count": len(overstock), "items": overstock[:LIST_LIMIT]},
