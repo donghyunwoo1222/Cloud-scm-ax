@@ -69,7 +69,6 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
   const products = productList.isCurrent ? productList.rows : [];
   const [productId, setProductId] = useState(""); // 이력 필터: 품목
   const [trendRevision, setTrendRevision] = useState(0); // 정정 성공 후 같은 품목의 추이도 다시 읽는다
-  const [trendExpanded, setTrendExpanded] = useState(true); // 그래프만 접어 선택한 품목의 이력을 계속 볼 수 있다
   const [type, setType] = useState(""); // 이력 필터: 유형
   const [from, setFrom] = useState(""); // 이력 필터: 시작일
   const [to, setTo] = useState(""); // 이력 필터: 종료일
@@ -84,9 +83,11 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
   const [notice, setNotice] = useState(""); // 정정 성공 안내
   const [busy, setBusy] = useState(false); // 정정 등록 중이면 버튼을 잠근다
   const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
+  const historyRequest = useRef(0); // 품목 전환 뒤에 도착한 이전 이력 응답은 버린다
   const historyTitle = useRef<HTMLHeadingElement>(null); // "입출고 이력" 제목 (이력 보기를 누르면 여기로 이동)
 
   const reloadMovements = useCallback(async () => {
+    const request = ++historyRequest.current;
     const params = new URLSearchParams({ page: String(page) }); // 쿼리 문자열 (예: page=1&movement_type=SALE)
     if (productId) params.set("product_id", productId);
     if (type) params.set("movement_type", type);
@@ -94,15 +95,17 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
     if (to) params.set("date_to", to);
     try {
       const r = await apiList<Movement>(`/inventory-movements?${params}`); // 최신순 한 쪽
+      if (request !== historyRequest.current) return;
       setRows(r.data); setMeta(r.meta); setError(null);
     } catch (e) {
-      setError(e); // 예: 시작일이 종료일보다 늦으면 서버 422 문장
+      if (request === historyRequest.current) setError(e); // 예: 시작일이 종료일보다 늦으면 서버 422 문장
     }
   }, [page, productId, type, from, to]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 이력을 서버에서 불러와 상태에 넣는 것이 이 효과의 목적이다
     reloadMovements(); // 처음 열 때와 쪽·필터가 바뀔 때
+    return () => { historyRequest.current += 1; };
   }, [reloadMovements]);
 
   // 필터를 바꾸면 1쪽부터 다시 본다
@@ -111,11 +114,18 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
     setPage(1);
   }
 
-  // 이 품목의 이력 보기: 이력을 품목으로 거르고 "입출고 이력" 제목으로 화면과 포커스를 옮긴다
-  function showHistory(row: Stock) {
+  // 같은 품목을 다시 누르면 품목 선택을 풀고, 다른 품목을 누르면 해당 이력으로 이동한다.
+  function toggleHistory(row: Stock) {
+    const selectedId = String(row.product_id);
+    if (productId === selectedId) {
+      setHistoryProduct(undefined);
+      setRows([]);
+      setMeta(null);
+      filter(setProductId, "");
+      return;
+    }
     setHistoryProduct({ id: row.product_id, sku: row.sku, name: row.name });
-    filter(setProductId, String(row.product_id));
-    setTrendExpanded(true);
+    filter(setProductId, selectedId);
     const title = historyTitle.current;
     if (!title) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches; // OS 의 "움직임 줄이기" 설정이 켜져 있으면 스르륵 대신 바로 이동
@@ -180,7 +190,11 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
                 {s.status_reason && <span style={S.sub}>{s.status_reason.message}</span>}
                 {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 판단 불가는 이유를 작게 보인다. 비활성은 "-" */}
               </td>
-              <td><button type="button" onClick={() => showHistory(s)}>추이·이력 보기</button></td>
+              <td>
+                <button type="button" aria-expanded={String(s.product_id) === productId} onClick={() => toggleHistory(s)}>
+                  {String(s.product_id) === productId ? "추이·이력 닫기" : "추이·이력 보기"}
+                </button>
+              </td>
               {/* 아래 이력을 이 품목으로 거른다 */}
             </tr>
           ))}
@@ -206,7 +220,6 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
           <select value={productId} onChange={(e) => {
             setHistoryProduct(products.find((p) => String(p.id) === e.target.value) ?? historyProduct);
             filter(setProductId, e.target.value);
-            setTrendExpanded(true);
           }} style={S.block}>
             <option value="">전체</option>
             {historyProduct && String(historyProduct.id) === productId && !products.some((p) => p.id === historyProduct.id) && (
@@ -224,8 +237,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
         <label>시작일 <input type="date" value={from} onChange={(e) => filter(setFrom, e.target.value)} /></label>
         <label>종료일 <input type="date" value={to} onChange={(e) => filter(setTo, e.target.value)} /></label>
       </div>
-      {productId && <StockTrend key={`${productId}:${trendRevision}`} productId={productId}
-        expanded={trendExpanded} onToggle={() => setTrendExpanded((open) => !open)} />}
+      {productId && <StockTrend key={`${productId}:${trendRevision}`} productId={productId} />}
       <ErrorText error={error} />
       {notice && <p role="status" style={S.ok}>{notice}</p>}
 

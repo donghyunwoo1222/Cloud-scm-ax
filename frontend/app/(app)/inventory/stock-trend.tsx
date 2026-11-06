@@ -14,10 +14,9 @@ function dateLabel(day: string) {
   return `${Number(day.slice(5, 7))}월 ${Number(day.slice(8, 10))}일`;
 }
 
-export function StockTrend({ productId, expanded, onToggle }: { productId: string; expanded: boolean; onToggle: () => void }) {
+export function StockTrend({ productId }: { productId: string }) {
   const headingId = useId();
   const dateInputId = `${headingId}-day`;
-  const bodyId = `${headingId}-body`;
   const [trend, setTrend] = useState<Trend | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0); // 요청에 실패하면 같은 품목을 다시 읽을 수 있다
@@ -48,13 +47,7 @@ export function StockTrend({ productId, expanded, onToggle }: { productId: strin
 
   return (
     <section aria-labelledby={headingId} style={S.sectionCard}>
-      <div style={{ ...S.detailHeader, marginBottom: expanded ? S.detailHeader.marginBottom : 0 }}>
-        <h3 id={headingId} style={{ margin: 0 }}>최근 30일 재고 추이</h3>
-        <button type="button" aria-expanded={expanded} aria-controls={bodyId} onClick={onToggle}>
-          {expanded ? "추이 접기" : "추이 펼치기"}
-        </button>
-      </div>
-      <div id={bodyId} hidden={!expanded}>
+      <h3 id={headingId} style={{ margin: 0 }}>최근 30일 재고 추이</h3>
       {error ? (
         <><ErrorText error={error} /><button type="button" onClick={() => { setError(null); setAttempt(attempt + 1); }}>다시 시도</button></>
       ) : !trend ? <p role="status" style={S.hint}>재고 추이 불러오는 중…</p> : (
@@ -101,7 +94,6 @@ export function StockTrend({ productId, expanded, onToggle }: { productId: strin
           )}
         </>
       )}
-      </div>
     </section>
   );
 }
