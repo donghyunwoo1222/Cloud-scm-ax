@@ -226,13 +226,15 @@ def orders_with_receipts(company_id: int, db: Session, order_ids: list[int]) -> 
     )))
 
 
-def list_orders(company_id: int, db: Session, page: PageParams, supplier_id: int | None, status: str | None = None) -> tuple[list[PurchaseOrder], dict]:
+def list_orders(company_id: int, db: Session, page: PageParams, supplier_id: int | None, status: str | None = None, q: str | None = None) -> tuple[list[PurchaseOrder], dict]:
     """GET /purchase-orders: 최신순, supplier_id 로 공급업체별·status 로 상태별 조회."""
     stmt = scoped(company_id, PurchaseOrder)  # 회사 조건이 붙은 시작점
     if supplier_id is not None:
         stmt = stmt.where(PurchaseOrder.supplier_id == supplier_id)  # 이 업체 발주만 (남의 업체 id 면 빈 목록)
     if status is not None:
         stmt = stmt.where(PurchaseOrder.status == status)  # 이 상태의 발주만
+    if q and (term := q.strip()):
+        stmt = stmt.where(PurchaseOrder.po_number.icontains(term, autoescape=True))  # 쪽을 나누기 전에 검색한다.
     return paginate(db, stmt.order_by(PurchaseOrder.created_at.desc(), PurchaseOrder.id.desc()), page)
 
 

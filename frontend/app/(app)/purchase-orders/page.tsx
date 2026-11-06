@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation"; // 주소의 ?status= 읽기 
 import { Suspense, useEffect, useState } from "react"; // 주소 읽는 부품 감싸기, 처음 한 번 실행, 상태
 
 import { apiList } from "../../lib/api"; // 공통 API 호출 함수
-import { ErrorText, Pager, useList } from "../../lib/list"; // 목록 공통 부품
+import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { seoulToday } from "../../lib/movement-form"; // 상세 화면과 같은 서울 날짜
 import { overdueDays, PurchaseOrder, quantityLabel, receiptQuantitiesByUnit, STATUS_LABEL } from "../../lib/po"; // 발주서 모양과 수량 표시
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../lib/status-badge"; // 상세 화면과 같은 상태·납기 지연 배지
@@ -61,6 +61,7 @@ function PurchaseOrdersBody({ initialStatus }: { initialStatus: string }) {
       <h1>발주</h1>
       <p><Link href="/purchase-orders/new" style={S.linkButton}>발주서 작성</Link></p>
 
+      <ListControls placeholder="발주번호 검색" onSearch={list.search} />
       <div style={S.toolbar}>
         <label>상태
           <select value={status} onChange={(e) => filter(setStatus, e.target.value)} style={S.block}>
@@ -81,7 +82,7 @@ function PurchaseOrdersBody({ initialStatus }: { initialStatus: string }) {
       <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>발주번호</th><th>공급업체</th><th>상태</th><th style={S.num}>품목 수</th><th style={S.num}>합계 수량</th><th>약속 납기</th></tr>
+          <tr style={S.headRow}><th>발주번호</th><th>공급업체</th><th>상태</th><th style={S.num}>품목 수</th><th style={S.num}>발주 수량·입고 잔량</th><th>약속 납기</th></tr>
         </thead>
         <tbody>
           {list.rows.map((o) => { // 각 발주서의 상태와 입고 현황을 한 줄에 표시한다

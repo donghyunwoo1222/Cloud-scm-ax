@@ -6,6 +6,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react"; // 
 import { api, apiList } from "./api"; // 공통 API 호출 함수
 import { ErrorText } from "./list"; // 서버 오류 표시
 import { StatusBadge } from "./status-badge"; // 색 + 글자 + 아이콘 배지 (발주 입고 표시에 재사용)
+import { ProductOption, ProductSearch, useProductOptions } from "./product-search"; // 전체 품목 서버 검색
 import { quantityLabel } from "./po"; // 품목 단위로 재고·수량을 표시한다.
 import { S } from "./styles"; // 화면 공통 스타일
 
@@ -20,16 +21,16 @@ const LABELS = { product_id: "품목", quantity: "수량", direction: "방향", 
 // 서울 기준 오늘 (YYYY-MM-DD). 서버도 서울 기준이라 브라우저 시간대와 상관없이 맞춘다
 export const seoulToday = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
 
-type ProductOption = { id: number; sku: string; name: string; unit: string; is_active: boolean }; // 선택 상자에 쓸 품목
-
 // 입출고 등록 폼. types 로 이 화면에서 고를 수 있는 유형을 정한다 (입고 화면은 입고만, 출고 화면은 나머지)
 export function MovementForm({ types }: { types: MovementType[] }) {
   const dateLabel = types.length === 1 && types[0] === "RECEIPT" ? "입고일" : "출고일"; // 입고 화면은 "입고일", 출고 화면은 "출고일" (서버 칸 이름은 그대로 movement_date)
   const labels = { ...LABELS, movement_date: dateLabel }; // 오류 문장의 칸 이름도 같은 글자로
-  const [products, setProducts] = useState<ProductOption[]>([]); // 품목 선택지 (비활성 포함: 비활성 품목도 입고·출고·조정은 허용, 데이터 원칙 8)
-  const [productId, setProductId] = useState(""); // 고른 품목
+  const productList = useProductOptions(true); // 비활성 품목도 입고·출고·조정할 수 있다.
+  const [product, setProduct] = useState<ProductOption>(); // 검색 결과가 바뀌어도 고른 품목은 유지한다.
+  const productId = product?.id; // 현재고 조회와 등록에 쓸 품목 번호
+  const products = productList.isCurrent ? productList.rows : [];
+  const options = product && !products.some((p) => p.id === product.id) ? [product, ...products] : products;
   const [type, setType] = useState<MovementType>(types[0]); // 고른 유형
-  const product = products.find((p) => String(p.id) === productId); // 선택 품목의 SKU와 단위
   const [quantity, setQuantity] = useState(""); // 수량 (글자로 다루고 보낼 때 숫자로)
   const [channel, setChannel] = useState("OWN_MALL"); // 판매 채널 (판매일 때만 보낸다)
   const [direction, setDirection] = useState("OUT"); // 조정 방향 (조정일 때만 보낸다)
@@ -48,11 +49,6 @@ export function MovementForm({ types }: { types: MovementType[] }) {
     const t = seoulToday(); // 화면이 열린 뒤 오늘 날짜를 정한다
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 브라우저에서만 알 수 있는 오늘 날짜를 상태에 넣는 것이 이 효과의 목적이다
     setToday(t); setDate(t); // 날짜 상한과 기본값
-  }, []);
-
-  useEffect(() => {
-    // shortcut: 품목 100개까지만 불러온다(서버 page_size 최대). 100개를 넘으면 검색형 선택 상자로 바꾼다
-    apiList<ProductOption>("/products?page_size=100&include_inactive=true").then((r) => setProducts(r.data)).catch(setError);
   }, []);
 
   useEffect(() => {
@@ -76,7 +72,7 @@ export function MovementForm({ types }: { types: MovementType[] }) {
     setDone(""); // 다음 등록을 누르면 이전 성공 안내는 지운다
     const label = `${product?.sku ?? ""} ${TYPE_LABEL[type]} ${quantityLabel(Number(quantity), product?.unit)}`; // 예: "KB-101 입고 5개" (유형·수량도 등록 직전 값)
     const body: Record<string, unknown> = {
-      product_id: productId === "" ? null : Number(productId), // 비우면 null → 서버가 422
+      product_id: productId ?? null, // 비우면 null → 서버가 422
       movement_type: type,
       quantity: quantity === "" ? null : Number(quantity), // 1 이상 정수 검사는 서버가 한다
       movement_date: date || null, // 비우면 서버가 오늘로
@@ -102,12 +98,13 @@ export function MovementForm({ types }: { types: MovementType[] }) {
 
   return (
     <>
+    <ProductSearch list={productList} />
     <form onSubmit={submit} style={S.formGridWide}>
       <label>
         품목*
-        <select disabled={busy} value={productId} onChange={(e) => { setProductId(e.target.value); setStock(null); setDone(""); }} style={S.block}>
+        <select disabled={busy} value={productId ?? ""} onChange={(e) => { setProduct(options.find((p) => p.id === Number(e.target.value))); setStock(null); setDone(""); }} style={S.block}>
           <option value="">선택하세요</option>
-          {products.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}{p.is_active ? "" : " (비활성)"}</option>)}
+          {options.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}{p.is_active ? "" : " (비활성)"}</option>)}
         </select>
         {productId && stock !== null && <small>현재고 {quantityLabel(stock, product?.unit)}</small>}
         {/* 고른 품목의 현재고 */}

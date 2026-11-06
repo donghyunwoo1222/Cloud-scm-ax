@@ -7,10 +7,10 @@ import { FormEvent, useEffect, useState } from "react"; // 폼 제출, 처음 �
 import { api, ApiError, apiList } from "./api"; // 공통 API 호출 함수, 서버 오류
 import { ErrorText } from "./list"; // 서버 오류 표시
 import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PurchaseOrder, quantityLabel } from "./po"; // 발주서와 박스 환산 표시
+import { ProductOption, ProductSearch, useProductOptions } from "./product-search"; // 발주 품목을 서버에서 검색한다.
 import { S } from "./styles"; // 화면 공통 스타일
 
 type Option = { id: number; name: string }; // 공급업체 선택지
-type ProductOption = { id: number; sku: string; name: string; unit_cost: number; unit: string; units_per_box?: number | null; box_unit_cost?: number | null };
 type Line = { product_id: string; quantity: string; unit_price: string; box: boolean }; // 입력한 수량과 그 단위를 함께 기억한다
 
 const EMPTY_LINE: Line = { product_id: "", quantity: "", unit_price: "", box: false }; // 빈 줄
@@ -20,7 +20,8 @@ const num = (v: string) => (v === "" ? null : Number(v)); // "10" → 10, 비우
 export function PoForm({ order }: { order?: PurchaseOrder }) {
   const router = useRouter(); // 저장 후 이동
   const [suppliers, setSuppliers] = useState<Option[]>([]); // 활성 공급업체 (작성할 때만 고른다)
-  const [products, setProducts] = useState<ProductOption[]>([]); // 활성 품목
+  const productList = useProductOptions(); // 새 발주 품목은 활성만 조회한다.
+  const [pickedProducts, setPickedProducts] = useState<Record<number, ProductOption>>({}); // 검색이 바뀌어도 고른 품목과 입수를 유지한다.
   const [supplierId, setSupplierId] = useState(""); // 고른 공급업체
   const [dueDate, setDueDate] = useState(order?.due_date ?? ""); // 약속 납기
   const [memo, setMemo] = useState(order?.memo ?? ""); // 메모
@@ -33,21 +34,19 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   const [error, setError] = useState<unknown>(null); // 저장 오류 (입력값은 지우지 않는다)
 
   useEffect(() => {
-    // shortcut: 활성 100개까지만 불러온다(서버 page_size 최대). 100개를 넘으면 검색형 선택 상자로 바꾼다
-    apiList<ProductOption>("/products?page_size=100").then((r) => setProducts(r.data)).catch(setError);
     if (!order) apiList<Option>("/suppliers?page_size=100").then((r) => setSuppliers(r.data)).catch(setError);
   }, [order]);
 
   // 선택 상자의 품목: 활성 품목 + (수정일 때) 이미 든 품목이 지금 비활성이어도 이름이 보이게 함께 넣는다
-  const options = [
-    ...products,
-    ...(order?.items ?? []).filter((i) => !products.some((p) => p.id === i.product_id)).map((i) => ({
-      id: i.product_id, sku: i.product_sku, name: i.product_name, unit_cost: i.unit_price, unit: i.unit,
-    })),
-  ];
+  const searchOptions = productList.isCurrent ? productList.rows : [];
+  const options = new Map<number, ProductOption>((order?.items ?? []).map((i) => [i.product_id, {
+    id: i.product_id, sku: i.product_sku, name: i.product_name, unit_cost: i.unit_price, unit: i.unit, is_active: false,
+  }]));
+  Object.values(pickedProducts).forEach((p) => options.set(p.id, p)); // 앞선 검색에서 고른 품목
+  searchOptions.forEach((p) => options.set(p.id, p)); // 현재 검색 결과가 있으면 최신 값을 쓴다.
 
   function packingFor(productId: string) {
-    const product: ProductOption | undefined = options.find((p) => String(p.id) === productId);
+    const product: ProductOption | undefined = options.get(Number(productId));
     const saved = order?.items.find((i) => String(i.product_id) === productId);
     const locked = saved?.units_per_box != null; // 기존 박스 줄은 품목 설정 변경·해제 이후에도 당시 값을 쓴다
     return {
@@ -64,6 +63,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   // 박스 단위가 바뀔 때 이전 수량을 적용하지 않도록 입력값을 비운다.
   function pickProduct(index: number, productId: string) {
     const { product, units } = packingFor(productId);
+    if (product?.is_active) setPickedProducts((picked) => ({ ...picked, [product.id]: product }));
     const box = units != null;
     setLine(index, { product_id: productId, unit_price: String(product?.unit_cost ?? ""), box,
       ...(box || lines[index].box ? { quantity: "" } : {}) });
@@ -105,6 +105,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         <label>메모 <input value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
       </div>
 
+      <ProductSearch list={productList} />
       <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
@@ -121,7 +122,8 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
               <td>
                 <select required value={line.product_id} onChange={(e) => pickProduct(index, e.target.value)} aria-label={`품목 ${index + 1}`}>
                   <option value="">선택</option>
-                  {options.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
+                  {product && !searchOptions.some((p) => p.id === product.id) && <option value={product.id}>{product.sku} · {product.name}</option>}
+                  {searchOptions.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
                 </select>
               </td>
               <td style={S.num}>
