@@ -151,6 +151,34 @@ button.primary-action:hover:not(:disabled) {
   position: relative;
 }
 
+.movement-product-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.movement-product-label > span:first-child {
+  flex-shrink: 0;
+}
+
+.movement-stock {
+  display: block;
+  padding-inline: var(--space-sm);
+  border-radius: var(--radius-full);
+  background: var(--color-selected);
+  color: var(--color-muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.movement-stock strong {
+  color: var(--color-foreground);
+  font-size: var(--text-sm);
+}
+
 .product-picker-chevron {
   position: absolute;
   inset-inline-end: var(--space-sm);

@@ -94,7 +94,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
 
   const reloadMovements = useCallback(async () => {
     const request = ++historyRequest.current;
-    const params = new URLSearchParams({ page: String(page) }); // 쿼리 문자열 (예: page=1&movement_type=SALE)
+    const params = new URLSearchParams({ page: String(page), page_size: "10" }); // 전체·품목별 이력은 한 쪽에 10건
     if (productId) params.set("product_id", productId);
     if (type) params.set("movement_type", type);
     if (from) params.set("date_from", from);

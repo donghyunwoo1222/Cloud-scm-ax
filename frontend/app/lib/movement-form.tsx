@@ -1,7 +1,7 @@
 "use client"; // 입력을 다루는 폼이라 브라우저에서 실행
 
 import Link from "next/link"; // 발주 입고 이력에서 발주서로 이동한다.
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 불러오기 함수 고정, 처음·변경 시 실행, 즉시 확인용 ref, 상태
+import { FormEvent, useCallback, useEffect, useId, useRef, useState } from "react"; // 폼 제출, 불러오기, 현재고 안내 연결, 중복 방지, 상태
 
 import { api, apiList } from "./api"; // 공통 API 호출 함수
 import { ErrorText } from "./list"; // 서버 오류 표시
@@ -35,7 +35,9 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
   const [today, setToday] = useState(""); // 서울 기준 오늘 (서버 렌더링 때 시각을 읽으면 빌드가 막혀 화면이 열린 뒤 채운다)
   const [date, setDate] = useState(""); // 입출고일, 기본 서울 오늘
   const [memo, setMemo] = useState(""); // 메모
-  const [stock, setStock] = useState<number | null>(null); // 고른 품목의 현재고 (모르면 null)
+  const [stock, setStock] = useState<number | "loading" | "unavailable">("loading"); // 0도 조회된 현재고로 표시한다
+  const stockStatusId = useId();
+  const stockRequest = useRef(0); // 품목 변경이나 저장보다 먼저 시작한 조회는 버린다
   const [done, setDone] = useState(""); // 성공 안내 문장
   const [error, setError] = useState<unknown>(null); // 등록 오류
   const [busy, setBusy] = useState(false); // 등록 중이면 버튼을 잠그고 글자를 바꾼다
@@ -56,9 +58,11 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
 
   useEffect(() => {
     if (!productId) return; // 품목을 안 골랐으면 조회하지 않는다 (표시도 아래에서 숨긴다)
-    let alive = true; // 품목을 빨리 바꿀 때 늦게 온 이전 응답을 버리려는 표시
-    api<{ current_stock: number }>(`/stock/${productId}`).then((s) => alive && setStock(s.current_stock)).catch(() => alive && setStock(null));
-    return () => { alive = false; };
+    const request = ++stockRequest.current;
+    api<{ current_stock: number }>(`/stock/${productId}`)
+      .then((s) => { if (request === stockRequest.current) setStock(s.current_stock); })
+      .catch(() => { if (request === stockRequest.current) setStock("unavailable"); });
+    return () => { stockRequest.current += 1; };
   }, [productId]);
 
   async function submit(event: FormEvent) {
@@ -81,7 +85,8 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
       const r = await api<{ stock_after: number }>("/inventory-movements", { method: "POST", body });
       setError(null);
       setDone(`${label}를 등록했습니다 · 현재고 ${quantityLabel(r.stock_after, product?.unit)}`); // 예: "KB-101 입고 5개를 등록했습니다 · 현재고 27개" (현재고는 서버가 돌려준 등록 직후 값)
-      setStock(r.stock_after); // 품목 아래 현재고도 바로 갱신
+      stockRequest.current += 1; // 등록 전에 요청한 재고가 새 수량을 덮지 않도록 한다
+      setStock(r.stock_after);
       setQuantity(""); setReason(""); setMemo(""); // 다음 입력을 위해 비운다 (품목·유형·날짜는 유지)
       setSavedCount((n) => n + 1); // 방금 등록한 줄이 최근 이력 맨 위에 보이도록 다시 불러오게 한다
     } catch (e) {
@@ -97,14 +102,24 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
     <>
     <form onSubmit={submit} style={S.formGridWide}>
       <div style={{ flex: "1 1 220px", maxWidth: 320, minWidth: 0 }}>
-        <span style={{ display: "block", marginBottom: "var(--space-xs)" }}>품목*</span>
+        <div className="movement-product-label">
+          <span>품목*</span>
+          <span id={stockStatusId} role="status">
+            {product && (
+              <span className="movement-stock">
+                현재고 <strong>{stock === "loading" ? "확인 중…" : stock === "unavailable" ? "조회 실패" : quantityLabel(stock, product.unit)}</strong>
+              </span>
+            )}
+          </span>
+        </div>
         <ProductPicker label="품목" value={product} includeInactive disabled={busy} onSelect={(picked) => {
-          if (picked.id !== productId) setStock(null); // 같은 품목을 다시 골랐으면 현재고를 유지한다
+          if (picked.id !== productId) {
+            stockRequest.current += 1;
+            setStock("loading");
+          }
           setProduct(picked);
           setDone("");
         }} />
-        {productId && stock !== null && <small>현재고 {quantityLabel(stock, product?.unit)}</small>}
-        {/* 고른 품목의 현재고 */}
       </div>
       {types.length > 1 && (
         <label>
@@ -131,7 +146,7 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
           </select>
         </label>
       )}
-      <label>수량{product && ` (${product.unit})`}* <input type="number" min={1} step={1} value={quantity} onChange={(e) => setQuantity(e.target.value)} /></label>
+      <label>수량{product && ` (${product.unit})`}* <input type="number" min={1} step={1} value={quantity} aria-describedby={product ? stockStatusId : undefined} onChange={(e) => setQuantity(e.target.value)} /></label>
       <label>
         {dateLabel}
         <input type="date" max={today || undefined} value={date} onChange={(e) => setDate(e.target.value)} />

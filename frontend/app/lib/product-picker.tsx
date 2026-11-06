@@ -124,7 +124,7 @@ export function ProductPicker({ label, value, onSelect, includeInactive = false,
       <input ref={input} type="text" role="combobox" aria-label={label} aria-autocomplete="list" aria-expanded={visible}
         aria-controls={visible ? listId : undefined} aria-activedescendant={activeId}
         placeholder="품목명·SKU 검색" autoComplete="off" maxLength={100} required disabled={disabled}
-        style={S.blockFull} value={query ?? (value ? `${value.sku} · ${value.name}` : "")}
+        style={S.blockFull} value={query ?? (value ? `${value.name} · ${value.sku}` : "")}
         onFocus={(event) => { setOpen(true); if (query === null) event.currentTarget.select(); }}
         onClick={() => setOpen(true)} onKeyDown={handleKey}
         onChange={(event) => {
