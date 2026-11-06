@@ -33,6 +33,13 @@ type ProductOption = { id: number; sku: string; name: string }; // 이력 필터
 
 const LABELS = { quantity: "수량", reason: "사유" }; // 정정 오류 details 칸 이름
 
+function focusInView(target: HTMLElement | null, block: ScrollLogicalPosition) {
+  if (!target) return;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block });
+  target.focus({ preventScroll: true }); // 스크롤 위치를 유지하면서 키보드 포커스도 옮긴다
+}
+
 // 재고 현황 화면 (주소 /inventory): 품목별 현재고 + 입출고 이력(필터·정정)
 // 주소의 ?status= 는 화면이 열릴 때 알 수 있어 Suspense 로 감싼다 (Next.js 가 빌드 때 미리 그리는 동안 기다릴 자리)
 export default function Page() {
@@ -84,7 +91,9 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
   const [busy, setBusy] = useState(false); // 정정 등록 중이면 버튼을 잠근다
   const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
   const historyRequest = useRef(0); // 품목 전환 뒤에 도착한 이전 이력 응답은 버린다
+  const inventoryTitle = useRef<HTMLHeadingElement>(null); // 선택한 행이 현재 쪽에 없을 때 돌아갈 위치
   const historyTitle = useRef<HTMLHeadingElement>(null); // "입출고 이력" 제목 (이력 보기를 누르면 여기로 이동)
+  const selectedHistoryButton = useRef<HTMLButtonElement>(null); // 이력에서 목록으로 돌아갈 때 다시 포커스할 버튼
 
   const reloadMovements = useCallback(async () => {
     const request = ++historyRequest.current;
@@ -114,23 +123,29 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
     setPage(1);
   }
 
+  function clearHistoryProduct() {
+    setHistoryProduct(undefined);
+    setRows([]);
+    setMeta(null);
+    filter(setProductId, "");
+  }
+
   // 같은 품목을 다시 누르면 품목 선택을 풀고, 다른 품목을 누르면 해당 이력으로 이동한다.
   function toggleHistory(row: Stock) {
     const selectedId = String(row.product_id);
     if (productId === selectedId) {
-      setHistoryProduct(undefined);
-      setRows([]);
-      setMeta(null);
-      filter(setProductId, "");
+      clearHistoryProduct();
       return;
     }
     setHistoryProduct({ id: row.product_id, sku: row.sku, name: row.name });
     filter(setProductId, selectedId);
-    const title = historyTitle.current;
-    if (!title) return;
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches; // OS 의 "움직임 줄이기" 설정이 켜져 있으면 스르륵 대신 바로 이동
-    title.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); // 아래로 스르륵 내려간다
-    title.focus({ preventScroll: true }); // 키보드·낭독기 사용자도 이력 영역으로 따라오게 (스크롤은 위에서 이미 했다)
+    focusInView(historyTitle.current, "start");
+  }
+
+  function returnToInventory() {
+    const button = selectedHistoryButton.current; // 선택을 해제하기 전에 돌아갈 행을 잡아 둔다
+    clearHistoryProduct();
+    focusInView(button ?? inventoryTitle.current, button ? "center" : "start");
   }
 
   function startCorrect(m: Movement) {
@@ -160,7 +175,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
 
   return (
     <section>
-      <div style={S.detailHeader}><h1>재고 현황</h1><Link href="/shipments?type=ADJUSTMENT" style={S.linkButtonGhost}>실사 조정</Link></div>
+      <div style={S.detailHeader}><h1 ref={inventoryTitle} tabIndex={-1}>재고 현황</h1><Link href="/shipments?type=ADJUSTMENT" style={S.linkButtonGhost}>실사 조정</Link></div>
       {/* 기존 목록 검색창과 비활성 포함을 재고 API에 연결한다. */}
       <ListControls placeholder="품목명·SKU 검색" onSearch={searchStock} searchInput={{ value: searchText, onChange: setSearchText, maxLength: 100 }}
         includeInactive={stock.includeInactive} onToggleInactive={stock.toggleInactive}
@@ -193,7 +208,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
                 {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 판단 불가는 이유를 작게 보인다. 비활성은 "-" */}
               </td>
               <td>
-                <button type="button" aria-expanded={selected} onClick={() => toggleHistory(s)}>
+                <button ref={selected ? selectedHistoryButton : undefined} type="button" aria-expanded={selected} onClick={() => toggleHistory(s)}>
                   {selected ? "추이·이력 닫기" : "추이·이력 보기"}
                 </button>
               </td>
@@ -214,7 +229,10 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
       )}
       <Pager meta={stockReady && !stock.error ? stock.meta : null} onPage={stock.setPage} />{/* 이전 검색의 쪽 번호는 숨긴다. */}
 
-      <h2 ref={historyTitle} tabIndex={-1} style={S.sectionTitle}>입출고 이력</h2>
+      <div style={{ ...S.detailHeader, marginTop: S.sectionTitle.marginTop, marginBottom: 0 }}>
+        <h2 ref={historyTitle} tabIndex={-1} style={{ margin: 0 }}>입출고 이력</h2>
+        {productId && <button type="button" onClick={returnToInventory}>접고 목록으로 ↑</button>}
+      </div>
       {/* tabIndex -1: 키 이동 순서에는 넣지 않고, 코드로만 포커스를 줄 수 있게 */}
       <ProductSearch list={productList} label="이력 품목명·SKU 검색" />
       <div style={S.toolbar}>
