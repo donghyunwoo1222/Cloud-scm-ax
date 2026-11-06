@@ -3,7 +3,7 @@
 from datetime import date, datetime  # 날짜·시각 칸
 from typing import Annotated, Literal  # 타입에 검사를 덧붙이는 도구, 정해진 값 중 하나
 
-from pydantic import BaseModel, ConfigDict, Field  # 모양 정의·검사 도구
+from pydantic import BaseModel, ConfigDict, Field, model_validator  # 모양 정의·검사 도구
 
 from app.schemas.common import (  # 공통 칸 타입(번호·수량·단가 상한 #71)·PATCH 규칙
     Id,
@@ -16,12 +16,30 @@ from app.schemas.common import (  # 공통 칸 타입(번호·수량·단가 상
 PoStatus = Literal["DRAFT", "APPROVED", "ORDERED", "RECEIVED", "CANCELLED"]  # 목록 상태 필터 (그 밖의 값은 422)
 
 
-class ItemIn(BaseModel):
+class OrderQuantity(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422
+
+    quantity: Quantity | None = None  # 재고 기준 수량
+    box_quantity: Quantity | None = None  # 박스 수
+
+    @model_validator(mode="after")
+    def one_quantity(self):
+        if (self.quantity is None) == (self.box_quantity is None):
+            raise ValueError("quantity 또는 box_quantity 중 하나를 보내세요.")
+        return self
+
+
+class ItemIn(OrderQuantity):
     model_config = ConfigDict(extra="forbid")  # 모르는 칸(추천 근거 등 서버가 정하는 값)은 422
 
     product_id: Id  # 발주할 품목 (같은 회사, 활성 품목만 새로 넣을 수 있다)
-    quantity: Quantity  # 발주 수량 (1~100만)
-    unit_price: Won  # 발주 당시 단가 (원, 0~1억)
+    unit_price: Won | None = None  # 재고 단위 발주에서만 요청에 포함하는 단가
+
+    @model_validator(mode="after")
+    def price_for_stock_quantity(self):
+        if (self.quantity is None) != (self.unit_price is None):
+            raise ValueError("재고 단위 발주에만 unit_price를 보내세요.")
+        return self
 
 
 class PurchaseOrderCreate(BaseModel):
@@ -53,6 +71,10 @@ class ItemOut(BaseModel):
     unit: str  # 품목 단위 (품목 마스터의 현재 값, 개·박스 등)
     quantity: int  # 발주 수량
     unit_price: int  # 발주 단가
+    units_per_box: int | None  # 발주 당시 입수
+    box_unit_price: int | None  # 발주 당시 박스당 단가
+    box_quantity: int | None  # 박스 단위로 발주한 수량
+    line_total: int  # 박스 발주 금액은 박스 수 × 박스 단가
     recommended_quantity: int | None  # 추천으로 만든 줄이면 당시 추천 수량
     recommendation_reason: str | None  # 당시 추천 이유 문장
     received_quantity: int  # 누적 입고량 = 입고 − 입고 정정 (이력 합계)
@@ -77,11 +99,8 @@ class PurchaseOrderOut(BaseModel):
     items: list[ItemOut]  # 품목 줄
 
 
-class ReceiptLine(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422
-
+class ReceiptLine(OrderQuantity):
     purchase_order_item_id: Id  # 입고할 발주 줄 (이 발주서의 줄만)
-    quantity: Quantity  # 이번에 들어온 수량 (1~100만)
 
 
 class ReceiptCreate(BaseModel):

@@ -14,6 +14,7 @@ from app.schemas.common import (  # 공통 칸 타입(번호·단가·안전재�
     Id,
     Name,
     PatchModel,
+    Quantity,
     SafetyStock,
     Won,
 )
@@ -31,12 +32,14 @@ class ProductCreate(BaseModel):
     name: Name  # 품목명
     unit: Unit  # 단위
     unit_cost: Won  # 구매 단가 (원, 0~1억)
+    units_per_box: Quantity | None = None  # 박스 하나에 들어 있는 재고 단위 수
+    box_unit_cost: Won | None = None  # 박스당 구매 단가
     safety_stock: SafetyStock = 0  # 안전재고 (0~100만, 기본 0)
     default_supplier_id: Id  # 기본 공급업체 (필수, 같은 회사의 활성 업체만)
 
 
 class ProductUpdate(PatchModel):
-    """바꿀 칸만 보낸다. 품목의 칸은 모두 필수라 null 로 비울 수 없다."""
+    """바꿀 칸만 보낸다. 박스 설정은 두 칸을 null로 보내 해제할 수 있다."""
 
     REQUIRED = ("sku", "name", "unit", "unit_cost", "safety_stock", "default_supplier_id", "is_active")
 
@@ -44,6 +47,8 @@ class ProductUpdate(PatchModel):
     name: Name | None = None  # 품목명
     unit: Unit | None = None  # 단위
     unit_cost: Won | None = None  # 단가
+    units_per_box: Quantity | None = None  # 박스 입수
+    box_unit_cost: Won | None = None  # 박스당 구매 단가
     safety_stock: SafetyStock | None = None  # 안전재고
     default_supplier_id: Id | None = None  # 기본 공급업체
     is_active: bool | None = None  # false: 비활성, true: 다시 활성
@@ -65,6 +70,8 @@ class ProductOut(BaseModel):
     name: str  # 품목명
     unit: str  # 단위
     unit_cost: int  # 단가
+    units_per_box: int | None  # 박스 입수
+    box_unit_cost: int | None  # 박스당 구매 단가
     safety_stock: int  # 안전재고
     is_active: bool  # 활성 여부
     default_supplier: SupplierBrief  # 기본 공급업체 id·이름·리드타임

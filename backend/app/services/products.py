@@ -54,6 +54,7 @@ def get_product(company_id: int, db: Session, product_id: int) -> Product:
 
 def create_product(company_id: int, db: Session, data: ProductCreate) -> Product:
     """품목 등록. 기본 공급업체는 같은 회사의 활성 업체만."""
+    check_box_settings(data.units_per_box, data.box_unit_cost)
     check_default_supplier(company_id, db, data.default_supplier_id)  # 다른 회사 404, 비활성 409
     product = Product(company_id=company_id, **data.model_dump())  # 요청 칸 + 회사 (회사는 토큰에서)
     db.add(product)  # 세션에 올림
@@ -63,14 +64,23 @@ def create_product(company_id: int, db: Session, data: ProductCreate) -> Product
 
 def update_product(company_id: int, db: Session, product_id: int, data: ProductUpdate) -> Product:
     """수정·비활성·다시 활성. 보낸 칸만 바꾼다. 기본 공급업체를 바꿀 때만 그 업체를 검사한다."""
-    product = get_owned(company_id, db, Product, product_id)  # 다른 회사·없는 id 는 404
+    product = get_owned(company_id, db, Product, product_id, lock=True)  # 두 박스 설정을 같은 시점에서 검사한다
     changes = data.model_dump(exclude_unset=True)  # 요청에 들어 있던 칸만
+    check_box_settings(
+        changes.get("units_per_box", product.units_per_box),
+        changes.get("box_unit_cost", product.box_unit_cost),
+    )
     if "default_supplier_id" in changes:  # 기본 공급업체를 바꾸면
         check_default_supplier(company_id, db, changes["default_supplier_id"])  # 새 업체를 검사
     for field, value in changes.items():
         setattr(product, field, value)  # 값을 바꾼다
     commit_product(db)  # 확정, SKU 를 바꿔 겹치면 409
     return product
+
+
+def check_box_settings(units_per_box: int | None, box_unit_cost: int | None) -> None:
+    if (units_per_box is None) != (box_unit_cost is None):  # 두 값이 있어야 박스 수량과 금액을 모두 계산할 수 있다
+        raise AppError(422, "VALIDATION_ERROR", "박스 입수와 박스당 구매 단가는 함께 설정하거나 해제하세요.")
 
 
 def check_default_supplier(company_id: int, db: Session, supplier_id: int) -> Supplier:

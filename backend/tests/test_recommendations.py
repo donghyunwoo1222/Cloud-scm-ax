@@ -91,6 +91,7 @@ def test_s1_shortage_recommends_160(client, world, session):
         "current_stock": 50, "in_transit": 0, "available": 50,
         "avg_daily_sales": 10.0, "lead_time_days": 5, "safety_stock": 20, "reorder_point": 70.0,
         "recommended_quantity": 160,
+        "units_per_box": None, "box_unit_cost": None, "recommended_box_quantity": None,
         "reason": "최근 30일 하루 평균 10개가 팔렸고 리드타임은 5일입니다. 리드타임 동안 50개가 필요하고 "
                   "안전재고 20개를 더하면 70개입니다. 지금 가용재고는 50개라서 발주를 추천합니다. 추천 수량은 160개입니다.",
     }]

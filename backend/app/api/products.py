@@ -25,6 +25,7 @@ def out(product: Product, supplier: Supplier) -> dict:
     return ProductOut(
         id=product.id, sku=product.sku, name=product.name, unit=product.unit,
         unit_cost=product.unit_cost, safety_stock=product.safety_stock, is_active=product.is_active,
+        units_per_box=product.units_per_box, box_unit_cost=product.box_unit_cost,
         default_supplier=SupplierBrief.model_validate(supplier),  # id·이름·리드타임
         created_at=product.created_at, updated_at=product.updated_at,
     ).model_dump(mode="json")

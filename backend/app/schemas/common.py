@@ -11,7 +11,8 @@ DB_INT_MAX = 2_147_483_647  # PostgreSQL integer 최댓값
 Id = Annotated[int, Field(strict=True, le=DB_INT_MAX)]  # 본문의 번호 칸 (없는 번호면 404, 범위 밖이면 422)
 PathId = Annotated[int, Path(le=DB_INT_MAX)]  # 주소 경로의 번호 (예: /products/{product_id})
 QueryId = Annotated[int | None, Query(le=DB_INT_MAX)]  # 목록 필터의 번호 (예: ?supplier_id=)
-Quantity = Annotated[int, Field(strict=True, ge=1, le=1_000_000)]  # 입출고·정정·발주·입고 수량: 1~100만 개
+MAX_QUANTITY = 1_000_000  # 박스 환산 후에도 적용하는 재고 단위 수량 상한
+Quantity = Annotated[int, Field(strict=True, ge=1, le=MAX_QUANTITY)]  # 입출고·정정·발주·입고 수량
 SafetyStock = Annotated[int, Field(strict=True, ge=0, le=1_000_000)]  # 안전재고: 0~100만 개
 Won = Annotated[int, Field(strict=True, ge=0, le=100_000_000)]  # 단가(원): 0~1억 원
 LeadTimeDays = Annotated[int, Field(strict=True, ge=0, le=365)]  # 리드타임: 0~365일
