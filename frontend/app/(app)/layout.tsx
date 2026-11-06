@@ -33,6 +33,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null); // 내 정보 (불러오기 전에는 null)
   const [failed, setFailed] = useState(false); // 로그인 확인이 401 이 아닌 이유(네트워크·서버 오류)로 실패했는지
   const [attempt, setAttempt] = useState(0); // "다시 시도" 를 누를 때마다 올려 확인을 다시 한다
+  const [menuOpen, setMenuOpen] = useState(false); // 좁은 화면에서는 업무 본문을 먼저 보여준다
 
   useEffect(() => {
     // 화면이 열릴 때(그리고 다시 시도할 때): 로그인 상태 확인. 로그인 안 했으면 api 함수가 401 을 받아 로그인 화면으로 보낸다
@@ -65,10 +66,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <div style={S.shell}>
         {me && (
         <aside className="sidebar" style={S.sidebar}>
-          <div style={S.brand}>Cloud SCM</div>
-          <Suspense fallback={null}>
-            <SideNav isAdmin={me.role === "ADMIN"} />
-          </Suspense>
+          <div className="sidebar-heading">
+            <div className="sidebar-brand">Cloud SCM</div>
+            <button className="mobile-menu-button" type="button" aria-expanded={menuOpen} aria-controls="app-navigation"
+              onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? "메뉴 닫기" : "메뉴 열기"}</button>
+          </div>
+          <div id="app-navigation" data-expanded={menuOpen}>
+            <Suspense fallback={null}>
+              <SideNav isAdmin={me.role === "ADMIN"} onNavigate={() => setMenuOpen(false)} />
+            </Suspense>
+          </div>
           {/* 지금 주소를 읽는 부품은 Suspense 로 감싸야 Next.js 16 빌드가 된다 */}
         </aside>
         )}
@@ -94,7 +101,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 }
 
 // 사이드 메뉴 링크 목록. 지금 화면의 메뉴에 aria-current="page" 를 달아 표시한다(색은 globals.css 의 .side-nav)
-function SideNav({ isAdmin }: { isAdmin: boolean }) {
+function SideNav({ isAdmin, onNavigate }: { isAdmin: boolean; onNavigate: () => void }) {
   const pathname = usePathname(); // 지금 주소 (예: /purchase-orders/3 → "발주" 메뉴를 현재 메뉴로)
   return (
     <nav className="side-nav" aria-label="주 메뉴" style={S.sideNav}>
@@ -104,7 +111,7 @@ function SideNav({ isAdmin }: { isAdmin: boolean }) {
           {group.title && <p style={S.navGroupTitle} aria-hidden="true">{group.title}</p>}
           {/* 그룹 제목은 눈으로 보는 용도 (낭독기는 위의 aria-label 로 읽는다) */}
           {group.links.map((item) => (
-            <Link key={item.href} href={item.href}
+            <Link key={item.href} href={item.href} onNavigate={onNavigate}
               aria-current={pathname === item.href || pathname.startsWith(`${item.href}/`) ? "page" : undefined}>
               {item.label}
             </Link>
