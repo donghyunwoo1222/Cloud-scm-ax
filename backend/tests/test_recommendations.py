@@ -87,7 +87,7 @@ def test_s1_shortage_recommends_160(client, world, session):
     session.commit()
     assert get(client)["items"] == [{
         "product_id": p.id, "product_sku": "S1", "product_name": "S1 이름",
-        "supplier_id": world["a_supplier"].id, "supplier_name": "A업체",
+        "supplier_id": world["a_supplier"].id, "supplier_name": "A업체", "unit": "개",
         "current_stock": 50, "in_transit": 0, "available": 50,
         "avg_daily_sales": 10.0, "lead_time_days": 5, "safety_stock": 20, "reorder_point": 70.0,
         "recommended_quantity": 160,

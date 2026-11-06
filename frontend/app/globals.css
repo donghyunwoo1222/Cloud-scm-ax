@@ -131,14 +131,25 @@ button:hover:not(:disabled) {
   background: var(--color-hover);
 }
 
-button[type="submit"] {
+button[type="submit"],
+button.primary-action {
   background: var(--color-primary);
   border-color: var(--color-primary);
   color: var(--color-on-primary);
 }
 
-button[type="submit"]:hover:not(:disabled) {
+button[type="submit"]:hover:not(:disabled),
+button.primary-action:hover:not(:disabled) {
   background: var(--color-primary-hover);
+}
+
+.receipt-line {
+  min-inline-size: 0;
+}
+
+.receipt-line legend {
+  padding-inline: var(--space-xs);
+  font-weight: 600;
 }
 
 button:disabled {

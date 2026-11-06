@@ -133,7 +133,7 @@ def list_recommendations(company_id: int, db: Session, today: date) -> dict:
         elif result.recommended_quantity is not None:  # 추천: 가용재고 ≤ 재주문점 (충분한 품목은 어느 목록에도 넣지 않는다)
             items.append({
                 "product_id": product.id, "product_sku": product.sku, "product_name": product.name,
-                "supplier_id": supplier.id, "supplier_name": supplier.name,
+                "supplier_id": supplier.id, "supplier_name": supplier.name, "unit": product.unit,
                 "current_stock": stock, "in_transit": transit_qty, "available": result.available,
                 "avg_daily_sales": float(result.avg_daily_sales),  # 분수 → 소수 그대로 (예: 7/30 → 0.2333…). 표시는 화면이 첫째 자리로
                 "lead_time_days": supplier.lead_time_days, "safety_stock": product.safety_stock,

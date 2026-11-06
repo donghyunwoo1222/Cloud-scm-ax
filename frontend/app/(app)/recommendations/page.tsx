@@ -14,7 +14,7 @@ import styles from "./page.module.css"; // 추천 화면 근거 버튼 스타일
 // GET /api/v1/recommendations 응답의 추천 한 줄 (backend/app/services/recommendations.py)
 type Item = {
   product_id: number; product_sku: string; product_name: string; // 품목
-  supplier_id: number; supplier_name: string; // 기본 공급업체
+  supplier_id: number; supplier_name: string; unit: string; // 기본 공급업체
   current_stock: number; in_transit: number; available: number; // 현재고, 발주 진행 중, 가용재고(= 둘의 합)
   avg_daily_sales: number; lead_time_days: number; safety_stock: number; // 일평균(소수), 리드타임, 안전재고
   reorder_point: number; recommended_quantity: number; reason: string; // 재주문점(소수), 추천 수량, 이유 문구
@@ -232,7 +232,7 @@ function Recommendations({ productId }: { productId: number | null }) {
                               <strong>{draft.box_quantity != null ? quantityLabel(draft.box_quantity, "박스") : draft.quantity}</strong>
                             </span>
                             {draft.box_quantity != null && <span style={S.sub}>재고 {quantityLabel(draft.quantity, draft.unit)}</span>}
-                            {draft.quantity !== i.recommended_quantity && <span style={S.sub}>추천 <strong>{i.recommended_quantity}</strong></span>}
+                            {draft.quantity !== i.recommended_quantity && <span style={S.sub}>추천 <strong>{quantityLabel(i.recommended_quantity, i.unit)}</strong></span>}
                           </>
                         ) : (
                           <>{/* 선택 가능한 품목만 수량을 고칠 수 있고 추천 수량은 서버 값이다 */}
@@ -241,9 +241,9 @@ function Recommendations({ productId }: { productId: number | null }) {
                               style={S.numInput} value={quantityOf(i)}
                               onChange={(e) => setQty({ ...qty, [i.product_id]: { value: e.target.value, units: i.units_per_box } })} />
                             {i.units_per_box != null && <span style={S.sub}>
-                              {boxCount > 0 ? `${quantityLabel(boxCount, "박스")} · ${quantityLabel(boxCount * i.units_per_box)}` : `1박스 · ${quantityLabel(i.units_per_box)}`}
+                              {boxCount > 0 ? `${quantityLabel(boxCount, "박스")} · ${quantityLabel(boxCount * i.units_per_box, i.unit)}` : `1박스 · ${quantityLabel(i.units_per_box, i.unit)}`}
                             </span>}
-                            <span style={S.sub}>{i.units_per_box != null ? "필요 수량" : "추천"} {i.recommended_quantity.toLocaleString("ko-KR")}</span>
+                            <span style={S.sub}>{i.units_per_box != null ? "필요 수량" : "추천"} {quantityLabel(i.recommended_quantity, i.unit)}</span>
                           </>
                         )}
                       </td>

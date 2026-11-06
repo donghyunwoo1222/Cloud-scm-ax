@@ -93,6 +93,7 @@ class PurchaseOrderOut(BaseModel):
     approved_at: datetime | None  # 승인 시각
     ordered_at: datetime | None  # 발주함 표시 시각
     received_at: datetime | None  # 전량 입고 시각 (실제 입고일)
+    has_receipts: bool  # 전량 정정된 입고 기록도 포함한다.
     cancelled_at: datetime | None  # 취소 시각
     created_at: datetime  # 만든 시각
     updated_at: datetime  # 고친 시각

@@ -4,10 +4,12 @@ from datetime import date  # 기간 칸
 from typing import Annotated, Literal  # 타입에 부가 정보를 붙이는 도구, 정해진 값 중 하나
 
 from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
+from sqlalchemy import select  # 이력에 연결된 발주 품목 조회
 
 from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
 from app.db import DB  # 요청마다 DB 세션
 from app.errors import AppError  # 공통 오류
+from app.models import PurchaseOrderItem  # 발주 품목에 발주서 번호가 있다.
 from app.pagination import Page  # page·page_size
 from app.schemas.common import PathId, QueryId  # 번호 칸 (DB 범위를 넘으면 422, #71)
 from app.schemas.movements import (  # 요청·응답 모양
@@ -32,15 +34,26 @@ def list_movements(
     date_from: Annotated[date | None, Query()] = None,  # 이 날짜부터 (포함)
     date_to: Annotated[date | None, Query()] = None,  # 이 날짜까지 (포함)
     sort: Annotated[Literal["date", "registered"], Query()] = "date",  # date: 입출고일 최신순(기본), registered: 등록 순서 최신순
+    include_current_stock: bool = False,  # 이력에 나온 품목의 현재고를 함께 조회한다.
 ) -> dict:
     if date_from and date_to and date_from > date_to:  # 거꾸로 된 기간은 빈 결과 대신 422 로 알려준다
         raise AppError(422, "VALIDATION_ERROR", "시작일은 종료일보다 늦을 수 없습니다.", [{"field": "date_from", "reason": "invalid"}])
     rows, meta = stock_service.list_movements(user.company_id, db, page, product_id, movement_type, date_from, date_to, sort)
     products = {p.id: p for p in products_service.products_by_ids(user.company_id, db, {m.product_id for m in rows})}  # 품목명·SKU 를 한 번에
+    item_ids = {m.purchase_order_item_id for m in rows if m.purchase_order_item_id is not None}
+    order_ids = dict(db.execute(select(PurchaseOrderItem.id, PurchaseOrderItem.purchase_order_id).where(
+        PurchaseOrderItem.company_id == user.company_id, PurchaseOrderItem.id.in_(item_ids),
+    )).all()) if item_ids else {}  # 같은 회사의 발주서만 연결한다.
+    stocks = {s["product_id"]: s["current_stock"] for s in stock_service.stock_rows(
+        user.company_id, db, list(products.values()),
+    )} if include_current_stock and products else {}
     data = []
     for m in rows:
         out = MovementOut.model_validate(m)  # 이력 칸
-        out.product_sku, out.product_name = products[m.product_id].sku, products[m.product_id].name  # 품목 SKU·이름 덧붙이기
+        product = products[m.product_id]
+        out.product_sku, out.product_name, out.product_unit = product.sku, product.name, product.unit
+        out.purchase_order_id = order_ids.get(m.purchase_order_item_id)
+        out.current_stock = stocks.get(m.product_id)  # 품목 SKU·이름 덧붙이기
         data.append(out.model_dump(mode="json"))
     return {"data": data, "meta": meta}  # 정정 행은 reverses_movement_id 포함
 
