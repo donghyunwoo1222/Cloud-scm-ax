@@ -147,6 +147,88 @@ button.primary-action:hover:not(:disabled) {
   min-inline-size: 0;
 }
 
+.product-picker {
+  position: relative;
+}
+
+.product-picker-chevron {
+  position: absolute;
+  inset-inline-end: var(--space-sm);
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  color: var(--color-muted-foreground);
+  pointer-events: none;
+}
+
+.product-picker input[aria-expanded="true"] + .product-picker-chevron {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.product-picker-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+  color: var(--color-foreground);
+  box-shadow: var(--shadow-sm), 0 8px 24px rgb(30 41 59 / 12%);
+  text-align: start;
+}
+
+.product-picker-menu:popover-open {
+  display: flex;
+  flex-direction: column;
+}
+
+.product-picker-options {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.product-picker-options:not(:empty) {
+  padding: var(--space-xs);
+}
+
+.product-picker-options button {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-xs) var(--space-sm);
+  border: 0;
+  text-align: start;
+  white-space: normal;
+}
+
+.product-picker-options button[aria-selected="true"] {
+  background: var(--color-selected);
+  color: var(--color-link);
+}
+
+.product-picker-footer {
+  padding: var(--space-sm);
+  color: var(--color-muted-foreground);
+  font-size: var(--text-xs);
+}
+
+.product-picker-options:not(:empty) + .product-picker-footer {
+  border-top: 1px solid var(--color-border);
+}
+
+.product-picker-footer > div {
+  margin: 0 !important; /* 공통 페이지 이동의 바깥 여백은 메뉴 안에서 없앤다. */
+  justify-content: space-between;
+}
+
+.product-picker-footer button {
+  min-height: 32px;
+  padding-inline: var(--space-sm);
+}
+
 .receipt-line legend {
   padding-inline: var(--space-xs);
   font-weight: 600;
@@ -188,6 +270,11 @@ select:disabled,
 textarea:disabled {
   background: var(--color-hover);
   color: var(--color-muted-foreground);
+}
+
+.product-picker input[role="combobox"] {
+  padding-inline-end: var(--space-xl);
+  text-overflow: ellipsis;
 }
 
 /* 폼 항목: 라벨 글자가 위, 입력칸이 아래 (예: "수량*" 아래에 칸, 그 아래 "현재고 N개").
