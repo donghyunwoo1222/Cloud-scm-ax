@@ -45,7 +45,7 @@
 | F4 입출고 | POST /inventory-movements | 직접 입고, 출고(판매·폐기·기타), 재고 조정 등록. movement\_type으로 구분 | 둘 다 |
 | F4 | POST /inventory-movements/{id}/corrections | 잘못 넣은 이력 {id}를 정정(CORRECTION 등록) | 둘 다 |
 | F4 | GET /inventory-movements | 이력 조회(품목·유형(여러 개 가능)·기간 필터, 정렬: 입출고일순 또는 등록순) | 둘 다 |
-| F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 안전재고. 발주 진행 중 수량(`in_transit`), 상태(`status`: 가용재고 ≤ 재주문점이면 SHORTAGE, 추천 제외 품목은 UNKNOWN + `status_reason`, 비활성은 null, 추천과 같은 계산, #76). `?status=`로 거르기 | 둘 다 |
+| F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 안전재고. 발주 진행 중 수량(`in_transit`), 상태(`status`: 가용재고 ≤ 재주문점이면 SHORTAGE, 추천 제외 품목은 UNKNOWN + `status_reason`, 비활성은 null, 추천과 같은 계산, #76). `q`(최대 100자)는 공백을 다듬어 SKU·품목명 부분 일치 검색에 사용한다(대소문자 무시, `%`·`_`는 글자 그대로). `status`와 함께 주면 두 조건으로 거른 뒤 쪽을 나눈다. | 둘 다 |
 | F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status` 필터, #36), DRAFT 발주서 만들기(직접) | 둘 다 |
 | F6 | GET /purchase-orders/{id}, PATCH /purchase-orders/{id} | 상세, DRAFT 일 때만 품목·수량 수정 | 둘 다 |
 | F6 | POST /purchase-orders/{id}/approve | DRAFT → APPROVED | 관리자 |

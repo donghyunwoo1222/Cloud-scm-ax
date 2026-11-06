@@ -3,9 +3,11 @@
 from datetime import timedelta  # 날짜 빼기
 
 import pytest  # 테스트 도구
+from sqlalchemy import select  # 회사 조건을 뺀 조회문으로 변형 검증한다
 
 from app.clock import seoul_today  # 서울 기준 오늘
 from app.models import InventoryMovement, Product  # 표
+from app.services import products as product_service  # 검색의 회사 조건을 테스트 안에서만 변형한다
 from tests.helpers import login_as  # 공통 로그인
 
 STOCK = "/api/v1/stock"  # 재고 경로
@@ -89,6 +91,68 @@ def test_stock_paging(client, world, data):
     assert body["meta"] == {"page": 2, "page_size": 1, "total": 2} and len(body["data"]) == 1
     for size in (0, 101):
         assert client.get(STOCK, params={"page_size": size}).status_code == 422
+
+
+@pytest.fixture
+def search_data(world, session):
+    """검색·페이지·회사 격리에 쓸 품목을 준비한다."""
+    named = add_product(session, world, "a", "MATCH-1")  # 이름과 SKU에 서로 다른 검색어를 넣는다
+    named.name = "MixedName 30% 컵"  # 부분 이름과 퍼센트 문자로 찾을 품목
+    add_product(session, world, "a", "MATCH_2")  # 밑줄이 실제로 들어 있는 활성 품목
+    add_product(session, world, "a", "MATCH-3", is_active=False)  # 비활성 포함일 때만 나오는 품목
+    add_product(session, world, "a", "OTHER")  # 최신이지만 검색에는 일치하지 않는 품목
+    add_product(session, world, "b", "MATCH-FOREIGN")  # 검색은 맞지만 다른 회사의 품목
+    session.commit()  # 테스트가 끝나면 바깥 트랜잭션에서 함께 되돌린다
+
+
+@pytest.mark.parametrize(("q", "expected"), [
+    ("  mIxEdNa  ", {"MATCH-1"}),  # 품목명 일부, 대소문자 혼합, 앞뒤 공백
+    (" AtCh ", {"MATCH-1", "MATCH_2"}),  # SKU 일부, 대소문자 혼합, 앞뒤 공백
+    ("", {"MATCH-1", "MATCH_2", "OTHER"}),  # 빈 검색어는 검색 조건 없이 조회
+    ("   ", {"MATCH-1", "MATCH_2", "OTHER"}),  # 공백만 있어도 전체 활성 품목
+    ("없는 품목", set()),  # 일치하지 않으면 빈 목록과 total 0
+    ("%", {"MATCH-1"}),  # 퍼센트는 실제 글자로만 찾는다
+    ("_", {"MATCH_2"}),  # 밑줄은 한 글자 와일드카드로 처리하지 않는다
+])
+def test_stock_search_terms(client, search_data, q, expected):
+    """품목 목록과 같은 검색 규칙으로 행과 전체 개수를 반환한다."""
+    login_as(client)  # 회사 A에서만 조회한다
+    response = client.get(STOCK, params={"q": q})  # 검색어가 있는 재고 목록을 요청한다
+    assert response.status_code == 200  # 빈 결과도 정상 응답이다
+    assert set(by_sku(response)) == expected  # 반환된 품목의 SKU를 비교한다
+    assert response.json()["meta"]["total"] == len(expected)  # 전체 개수도 검색 결과와 같다
+
+
+def test_stock_search_pages_and_inactive(client, search_data):
+    """검색과 비활성 조건을 적용한 다음 페이지를 나눈다."""
+    login_as(client)  # 회사 A에서 조회한다
+    params = {"q": "match", "page_size": 1}  # 한 쪽에 한 줄씩 받는다
+    first = client.get(STOCK, params=params).json()  # 더 최신인 OTHER는 검색에서 빠진다
+    assert [row["sku"] for row in first["data"]] == ["MATCH_2"]  # 일치하는 최신 활성 품목
+    assert first["meta"] == {"page": 1, "page_size": 1, "total": 2}  # 쪽 크기와 전체 건수는 다르다
+    second = client.get(STOCK, params={**params, "page": 2}).json()  # 같은 조건으로 다음 쪽을 조회한다
+    assert [row["sku"] for row in second["data"]] == ["MATCH-1"]  # 첫 쪽에 없던 품목도 조회된다
+    assert second["meta"]["total"] == 2  # 쪽을 바꿔도 전체 건수는 같다
+    included = client.get(STOCK, params={**params, "include_inactive": True}).json()  # 비활성 품목도 포함한다
+    assert [row["sku"] for row in included["data"]] == ["MATCH-3"]  # 일치하는 최신 비활성 품목
+    assert included["meta"]["total"] == 3  # 비활성 품목도 전체 건수에 포함된다
+    assert client.get(STOCK, params={"q": "x" * 101}).status_code == 422  # 100자 상한을 넘으면 요청을 거절한다
+
+
+def test_stock_search_company_condition_detects_regression(client, search_data, monkeypatch):
+    """회사 조건을 테스트 안에서만 빼면 실제 격리 검증이 실패한다."""
+    login_as(client)  # 회사 A로 로그인한다
+
+    def assert_company_isolated():
+        body = client.get(STOCK, params={"q": "foreign"}).json()  # 회사 B에만 일치하는 검색어
+        assert body["data"] == [] and body["meta"]["total"] == 0  # 행과 건수에 모두 노출되면 안 된다
+
+    assert_company_isolated()  # 정상 코드에서 먼저 격리를 확인한다
+    with monkeypatch.context() as mutation:  # 이 블록에서만 회사 조건을 제거한다
+        mutation.setattr(product_service, "scoped", lambda _company_id, model: select(model))  # 회사 WHERE만 뺀다
+        with pytest.raises(AssertionError):  # 같은 격리 검증이 실패해야 테스트가 누출을 잡는다
+            assert_company_isolated()  # 조건이 없으면 다른 회사 품목이 검색된다
+    assert_company_isolated()  # 블록을 나와 원래 회사 범위가 복원됐는지 확인한다
 
 
 def test_stock_requires_login(client, world, data):
