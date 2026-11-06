@@ -7,6 +7,7 @@ import { api, apiList, Meta } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
 import { STOCK_BADGE, StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
+import { ProductSearch, useProductOptions } from "../../lib/product-search"; // 이력 품목도 서버에서 검색한다.
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/stock 의 한 행 (상태는 추천 계산과 같은 기준, #76)
@@ -23,7 +24,7 @@ type Movement = {
   quantity: number; movement_date: string; sales_channel: string | null; reason: string | null; memo: string | null;
   reverses_movement_id: number | null; created_at: string;
 };
-type ProductOption = { id: number; sku: string; name: string }; // 이력 필터의 품목 선택지
+type ProductOption = { id: number | string; sku: string; name: string }; // 이력 필터의 품목 선택지
 
 const LABELS = { quantity: "수량", reason: "사유" }; // 정정 오류 details 칸 이름
 
@@ -58,7 +59,9 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
     const timer = window.setTimeout(() => searchStock(searchText), 300); // 입력이 멈춘 뒤 첫 쪽을 조회한다
     return () => window.clearTimeout(timer); // 다시 입력하거나 화면을 닫으면 이전 타이머를 취소한다
   }, [waitingForSearch, searchStock, searchText]);
-  const [products, setProducts] = useState<ProductOption[]>([]); // 이력 필터의 품목 선택지 (비활성 포함)
+  const productList = useProductOptions(true); // 이전 비활성 품목의 이력도 검색할 수 있다.
+  const [historyProduct, setHistoryProduct] = useState<ProductOption>(); // 검색 결과와 별도로 선택을 유지한다.
+  const products = productList.isCurrent ? productList.rows : [];
   const [productId, setProductId] = useState(""); // 이력 필터: 품목
   const [type, setType] = useState(""); // 이력 필터: 유형
   const [from, setFrom] = useState(""); // 이력 필터: 시작일
@@ -75,11 +78,6 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
   const [busy, setBusy] = useState(false); // 정정 등록 중이면 버튼을 잠근다
   const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
   const historyTitle = useRef<HTMLHeadingElement>(null); // "입출고 이력" 제목 (이력 보기를 누르면 여기로 이동)
-
-  useEffect(() => {
-    // shortcut: 품목 100개까지만 선택지로 불러온다(서버 page_size 최대). 100개를 넘으면 검색형 선택 상자로 바꾼다
-    apiList<ProductOption>("/products?page_size=100&include_inactive=true").then((r) => setProducts(r.data)).catch(setError);
-  }, []);
 
   const reloadMovements = useCallback(async () => {
     const params = new URLSearchParams({ page: String(page) }); // 쿼리 문자열 (예: page=1&movement_type=SALE)
@@ -107,8 +105,9 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
   }
 
   // 이 품목의 이력 보기: 이력을 품목으로 거르고 "입출고 이력" 제목으로 화면과 포커스를 옮긴다
-  function showHistory(id: number) {
-    filter(setProductId, String(id));
+  function showHistory(row: Stock) {
+    setHistoryProduct({ id: row.product_id, sku: row.sku, name: row.name });
+    filter(setProductId, String(row.product_id));
     const title = historyTitle.current;
     if (!title) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches; // OS 의 "움직임 줄이기" 설정이 켜져 있으면 스르륵 대신 바로 이동
@@ -174,7 +173,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
                 {s.status_reason && <span style={S.sub}>{s.status_reason.message}</span>}
                 {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 판단 불가는 이유를 작게 보인다. 비활성은 "-" */}
               </td>
-              <td><button type="button" onClick={() => showHistory(s.product_id)}>이력 보기</button></td>
+              <td><button type="button" onClick={() => showHistory(s)}>이력 보기</button></td>
               {/* 아래 이력을 이 품목으로 거른다 */}
             </tr>
           ))}
@@ -193,11 +192,18 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
 
       <h2 ref={historyTitle} tabIndex={-1} style={S.sectionTitle}>입출고 이력</h2>
       {/* tabIndex -1: 키 이동 순서에는 넣지 않고, 코드로만 포커스를 줄 수 있게 */}
+      <ProductSearch list={productList} label="이력 품목명·SKU 검색" />
       <div style={S.toolbar}>
         {/* 필터: 품목·유형·기간 */}
         <label>품목
-          <select value={productId} onChange={(e) => filter(setProductId, e.target.value)} style={S.block}>
+          <select value={productId} onChange={(e) => {
+            setHistoryProduct(products.find((p) => String(p.id) === e.target.value) ?? historyProduct);
+            filter(setProductId, e.target.value);
+          }} style={S.block}>
             <option value="">전체</option>
+            {historyProduct && String(historyProduct.id) === productId && !products.some((p) => p.id === historyProduct.id) && (
+              <option value={historyProduct.id}>{historyProduct.sku} · {historyProduct.name}</option>
+            )}
             {products.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
           </select>
         </label>

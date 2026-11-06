@@ -69,9 +69,9 @@ export function ListControls({
   searchInput, // 부모가 검색 입력과 지우기를 직접 관리할 때 사용한다
 }: {
   placeholder?: string;
-  includeInactive: boolean;
+  includeInactive?: boolean;
   onSearch?: (q: string) => void;
-  onToggleInactive: (value: boolean) => void;
+  onToggleInactive?: (value: boolean) => void;
   tableFilter?: ReactNode; // 필터를 넘긴 화면에서만 표 도구막대 스타일을 쓴다
   searchInput?: { value: string; onChange: (value: string) => void; maxLength: number }; // 입력값·변경 함수·글자 수 상한
 }) {
@@ -93,9 +93,9 @@ export function ListControls({
         </>
       )}
       {tableFilter}{/* 지정한 화면에서만 추가 필터를 표시한다. */}
-      <label style={tableFilter ? undefined : S.inlineLabel}>
+      {onToggleInactive && <label style={tableFilter ? undefined : S.inlineLabel}>
         <input type="checkbox" checked={includeInactive} onChange={(e) => onToggleInactive(e.target.checked)} /> 비활성 포함
-      </label>
+      </label>}
     </form>
   );
 }

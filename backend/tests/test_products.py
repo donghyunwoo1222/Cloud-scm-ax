@@ -25,6 +25,18 @@ def b_product(world, session):
     return product
 
 
+def test_search_finds_product_after_first_hundred(client, world, session):
+    company_id = world["a_company"].id
+    session.add_all([Product(company_id=company_id, **new_product(world, sku=f"SKU-{i:03}")) for i in range(101)])
+    session.commit()
+    login_as(client)
+    first_page = client.get(URL, params={"page_size": 100}).json()["data"]
+    assert len(first_page) == 100 and all(p["sku"] != "SKU-000" for p in first_page)
+    result = client.get(URL, params={"q": "sku-000"}).json()
+    assert result["meta"]["total"] == 1
+    assert result["data"][0]["sku"] == "SKU-000"
+
+
 # ----- 완료 기준 1: 등록·수정·비활성이 된다 (관리자·담당자 모두) -----
 @pytest.mark.parametrize("email", ["staff@a.test", "admin@a.test"], ids=["staff", "admin"])
 def test_create_update_deactivate(client, world, email):
