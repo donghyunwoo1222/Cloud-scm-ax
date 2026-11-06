@@ -46,6 +46,7 @@
 | F4 | POST /inventory-movements/{id}/corrections | 잘못 넣은 이력 {id}를 정정(CORRECTION 등록) | 둘 다 |
 | F4 | GET /inventory-movements | 이력 조회(품목·유형(여러 개 가능)·기간 필터, 정렬: 입출고일순 또는 등록순) | 둘 다 |
 | F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 안전재고. 발주 진행 중 수량(`in_transit`), 상태(`status`: 가용재고 ≤ 재주문점이면 SHORTAGE, 추천 제외 품목은 UNKNOWN + `status_reason`, 비활성은 null, 추천과 같은 계산, #76). `q`(최대 100자)는 공백을 다듬어 SKU·품목명 부분 일치 검색에 사용한다(대소문자 무시, `%`·`_`는 글자 그대로). `status`와 함께 주면 두 조건으로 거른 뒤 쪽을 나눈다. | 둘 다 |
+| F5 재고 추이 | GET /stock/{product\_id}/trend | 서울 기준 오늘 포함 30일의 품목별 마감 재고와 입고 기록 (#126) | 둘 다 |
 | F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status`·`receipt_due` 필터, `q` 발주번호 부분 검색), DRAFT 발주서 만들기(직접). 응답의 `has_receipts`는 전량 정정된 입고 이력도 포함한다. | 둘 다 |
 | F6 | GET /purchase-orders/{id}, PATCH /purchase-orders/{id} | 상세, DRAFT 일 때만 품목·수량 수정 | 둘 다 |
 | F6 | POST /purchase-orders/{id}/approve | DRAFT → APPROVED | 관리자 |
@@ -56,7 +57,7 @@
 | F8 발주 추천 | GET /recommendations | 현재 시점 추천 목록 계산·반환 | 둘 다 |
 | F8 | POST /recommendations/drafts | 선택한 품목으로 공급업체별 DRAFT 발주서 생성·품목 추가 | 둘 다 |
 
-합계 엔드포인트는 31개다(점검용 `GET /health` 제외, 2026-11-05 라우터 기준). 발주 상태 변경을 PATCH의 status 칸으로 하지 않고 동사 경로(approve, order, cancel)로 나눴다. 이렇게 하면 "승인은 관리자만", "취소는 입고 없을 때만" 같은 규칙을 경로 하나에 하나씩 붙일 수 있고, 상태를 건너뛰는 요청(승인 생략)이 경로에서부터 존재하지 않는다(R5).
+합계 엔드포인트는 32개다(점검용 `GET /health` 제외, 2026-11-06 라우터 기준). 발주 상태 변경을 PATCH의 status 칸으로 하지 않고 동사 경로(approve, order, cancel)로 나눴다. 이렇게 하면 "승인은 관리자만", "취소는 입고 없을 때만" 같은 규칙을 경로 하나에 하나씩 붙일 수 있고, 상태를 건너뛰는 요청(승인 생략)이 경로에서부터 존재하지 않는다(R5).
 
 ## 핵심 API 상세
 
@@ -136,6 +137,12 @@
 - 수동 발주 작성·수정의 품목 줄은 기존 `{"product_id": 1, "quantity": 30, "unit_price": 1000}` 또는 박스 방식 `{"product_id": 1, "box_quantity": 3}`을 받는다. 두 방식은 한 발주서의 서로 다른 줄에서 함께 쓸 수 있다. 새 박스 줄은 품목의 박스 입수와 박스당 구매 단가를 복사한다. 기존 박스 줄은 DRAFT에서 박스 수를 고쳐도 당시 값으로 계산한다. 기존 화면이 그 줄을 재고 단위 방식으로 다시 보내면 수량이 당시 입수의 배수이고 `unit_price`가 그대로일 때만 반영한다.
 - 발주 줄 응답의 `quantity`, `received_quantity`, `recommended_quantity`는 모두 재고 단위다. 박스 줄에는 발주 당시 `units_per_box`와 `box_unit_price`, 발주한 `box_quantity`를 담고, 재고 단위 줄에는 이 세 칸이 null이다. 모든 줄에 `line_total`(원)을 담는다. 박스 줄의 `unit_price`는 당시 품목의 재고 단위 구매 단가이고, 실제 발주 금액은 `box_quantity × box_unit_price`다. 재고 단위 줄의 금액은 `quantity × unit_price`다. 예를 들어 10개입 3박스, 박스당 10,005원은 `quantity: 30`, `line_total: 30015`다.
 - 설정이 없는 품목에 박스 발주를 요청하거나, 박스 수를 환산한 재고 단위 수량이 기존 상한인 100만을 넘으면 422 `VALIDATION_ERROR`다.
+
+### 품목별 재고 추이 (#126)
+
+`GET /stock/{product_id}/trend`는 품목 정보와 서울 기준 오늘을 포함한 30일의 `days`를 날짜 오름차순으로 반환한다. `closing_stock`은 기간 전 재고에 날짜별 입출고·조정·정정을 반영한 수량이다. 이력이 시작되기 전에는 null이며, 이후 변동 없는 날은 전날 값을 이어 간다. 오늘 값은 조회 시점까지의 수량이다.
+
+`received_quantity`는 해당 날짜 입고에서 입고 정정을 뺀 수량이고, `reached_zero`는 직전 마감이 양수이고 해당 날짜의 마감 재고가 0일 때 true다. 정정은 원래 이력 날짜에 반영한다. 다른 회사 품목은 404다.
 
 ### 입고 납기 요약과 목록 필터 (#120)
 

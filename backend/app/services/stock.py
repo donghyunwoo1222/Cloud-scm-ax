@@ -5,10 +5,10 @@
 여러 줄을 한 요청에서 쓰다 중간에 실패하면(예: 발주 입고 품목 3개 중 2번째가 초과) 앞 줄까지 함께 취소되게 하려고.
 """
 
-from datetime import date  # 날짜
+from datetime import date, timedelta  # 날짜와 기간 경계
 
 from sqlalchemy import case, func, select  # 조건 합계, 합계, SELECT 문
-from sqlalchemy.orm import Session  # DB 세션 타입
+from sqlalchemy.orm import Session, aliased  # DB 세션과 정정의 원본 이력 별칭
 
 from app.clock import seoul_today  # 서울 기준 오늘
 from app.errors import AppError  # 공통 오류
@@ -20,20 +20,63 @@ from app.models import (  # 입출고 이력, 품목, 발주서·발주 품목
 )
 from app.pagination import PageParams, paginate  # 목록 쪽 나누기
 from app.schemas.movements import CorrectionCreate, MovementCreate  # 등록·정정 요청 모양
+from app.schemas.stock import StockTrendDay, StockTrendOut  # 일별 마감 재고 응답
 from app.services.tenant import check_ref, get_owned, scoped  # 회사 분리 도우미 (#23)
 
 OUT_TYPES = {"SALE", "DISPOSAL", "OTHER_OUT"}  # 항상 줄이는 유형
 
 
+def movement_delta():
+    return case((InventoryMovement.direction == "IN", InventoryMovement.quantity), else_=-InventoryMovement.quantity)
+
+
 def current_stock(company_id: int, db: Session, product_id: int) -> int:
     """현재고 = IN 수량 합계 − OUT 수량 합계 (erd.md 조회 1). 이력이 없으면 0."""
-    signed = case((InventoryMovement.direction == "IN", InventoryMovement.quantity), else_=-InventoryMovement.quantity)  # IN 은 +, OUT 은 −
     return db.scalar(
-        select(func.coalesce(func.sum(signed), 0)).where(  # 합계, 없으면 0
+        select(func.coalesce(func.sum(movement_delta()), 0)).where(  # 합계, 없으면 0
             InventoryMovement.company_id == company_id,  # 우리 회사 이력만 (R1)
             InventoryMovement.product_id == product_id,  # 이 품목만
         )
     )
+
+
+def get_stock_trend(company_id: int, db: Session, product_id: int, today: date) -> StockTrendOut:
+    """기간 전 잔액과 일별 변동을 읽어 오늘 포함 30일의 마감 재고를 계산한다."""
+    product = get_owned(company_id, db, Product, product_id)  # 다른 회사 품목은 404
+    start = today - timedelta(days=29)
+    movement = InventoryMovement
+    original = aliased(InventoryMovement)
+    day_bucket = case((movement.movement_date >= start, movement.movement_date))  # 기간 전 이력은 한 그룹으로 모은다
+    net_receipts = case(
+        (movement.movement_type == "RECEIPT", movement.quantity),
+        (original.movement_type == "RECEIPT", -movement.quantity),
+        else_=0,
+    )
+    totals = {
+        day: (delta, receipts) for day, delta, receipts in db.execute(
+            select(day_bucket, func.sum(movement_delta()), func.sum(net_receipts))
+            .select_from(movement)
+            .outerjoin(original, (original.id == movement.reverses_movement_id)
+                       & (original.company_id == company_id) & (original.product_id == product_id)
+                       & (movement.movement_date >= start))  # 기간 전에는 입고량을 따로 셀 필요가 없다
+            .where(movement.company_id == company_id, movement.product_id == product_id, movement.movement_date <= today)
+            .group_by(day_bucket)
+        )
+    }
+    closing = totals.get(None, (None, 0))[0]  # 이력이 없던 기간은 실제 재고 0과 구분한다
+    days = []
+    for offset in range(30):
+        day = start + timedelta(days=offset)
+        previous = closing
+        receipts = 0
+        if day in totals:
+            delta, receipts = totals[day]
+            closing = (closing or 0) + delta  # 날짜 순서로 수량을 반영한다
+        days.append(StockTrendDay(
+            day=day, closing_stock=closing, received_quantity=receipts,
+            reached_zero=previous is not None and previous > 0 and closing == 0,
+        ))
+    return StockTrendOut(product_id=product.id, name=product.name, sku=product.sku, unit=product.unit, days=days)
 
 
 def validate_new_movement(data: MovementCreate, today: date) -> str:

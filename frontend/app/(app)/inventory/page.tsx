@@ -11,6 +11,7 @@ import { STOCK_BADGE, StatusBadge } from "../../lib/status-badge"; // 색 + 글�
 import { quantityLabel } from "../../lib/po"; // 입출고 이력에도 실제 단위를 붙인다.
 import { ProductSearch, useProductOptions } from "../../lib/product-search"; // 이력 품목도 서버에서 검색한다.
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
+import { StockTrend } from "./stock-trend"; // 선택한 품목의 30일 마감 재고
 
 // GET /api/v1/stock 의 한 행 (상태는 추천 계산과 같은 기준, #76)
 type Stock = {
@@ -67,6 +68,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
   const [historyProduct, setHistoryProduct] = useState<ProductOption>(); // 검색 결과와 별도로 선택을 유지한다.
   const products = productList.isCurrent ? productList.rows : [];
   const [productId, setProductId] = useState(""); // 이력 필터: 품목
+  const [trendRevision, setTrendRevision] = useState(0); // 정정 성공 후 같은 품목의 추이도 다시 읽는다
   const [type, setType] = useState(""); // 이력 필터: 유형
   const [from, setFrom] = useState(""); // 이력 필터: 시작일
   const [to, setTo] = useState(""); // 이력 필터: 종료일
@@ -134,6 +136,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
       });
       setNotice(`정정했습니다. 현재고는 ${quantityLabel(r.stock_after, correcting.product_unit ?? undefined)}입니다.`);
       setCorrecting(null); // 폼 닫기
+      setTrendRevision((revision) => revision + 1);
       await Promise.all([reloadMovements(), stock.reload()]); // 이력·재고 숫자 다시 불러오기
     } catch (e) {
       setCError(e); // 폼은 열어 둔 채 입력값 유지. 서버 문장 그대로 (정정 수량 초과, 재고 부족 등)
@@ -178,7 +181,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
                 {s.status_reason && <span style={S.sub}>{s.status_reason.message}</span>}
                 {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 판단 불가는 이유를 작게 보인다. 비활성은 "-" */}
               </td>
-              <td><button type="button" onClick={() => showHistory(s)}>이력 보기</button></td>
+              <td><button type="button" onClick={() => showHistory(s)}>추이·이력 보기</button></td>
               {/* 아래 이력을 이 품목으로 거른다 */}
             </tr>
           ))}
@@ -221,6 +224,7 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
         <label>시작일 <input type="date" value={from} onChange={(e) => filter(setFrom, e.target.value)} /></label>
         <label>종료일 <input type="date" value={to} onChange={(e) => filter(setTo, e.target.value)} /></label>
       </div>
+      {productId && <StockTrend key={`${productId}:${trendRevision}`} productId={productId} />}
       <ErrorText error={error} />
       {notice && <p role="status" style={S.ok}>{notice}</p>}
 
