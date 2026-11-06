@@ -7,7 +7,7 @@ import { Suspense, useEffect, useState } from "react"; // 주소 읽는 부품 �
 import { apiList } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { seoulToday } from "../../lib/movement-form"; // 상세 화면과 같은 서울 날짜
-import { overdueDays, PurchaseOrder, quantityLabel, receiptQuantitiesByUnit, STATUS_LABEL } from "../../lib/po"; // 발주서 모양과 수량 표시
+import { overdueDays, PurchaseOrder, remainingQuantity, STATUS_LABEL } from "../../lib/po"; // 상세와 같은 입고 잔량 기준
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../lib/status-badge"; // 상세 화면과 같은 상태·납기 지연 배지
 import { S } from "../../lib/styles"; // 화면 공통 스타일
 
@@ -101,41 +101,27 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
       <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>발주번호</th><th>공급업체</th><th>상태</th><th style={S.num}>품목 수</th><th style={S.num} scope="col">발주 수량</th><th style={S.num} scope="col">입고 잔량</th><th>약속 납기</th></tr>
+          <tr style={S.headRow}><th>발주번호</th><th>공급업체</th><th>상태</th><th style={S.num}>품목 수</th><th style={S.num} scope="col">입고 남은 품목</th><th>약속 납기</th></tr>
         </thead>
         <tbody>
           {list.rows.map((o) => { // 각 발주서의 상태와 입고 현황을 한 줄에 표시한다
             const delay = overdueDays(o, today); // 상세와 같은 규칙으로 발주함 상태의 지연 일수를 구한다
-            const quantities = receiptQuantitiesByUnit(o.items); // 개와 박스처럼 다른 단위는 따로 집계한다
-            const boxDetails = o.items.flatMap((i) => i.box_quantity != null && i.box_unit_price != null ? [{
-              id: i.id, sku: i.product_sku, boxes: i.box_quantity, price: i.box_unit_price, quantity: i.quantity, unit: i.unit,
-            }] : []); // 당시 입수·단가가 다른 줄은 따로 확인한다
             const showReceiptProgress = o.status === "ORDERED" || o.status === "RECEIVED"; // 발주함·입고 완료일 때 입고 현황을 표시한다
+            const outstanding = showReceiptProgress ? o.items.filter((item) => remainingQuantity(item) > 0) : [];
+            const partialCount = outstanding.filter((item) => item.received_quantity > 0).length; // 부분 입고 품목도 아직 받아야 한다
             return (
               <tr key={o.id} style={S.row}>
                 <td style={S.nowrap}><Link href={"/purchase-orders/" + o.id}>{o.po_number}</Link></td>{/* 상세로 가는 링크는 발주번호에만 둔다 */}
                 <td>{o.supplier_name}</td>{/* 서버의 공급업체 이름 */}
                 <td style={S.nowrap}><PurchaseOrderStatusBadge status={o.status} /></td>{/* 발주 상태를 글자와 아이콘으로 표시한다 */}
                 <td style={S.num}>{o.items.length}</td>{/* 품목 줄 수는 오른쪽 정렬한다 */}
-                <td style={{ ...S.num, verticalAlign: "top" }}>
-                  {Array.from(quantities, ([unit, totals]) => <div key={unit}>{quantityLabel(totals.ordered, unit)}</div>)}
-                  {boxDetails.length > 0 && (
-                    <details>
-                      <summary>박스 발주 {boxDetails.length}품목</summary>
-                      {boxDetails.map((item) => (
-                        <div key={item.id} style={S.sub}>
-                          {item.sku} · {quantityLabel(item.boxes, "박스")} (재고 {quantityLabel(item.quantity, item.unit)}) · 박스당 {item.price.toLocaleString("ko-KR")}원
-                        </div>
-                      ))}
-                    </details>
-                  )}
-                </td>
-                <td style={{ ...S.num, verticalAlign: "top" }}>
-                  {showReceiptProgress ? Array.from(quantities, ([unit, totals]) => (
-                    <div key={unit}>
-                      {totals.remaining > 0 ? <strong>{quantityLabel(totals.remaining, unit)}</strong> : quantityLabel(0, unit)}
-                    </div>
-                  )) : "—"}
+                <td style={S.num}>
+                  {showReceiptProgress ? (
+                    <>
+                      <strong>{outstanding.length.toLocaleString("ko-KR")}개</strong>
+                      {partialCount > 0 && <span style={S.sub}>부분 입고 {partialCount.toLocaleString("ko-KR")}개</span>}
+                    </>
+                  ) : "—"}
                 </td>
                 <td style={S.nowrap}>
                   {o.due_date ?? "-"}{/* 약속 납기가 없으면 표시할 날짜가 없다 */}
