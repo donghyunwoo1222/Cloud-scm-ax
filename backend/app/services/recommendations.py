@@ -20,6 +20,9 @@ from app.models import (  # 표
     Supplier,
 )
 from app.schemas.recommendations import DraftCreate  # 초안 만들기 요청 모양
+from app.services.products import (
+    filter_product_search,  # 재고 목록과 품목 목록이 같은 이름·SKU 검색을 쓴다
+)
 from app.services.purchase_orders import (
     check_items,  # 요청 품목 검사: 같은 품목 두 줄 409, 다른 회사 404, 비활성 품목 409
     inactive,  # 409 INACTIVE_REFERENCE 오류
@@ -84,7 +87,10 @@ def in_transit(company_id: int, db: Session) -> dict[int, int]:
     return totals
 
 
-def calculate_for(company_id: int, db: Session, today: date, product_ids: list[int] | None = None) -> list[tuple]:
+def calculate_for(
+    company_id: int, db: Session, today: date, product_ids: list[int] | None = None,
+    *, q: str | None = None,  # 재고 상태를 계산하기 전에 검색어로 품목을 좁힐 수 있다
+) -> list[tuple]:
     """활성 품목마다 (품목, 기본 공급업체, 현재고, 진행 중 수량, 계산 결과). 최신 품목 먼저. 쿼리는 품목 수와 무관하게 5번.
 
     product_ids 를 주면 그 품목들만(추천 초안 #40), 없으면 회사의 모든 활성 품목(추천 목록 #39).
@@ -96,7 +102,7 @@ def calculate_for(company_id: int, db: Session, today: date, product_ids: list[i
     )
     if product_ids is not None:
         stmt = stmt.where(Product.id.in_(product_ids))  # 요청한 품목만
-    products = db.execute(stmt).all()
+    products = db.execute(filter_product_search(stmt, q)).all()  # 이름·SKU가 일치하는 활성 품목만 계산 대상으로 가져온다
     stocks = stock_and_first_day(company_id, db)  # 품목 id → (현재고, 첫 입출고 날짜)
     sales = net_sales(company_id, db, today)  # 품목 id → 30일 순판매
     transit = in_transit(company_id, db)  # 품목 id → 진행 중 발주 수량

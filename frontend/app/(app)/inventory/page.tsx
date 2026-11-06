@@ -47,7 +47,17 @@ function Inventory() {
 
 function InventoryBody({ initialStatus }: { initialStatus: string }) {
   const [status, setStatus] = useState(initialStatus); // 고른 상태 ("" 이면 전체). 처음 값은 주소에서
-  const stock = useList<Stock>("/stock", { status }); // 재고 목록 (20개씩, 비활성 포함 선택, 상태로 거르기)
+  const stock = useList<Stock>("/stock", { status }); // 같은 요청에 상태와 품목 검색어를 담는다
+  const [searchText, setSearchText] = useState(""); // 검색창에 적는 값은 즉시 표시한다
+  const { q: appliedSearch, search: searchStock } = stock; // 현재 요청의 검색어와 검색 함수를 가져온다
+  const waitingForSearch = searchText.trim() !== appliedSearch; // 입력을 적용하기 전에는 이전 결과를 숨긴다
+  const stockReady = !waitingForSearch && stock.isCurrent; // 현재 입력과 조건에 맞는 응답인지 확인한다
+
+  useEffect(() => {
+    if (!waitingForSearch) return; // 이미 적용한 검색어면 다시 요청하지 않는다
+    const timer = window.setTimeout(() => searchStock(searchText), 300); // 입력이 멈춘 뒤 첫 쪽을 조회한다
+    return () => window.clearTimeout(timer); // 다시 입력하거나 화면을 닫으면 이전 타이머를 취소한다
+  }, [waitingForSearch, searchStock, searchText]);
   const [products, setProducts] = useState<ProductOption[]>([]); // 이력 필터의 품목 선택지 (비활성 포함)
   const [productId, setProductId] = useState(""); // 이력 필터: 품목
   const [type, setType] = useState(""); // 이력 필터: 유형
@@ -133,8 +143,9 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
   return (
     <section>
       <h1>재고 현황</h1>
-      <ListControls includeInactive={stock.includeInactive} onToggleInactive={stock.toggleInactive} />
-      {/* 재고 목록 API 에는 검색어가 없어 검색창은 숨긴다 */}
+      {/* 기존 목록 검색창과 비활성 포함을 재고 API에 연결한다. */}
+      <ListControls placeholder="품목명·SKU 검색" onSearch={searchStock} searchInput={{ value: searchText, onChange: setSearchText, maxLength: 100 }}
+        includeInactive={stock.includeInactive} onToggleInactive={stock.toggleInactive} />
       <div style={S.toolbar}>
         <label>상태
           <select value={status} onChange={(e) => { setStatus(e.target.value); stock.setPage(1); }} style={S.block}>
@@ -144,14 +155,14 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
         </label>
         {/* 상태를 고르면 서버가 회사 전체에서 거른 뒤 쪽을 나눈다. 비활성 품목은 상태가 없어 나오지 않는다 */}
       </div>
-      <ErrorText error={stock.error} />
+      {stockReady && <ErrorText error={stock.error} />}{/* 현재 조건에서 난 오류만 보여준다. */}
       <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}><th>품목명</th><th>SKU</th><th style={S.num}>현재고</th><th style={S.num}>발주 진행 중</th><th style={S.num}>안전재고</th><th>상태</th><th></th></tr>
         </thead>
         <tbody>
-          {stock.rows.map((s) => (
+          {stockReady && !stock.error && stock.rows.map((s) => ( // 현재 검색의 결과만 표에 그린다
             <tr key={s.product_id} style={bodyRow(s.is_active)}>
               <td>{s.name}{!s.is_active && " (비활성)"}</td>
               <td style={S.nowrap}>{s.sku}</td>
@@ -170,8 +181,15 @@ function InventoryBody({ initialStatus }: { initialStatus: string }) {
         </tbody>
       </table>
       </div>
-      {stock.meta?.total === 0 && <p style={S.empty}>{status ? "이 상태의 품목이 없습니다." : "품목이 없습니다. 품목을 먼저 등록하세요."}</p>}
-      <Pager meta={stock.meta} onPage={stock.setPage} />
+      {/* 검색 결과가 비면 현재 검색어만 지우고 상태 필터는 유지할 수 있다. */}
+      {stockReady && !stock.error && stock.meta?.total === 0 && (
+        <div style={S.empty}>
+          <p role="status">{appliedSearch ? "검색 조건에 맞는 품목이 없습니다" : status ? "이 상태의 품목이 없습니다." : "품목이 없습니다. 품목을 먼저 등록하세요."}</p>
+          {/* 입력칸과 적용한 검색어를 함께 지운다. */}
+          {appliedSearch && <button type="button" onClick={() => { setSearchText(""); searchStock(""); }}>검색 지우기</button>}
+        </div>
+      )}
+      <Pager meta={stockReady && !stock.error ? stock.meta : null} onPage={stock.setPage} />{/* 이전 검색의 쪽 번호는 숨긴다. */}
 
       <h2 ref={historyTitle} tabIndex={-1} style={S.sectionTitle}>입출고 이력</h2>
       {/* tabIndex -1: 키 이동 순서에는 넣지 않고, 코드로만 포커스를 줄 수 있게 */}
