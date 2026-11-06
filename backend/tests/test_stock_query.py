@@ -170,6 +170,8 @@ def test_movements_latest_first_and_correction_link(client, world, data):
     corr = body["data"][2]
     assert corr["reverses_movement_id"] == data["sale"].id and corr["id"] == data["corr"].id
     assert body["data"][3]["reverses_movement_id"] is None
+    assert corr["correctable_quantity"] is None  # 정정 이력은 다시 정정할 수 없다.
+    assert body["data"][3]["correctable_quantity"] == data["sale"].quantity - data["corr"].quantity
     assert body["meta"] == {"page": 1, "page_size": 20, "total": 5}
 
 

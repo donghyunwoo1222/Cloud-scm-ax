@@ -212,7 +212,7 @@ function Recommendations({ productId }: { productId: number | null }) {
                         {/* 접힌 상태에서도 서버가 준 두 숫자로 짧은 판단 근거를 보여 준다 */}
                         <button type="button" className={styles.evidenceToggle} aria-expanded={open} aria-controls={evidenceId}
                           onClick={() => setExpandedId(open ? null : i.product_id)}>{/* 다른 품목을 열면 이전 근거는 닫힌다 */}
-                          <span>가용 {i.available} ≤ 재주문점 {fmt(i.reorder_point)}</span>
+                          <span>현재 {quantityLabel(i.current_stock, i.unit)} · 하루 {fmt(i.avg_daily_sales)}{i.unit} 판매 · 입고까지 {i.lead_time_days}일</span>
                           <span className={styles.evidenceAction}>{open ? "접기" : "자세히"}</span>
                         </button>
                       </td>
@@ -222,8 +222,8 @@ function Recommendations({ productId }: { productId: number | null }) {
                         {cover <= i.lead_time_days ? <StatusBadge kind="danger">품절 위험</StatusBadge> : <StatusBadge kind="info">발주 필요</StatusBadge>}
                         {draft && <span style={S.sub}>초안 작성 중 ({linkDraft ? <Link href={"/purchase-orders/" + draft.id}>{draft.po_number}</Link> : draft.po_number})</span>}
                       </td>
-                      <td className={styles.numericColumn} style={{ ...S.num, ...S.key, ...cell }}>{i.available}</td>{/* 서버의 가용재고 */}
-                      <td className={styles.numericColumn} style={{ ...S.num, ...S.key, ...cell }}>{fmt(i.reorder_point)}</td>{/* 서버의 재주문점 */}
+                      <td className={styles.numericColumn} style={{ ...S.num, ...S.key, ...cell }}>{quantityLabel(i.available, i.unit)}</td>{/* 서버의 가용재고 */}
+                      <td className={styles.numericColumn} style={{ ...S.num, ...S.key, ...cell }}>{fmt(i.reorder_point)}{i.unit}</td>{/* 서버의 재주문점 */}
                       <td className={styles.numericColumn} style={{ ...S.num, ...cell }}>
                         {draft ? (
                           <>{/* 편집 칸 없이 서버에 저장된 초안 수량을 보여 준다 */}
@@ -259,6 +259,7 @@ function Recommendations({ productId }: { productId: number | null }) {
                             <div><dt>일평균 판매</dt><dd style={S.num}>{fmt(i.avg_daily_sales)}</dd></div>{/* 서버의 일평균을 표시용으로 반올림한다 */}
                             <div><dt>재고 커버 일수</dt><dd style={S.num}>{fmt(cover)}일</dd></div>{/* 기존 화면의 커버 일수 */}
                           </dl>
+                          <p className={styles.evidenceReason}>가용 {quantityLabel(i.available, i.unit)} ≤ 재주문점 {fmt(i.reorder_point)}{i.unit}</p>
                           <p className={styles.evidenceReason}>{i.reason}</p>{/* 서버의 전체 이유를 그대로 보여 준다 */}
                         </div>
                       </td>

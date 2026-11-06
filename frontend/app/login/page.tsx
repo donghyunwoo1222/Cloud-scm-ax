@@ -38,7 +38,8 @@ export default function LoginPage() {
   return (
     <main style={S.loginPage}>
       {/* 화면 여백과 폭 */}
-      <h1>Cloud SCM + AX 로그인</h1>
+      <h1>Cloud SCM 로그인</h1>
+      <p style={S.hint}>재고·입출고·발주 관리</p>
       <form onSubmit={onSubmit} style={S.formStack}>
         {/* 입력칸을 세로로 쌓는다 */}
         <label>

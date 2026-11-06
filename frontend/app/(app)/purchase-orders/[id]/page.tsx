@@ -159,10 +159,11 @@ function Detail() {
         </div>
       </div>
 
-      <div style={S.buttons}>
+      <div className="receipt-controls">
         {order.status === "DRAFT" && <Link href={`/purchase-orders/${order.id}/edit`} style={S.linkButtonGhost}>수정</Link>}
         {/* 작성 중일 때만 수정 화면으로 간다 */}
-        {buttons.map(([action, label]) => <button key={action} type="button" onClick={() => act(action)}>{label}</button>)}
+        {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving}
+          className={action === "cancel" ? undefined : "primary-action"} onClick={() => act(action)}>{label}</button>)}
         {order.status === "ORDERED" && !receiving && <button className="primary-action" type="button" onClick={() => setReceiving(true)}>입고 등록</button>}
       </div>
       {staffDraft && <p>승인은 관리자만 할 수 있습니다. 관리자에게 승인을 요청하세요.</p>}
@@ -185,14 +186,14 @@ function Detail() {
               <fieldset key={i.id} className="receipt-line" style={S.sectionCard}>
                 <legend>{i.product_name} · {i.product_sku}</legend>
                 <p>남은 수량 <strong>{quantityLabel(remaining, i.unit)}</strong></p>
-                <div style={S.buttons}>
+                <div className="receipt-controls">
                       {maxBoxes > 0 && (
                         <select value={byBox ? "box" : "stock"} disabled={busy} aria-label={`${i.product_name} 입고 단위`}
                           onChange={(e) => setQty({ ...qty, [i.id]: { value: "", box: e.target.value === "box" } })}>
                           <option value="box">박스</option>
                           <option value="stock">재고 단위 ({i.unit})</option>
                         </select>
-                      )}{" "}
+                      )}
                       <input type="number" min={1} max={byBox ? maxBoxes : Math.min(remaining, MAX_ORDER_QUANTITY)} step={1}
                         style={S.numInput} value={entry?.value ?? ""} disabled={busy}
                         onChange={(e) => setQty({ ...qty, [i.id]: { value: e.target.value, box: byBox } })}

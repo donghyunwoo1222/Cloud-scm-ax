@@ -55,6 +55,7 @@ function UsersAdmin({ me }: { me: Me }) {
 
   // 한 사람의 역할·활성 여부 바꾸기. 바뀐 칸 하나만 보낸다 (예: {"role": "STAFF"})
   async function update(user: User, change: Partial<Pick<User, "role" | "is_active">>) {
+    if (change.role && !window.confirm(`${user.name} (${user.email})의 역할을 ${ROLE_LABEL[user.role]} → ${ROLE_LABEL[change.role]}로 변경할까요?`)) return;
     try {
       await api(`/users/${user.id}`, { method: "PATCH", body: change });
       setError(null);
@@ -80,7 +81,8 @@ function UsersAdmin({ me }: { me: Me }) {
         <label>이메일* <input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} autoComplete="off" /></label>
         <label>
           임시 비밀번호*
-          <input type="password" value={form.password} onChange={(e) => set("password", e.target.value)} autoComplete="new-password" />
+          <input type="password" value={form.password} onChange={(e) => set("password", e.target.value)} autoComplete="new-password" minLength={8} aria-describedby="temporary-password-hint" />
+          <small id="temporary-password-hint">8자 이상으로 입력하고 직원에게 안전한 방식으로 직접 전달하세요.</small>
           {/* 화면에 글자를 보이지 않게, 브라우저가 내 비밀번호를 자동으로 채우지 않게 */}
         </label>
         <label>
@@ -114,7 +116,7 @@ function UsersAdmin({ me }: { me: Me }) {
               <td>{u.email}</td>
               <td>
                 <select value={u.role} onChange={(e) => update(u, { role: e.target.value as User["role"] })} aria-label={`${u.name} 역할`}>
-                  {/* 바꾸면 바로 저장. 마지막 관리자면 서버가 막고 원래 값으로 돌아간다 */}
+                  {/* 대상과 변경할 역할을 확인한 뒤 저장한다. */}
                   <option value="ADMIN">{ROLE_LABEL.ADMIN}</option>
                   <option value="STAFF">{ROLE_LABEL.STAFF}</option>
                 </select>

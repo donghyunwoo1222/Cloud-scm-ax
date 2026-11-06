@@ -4,12 +4,12 @@ from datetime import date  # 기간 칸
 from typing import Annotated, Literal  # 타입에 부가 정보를 붙이는 도구, 정해진 값 중 하나
 
 from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
-from sqlalchemy import select  # 이력에 연결된 발주 품목 조회
+from sqlalchemy import func, select  # 이력에 연결된 발주 품목 조회
 
 from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
 from app.db import DB  # 요청마다 DB 세션
 from app.errors import AppError  # 공통 오류
-from app.models import PurchaseOrderItem  # 발주 품목에 발주서 번호가 있다.
+from app.models import InventoryMovement, PurchaseOrderItem  # 발주 품목에 발주서 번호가 있다.
 from app.pagination import Page  # page·page_size
 from app.schemas.common import PathId, QueryId  # 번호 칸 (DB 범위를 넘으면 422, #71)
 from app.schemas.movements import (  # 요청·응답 모양
@@ -47,13 +47,21 @@ def list_movements(
     stocks = {s["product_id"]: s["current_stock"] for s in stock_service.stock_rows(
         user.company_id, db, list(products.values()),
     )} if include_current_stock and products else {}
+    original_ids = {m.id for m in rows if m.movement_type != "CORRECTION"}
+    corrected = dict(db.execute(select(
+        InventoryMovement.reverses_movement_id, func.sum(InventoryMovement.quantity),
+    ).where(
+        InventoryMovement.company_id == user.company_id, InventoryMovement.reverses_movement_id.in_(original_ids),
+    ).group_by(InventoryMovement.reverses_movement_id)).all()) if original_ids else {}
     data = []
     for m in rows:
         out = MovementOut.model_validate(m)  # 이력 칸
         product = products[m.product_id]
         out.product_sku, out.product_name, out.product_unit = product.sku, product.name, product.unit
         out.purchase_order_id = order_ids.get(m.purchase_order_item_id)
-        out.current_stock = stocks.get(m.product_id)  # 품목 SKU·이름 덧붙이기
+        out.current_stock = stocks.get(m.product_id)
+        if m.id in original_ids:
+            out.correctable_quantity = m.quantity - corrected.get(m.id, 0)  # 품목 SKU·이름 덧붙이기
         data.append(out.model_dump(mode="json"))
     return {"data": data, "meta": meta}  # 정정 행은 reverses_movement_id 포함
 

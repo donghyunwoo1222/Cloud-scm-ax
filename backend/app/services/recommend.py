@@ -51,6 +51,7 @@ def calculate_recommendation(
     in_transit: int,  # ORDERED 발주의 미입고 수량 합계 (CANCELLED 는 넣지 않는다)
     lead_time: int,  # 기본 공급업체의 리드타임(일)
     safety_stock: int,  # 품목의 안전재고
+    unit: str = "개",  # 이유 문구에는 품목의 실제 재고 단위를 붙인다.
     cycle: int = REPLENISH_CYCLE_DAYS,  # 보충 주기(일)
 ) -> Recommendation | Excluded:
     """품목 하나의 추천을 계산한다. 같은 입력이면 항상 같은 결과를 돌려준다."""
@@ -77,9 +78,9 @@ def calculate_recommendation(
         return Recommendation(avg, available, reorder_point, None, None)
 
     reason = (  # 정해진 문장 틀에 계산 숫자만 끼워 넣는다 (LLM 아님, 확정)
-        f"최근 30일 하루 평균 {_num(avg)}개가 팔렸고 리드타임은 {lead_time}일입니다. "
-        f"리드타임 동안 {_num(lead_demand)}개가 필요하고 안전재고 {safety_stock}개를 더하면 {_num(reorder_point)}개입니다. "
-        f"지금 가용재고는 {available}개라서 발주를 추천합니다. 추천 수량은 {quantity}개입니다."
+        f"최근 30일 하루 평균 {_num(avg)}{unit}가 팔렸고 리드타임은 {lead_time}일입니다. "
+        f"리드타임 동안 {_num(lead_demand)}{unit}가 필요하고 안전재고 {safety_stock}{unit}를 더하면 {_num(reorder_point)}{unit}입니다. "
+        f"지금 가용재고는 {available}{unit}라서 발주를 추천합니다. 추천 수량은 {quantity}{unit}입니다."
     )  # 예) 하루 평균 10개 … 50개가 필요 … 70개입니다. 가용재고는 50개 … 추천 수량은 160개입니다.
     return Recommendation(avg, available, reorder_point, quantity, reason)
 

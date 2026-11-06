@@ -88,6 +88,13 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   // 이미 DRAFT 가 있는 공급업체면 서버가 details 에 기존 발주서 번호를 준다
   const duplicate = error instanceof ApiError && error.code === "DUPLICATE_DRAFT" ? (error.details as { purchase_order_id: number; po_number: string }) : null;
 
+  const estimatedAmount = lines.reduce((sum, line) => {
+    const count = Number(line.quantity);
+    const price = line.box ? packingFor(line.product_id).price : Number(line.unit_price);
+    if (!Number.isSafeInteger(count) || count < 1 || price == null || !Number.isSafeInteger(price) || price < 0) return sum;
+    return sum + BigInt(count) * BigInt(price); // 여러 줄의 금액을 더해도 마지막 원까지 유지한다.
+  }, BigInt(0));
+
   return (
     <form onSubmit={submit}>
       <div style={S.formGrid}>
@@ -137,6 +144,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
                 <input type="number" required min={1} step={1} max={line.box && units != null ? boxLimit(units) : MAX_ORDER_QUANTITY}
                   style={S.numInput} value={line.quantity} onChange={(e) => setLine(index, { quantity: e.target.value })}
                   aria-label={`${index + 1}번 줄 ${suffix}`} />
+                {!line.box && unit && <span style={S.sub}>재고 단위 ({unit})</span>}
                 {line.box && units != null && (
                   <span style={S.sub}>{count > 0 ? `${quantityLabel(count, "박스")} · 재고 ${quantityLabel(count * units, unit)}` : `1박스 · 재고 ${quantityLabel(units, unit)}`}</span>
                 )}
@@ -160,10 +168,11 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       </table>
       </div>
       <button type="button" onClick={() => setLines((rows) => [...rows, { ...EMPTY_LINE }])}>줄 추가</button>
+      <p style={S.hint}>예상 합계 {estimatedAmount.toLocaleString("ko-KR")}원</p>
 
       <p style={{ ...S.buttons, marginTop: "var(--space-md)" }}>
-        <button type="submit">{order ? "수정 저장" : "작성"}</button>
-        <Link href={order ? `/purchase-orders/${order.id}` : "/purchase-orders"} style={S.linkButtonGhost}>취소</Link>
+        <button type="submit">{order ? "변경 저장" : "초안 저장"}</button>
+        <Link href={order ? `/purchase-orders/${order.id}` : "/purchase-orders"} style={S.linkButtonGhost}>{order ? "발주서 상세로 돌아가기" : "발주 목록"}</Link>
       </p>
       <ErrorText error={error} labels={PO_LABELS} />
       {duplicate && <p><Link href={`/purchase-orders/${duplicate.purchase_order_id}`}>기존 발주서 {duplicate.po_number} 열기</Link></p>}

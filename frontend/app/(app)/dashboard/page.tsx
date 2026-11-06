@@ -52,6 +52,7 @@ export default function Page() {
   const me = useMe(); // 내 정보 (레이아웃이 로그인을 확인하기 전에는 null)
   const [data, setData] = useState<Dashboard | null>(null); // 불러온 요약 (불러오기 전 null)
   const [error, setError] = useState<unknown>(null); // 불러오기 오류
+  const [hasSupplier, setHasSupplier] = useState<boolean | null>(null); // 첫 설정에서 가능한 다음 단계를 찾는다.
   const [productTotal, setProductTotal] = useState<number | null>(null); // 등록한 품목 수 (부족이 0일 때만 묻는다, 모르면 null)
   const [unknownTotal, setUnknownTotal] = useState<number | null>(null); // 판단 불가 품목 수 (품목이 있고 부족이 0일 때만 묻는다)
 
@@ -63,7 +64,11 @@ export default function Page() {
       try {
         const products = await apiList("/products?page_size=1&include_inactive=true"); // 한 줄만 받아 전체 개수(meta.total)만 본다. 비활성만 있어도 "등록한 품목 있음"
         setProductTotal(products.meta.total); // 0 이면 "첫 품목 등록" 안내
-        if (products.meta.total === 0) return; // 품목이 없으면 판단 불가도 0 이라 묻지 않는다
+        if (products.meta.total === 0) {
+          const suppliers = await apiList("/suppliers?page_size=1"); // 새 품목에는 활성 공급업체가 필요하다.
+          setHasSupplier(suppliers.meta.total > 0);
+          return;
+        }
         const unknown = await apiList("/stock?status=UNKNOWN&page_size=1"); // 판단 불가(데이터 부족 등) 품목 개수
         setUnknownTotal(unknown.meta.total); // "판단 불가 N개" 로 함께 보인다
       } catch {
@@ -85,7 +90,14 @@ export default function Page() {
     <section>
       <h1>대시보드</h1>
       {productTotal === 0 && (
-        <p style={S.sectionCard}>아직 등록한 품목이 없습니다. <Link href="/products" style={S.linkButton}>첫 품목 등록</Link></p>
+        <section style={S.sectionCard}>
+          <h2>첫 재고 설정</h2>
+          <p>공급업체 등록 → 품목 등록 → 첫 입고</p>
+          <div style={{ ...S.buttons, marginTop: "var(--space-sm)" }}>
+            {hasSupplier !== true && <Link href="/suppliers" style={S.linkButton}>공급업체 등록</Link>}
+            {hasSupplier !== false && <Link href="/products" style={hasSupplier ? S.linkButton : S.linkButtonGhost}>품목 등록</Link>}
+          </div>
+        </section>
       )}
       {/* 품목이 하나도 없는 회사: 무엇부터 할지 안내 (빈 화면 대신 다음 행동) */}
 
@@ -94,7 +106,7 @@ export default function Page() {
         {/* 1. 지금 발주할 품목 수 (부족 판정과 추천은 같은 계산이라 새로 계산하지 않는다) */}
         <NumberCard label="입고 대기 발주" value={`${won(po.ordered)}건`} sub={`입고 예정 ${unitTotals(po.incoming_by_unit)}`} href="/purchase-orders?status=ORDERED" more="입고 대기 발주 보기" />{/* 발주함 상태로 걸러진 목록으로 이동한다 */}
         {me?.role === "ADMIN" && (
-          <NumberCard label="승인 대기" value={`${won(po.draft)}건`} sub="작성 중인 발주서 (승인은 관리자만)" href="/purchase-orders?status=DRAFT" more="승인 대기 발주 보기" />
+          <NumberCard label="작성 중 발주서" value={`${won(po.draft)}건`} sub="승인 전 초안" href="/purchase-orders?status=DRAFT" more="작성 중 발주서 보기" />
         )}
         {/* 3-관리자: 내가 승인해야 할 발주서 */}
         {me?.role === "STAFF" && (
@@ -174,7 +186,7 @@ export default function Page() {
           <span style={S.nowrap}><span aria-hidden="true">→ </span>승인됨 <strong style={S.kpiValue}>{won(po.approved)}건</strong></span>{/* 화살표는 보조기기에서 숨기고 다음 단계와 함께 줄을 바꾼다 */}
           <span style={S.nowrap}><span aria-hidden="true">→ </span>발주함 <strong style={S.kpiValue}>{won(po.ordered)}건</strong></span>{/* 발주함 건수와 단위를 붙여 표시한다 */}
         </div>{/* 세 단계의 현황 표시를 닫는다 */}
-        <span id="incoming-quantity" style={S.kpiSub}>입고 예정 수량 <strong style={S.nowrap}>{unitTotals(po.incoming_by_unit)}</strong> (발주함 발주서의 아직 안 들어온 수량)</span>{/* 미입고 수량과 단위가 갈라지지 않게 한다 */}
+        <span id="incoming-quantity" style={S.kpiSub}>입고 예정 수량 <strong>{unitTotals(po.incoming_by_unit)}</strong> (발주함 발주서의 아직 안 들어온 수량)</span>{/* 미입고 수량과 단위가 갈라지지 않게 한다 */}
         <span id="all-purchase-orders" style={S.kpiMore}>발주 목록 전체 보기 →</span>{/* 카드에 보이는 문구를 보조기기의 링크 이름으로도 쓴다 */}
       </Link>
 

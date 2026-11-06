@@ -22,15 +22,15 @@ const LABELS = { product_id: "품목", quantity: "수량", direction: "방향", 
 export const seoulToday = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
 
 // 입출고 등록 폼. types 로 이 화면에서 고를 수 있는 유형을 정한다 (입고 화면은 입고만, 출고 화면은 나머지)
-export function MovementForm({ types }: { types: MovementType[] }) {
-  const dateLabel = types.length === 1 && types[0] === "RECEIPT" ? "입고일" : "출고일"; // 입고 화면은 "입고일", 출고 화면은 "출고일" (서버 칸 이름은 그대로 movement_date)
+export function MovementForm({ types, initialType = types[0] }: { types: MovementType[]; initialType?: MovementType }) {
+  const [type, setType] = useState<MovementType>(initialType); // 직접 열었으면 실사 조정도 기본으로 고를 수 있다.
+  const dateLabel = type === "ADJUSTMENT" ? "조정일" : type === "RECEIPT" ? "입고일" : "출고일";
   const labels = { ...LABELS, movement_date: dateLabel }; // 오류 문장의 칸 이름도 같은 글자로
   const productList = useProductOptions(true); // 비활성 품목도 입고·출고·조정할 수 있다.
   const [product, setProduct] = useState<ProductOption>(); // 검색 결과가 바뀌어도 고른 품목은 유지한다.
   const productId = product?.id; // 현재고 조회와 등록에 쓸 품목 번호
   const products = productList.isCurrent ? productList.rows : [];
   const options = product && !products.some((p) => p.id === product.id) ? [product, ...products] : products;
-  const [type, setType] = useState<MovementType>(types[0]); // 고른 유형
   const [quantity, setQuantity] = useState(""); // 수량 (글자로 다루고 보낼 때 숫자로)
   const [channel, setChannel] = useState("OWN_MALL"); // 판매 채널 (판매일 때만 보낸다)
   const [direction, setDirection] = useState("OUT"); // 조정 방향 (조정일 때만 보낸다)
@@ -216,7 +216,7 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
           <table style={S.table}>
             <thead>
               <tr style={S.headRow}>
-                <th>{isReceipt ? "입고일" : "출고일"}</th><th>품목</th>
+                <th>{isReceipt ? "입고일" : "출고·조정일"}</th><th>품목</th>
                 {!isReceipt && <th>유형</th>}
                 <th style={S.num}>수량</th><th style={S.num}>현재고(지금)</th><th>메모</th>
               </tr>
