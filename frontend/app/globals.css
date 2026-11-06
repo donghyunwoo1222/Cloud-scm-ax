@@ -143,10 +143,6 @@ button.primary-action:hover:not(:disabled) {
   background: var(--color-primary-hover);
 }
 
-.receipt-line {
-  min-inline-size: 0;
-}
-
 .purchase-order-actions:not(:empty) {
   margin-top: var(--space-md);
 }
@@ -259,13 +255,6 @@ button.primary-action:hover:not(:disabled) {
 .product-picker-footer button {
   min-height: 32px;
   padding-inline: var(--space-sm);
-}
-
-.receipt-line legend {
-  padding-inline: var(--space-xs);
-  font-weight: 600;
-  max-inline-size: 100%;
-  overflow-wrap: anywhere;
 }
 
 .receipt-controls {

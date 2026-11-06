@@ -1,0 +1,114 @@
+.receiptHeader {
+  padding: var(--space-md);
+}
+
+.receiptHeader h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs) var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.receiptHeader h2 span,
+.receiptCount {
+  color: var(--color-muted-foreground);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.receiptRows {
+  list-style: none;
+}
+
+.receiptRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(6rem, 0.7fr) minmax(0, 1.25fr);
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.receiptColumns {
+  background: var(--color-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.receiptRow[data-entered="true"] {
+  background: var(--color-selected);
+}
+
+.receiptProduct,
+.receiptRemaining,
+.receiptEntry {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.receiptRemaining > span {
+  display: none;
+}
+
+.receiptEntry input,
+.receiptEntry select {
+  scroll-margin-bottom: 8rem;
+}
+
+.receiptFooter {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: var(--space-sm) var(--space-md);
+  padding-bottom: max(var(--space-sm), env(safe-area-inset-bottom));
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: var(--color-card);
+  box-shadow: 0 -2px 8px rgb(30 41 59 / 8%);
+}
+
+.receiptFooterControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+}
+
+.receiptDate {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.receiptDate input {
+  min-width: 0;
+}
+
+.receiptCount {
+  margin-inline-end: auto;
+}
+
+@media (max-width: 700px) {
+  .receiptColumns {
+    display: none;
+  }
+
+  .receiptRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: var(--space-sm);
+  }
+
+  .receiptProduct {
+    grid-column: 1 / -1;
+  }
+
+  .receiptRemaining > span {
+    display: inline;
+    color: var(--color-muted-foreground);
+    font-size: var(--text-xs);
+  }
+
+  .receiptFooterControls > div {
+    margin-inline-start: auto;
+  }
+}
