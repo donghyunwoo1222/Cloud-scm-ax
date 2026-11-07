@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation"; // 주소의 ?status= 읽기 
 import { Suspense, useEffect, useState } from "react"; // 주소 읽는 부품 감싸기, 처음 한 번 실행, 상태
 
 import { apiList } from "../../lib/api"; // 공통 API 호출 함수
+import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { seoulToday } from "../../lib/movement-form"; // 상세 화면과 같은 서울 날짜
 import { overdueDays, PurchaseOrder, remainingQuantity, STATUS_LABEL } from "../../lib/po"; // 상세와 같은 입고 잔량 기준
@@ -67,9 +68,8 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
       <p><Link href="/purchase-orders/new" style={S.linkButton}>발주서 작성</Link></p>
 
       <ListControls placeholder="발주번호 검색" onSearch={list.search} />
-      <div style={S.toolbar}>
-        <label>상태
-          <select value={status} onChange={(e) => {
+      <div className="form-compact field-form" style={S.toolbar}>
+        <Field label="상태" className="field-half"><select value={status} onChange={(e) => {
             const value = e.target.value;
             filter(setStatus, value);
             if (value !== "ORDERED") setReceiptDue(""); // 다른 상태에는 입고 예정 필터를 적용하지 않는다
@@ -77,9 +77,8 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
             <option value="">전체</option>
             {Object.entries(STATUS_LABEL).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
           </select>
-        </label>
-        <label>입고 납기
-          <select value={receiptDue} onChange={(e) => {
+        </Field>
+        <Field label="입고 납기" className="field-half"><select value={receiptDue} onChange={(e) => {
             const value = e.target.value;
             filter(setReceiptDue, value);
             if (value) setStatus("ORDERED"); // 납기 구간을 고르면 발주함만 본다
@@ -87,13 +86,12 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
             <option value="">전체</option>
             {Object.entries(RECEIPT_DUE_LABEL).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
           </select>
-        </label>
-        <label>공급업체
-          <select value={supplierId} onChange={(e) => filter(setSupplierId, e.target.value)} style={S.block}>
+        </Field>
+        <Field label="공급업체"><select value={supplierId} onChange={(e) => filter(setSupplierId, e.target.value)} style={S.block}>
             <option value="">전체</option>
             {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
-        </label>
+        </Field>
       </div>
       <ErrorText error={error} />
       <ErrorText error={list.error} />

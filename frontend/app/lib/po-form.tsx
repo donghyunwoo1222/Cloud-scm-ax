@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"; // 저장 후 상세 화면으로 �
 import { FormEvent, useEffect, useRef, useState } from "react"; // 폼 제출, 최초 조회, 줄 번호와 상태
 
 import { api, ApiError, apiList } from "./api"; // 공통 API 호출 함수, 서버 오류
+import { Field } from "./field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { ErrorText } from "./list"; // 서버 오류 표시
 import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PurchaseOrder, quantityLabel } from "./po"; // 발주서와 박스 환산 표시
 import { ProductOption, ProductPicker } from "./product-picker"; // 발주 줄에서 품목을 검색해 바로 선택한다
@@ -100,19 +101,19 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
 
   return (
     <form onSubmit={submit}>
-      <div style={S.formGrid}>
+      <div className="form-compact field-form" style={S.formGrid}>
         {order ? (
           <p>공급업체: {order.supplier_name} (바꿀 수 없습니다. 다른 업체는 새 발주서로 작성하세요)</p>
         ) : (
-          <label>공급업체*
+          <Field label="공급업체*" className="field-half">
             <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} style={S.block}>
               <option value="">선택</option>
               {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-          </label>
+          </Field>
         )}
-        <label>약속 납기 <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label>
-        <label>메모 <input value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
+        <Field label="약속 납기" className="field-half"><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
+        <Field label="메모"><input value={memo} onChange={(e) => setMemo(e.target.value)} /></Field>
       </div>
 
       <div style={S.tableBox}>
