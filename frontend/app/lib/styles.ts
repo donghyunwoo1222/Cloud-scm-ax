@@ -23,7 +23,7 @@ export const S = {
   topbar: { display: "flex", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", gap: "var(--space-md)", padding: "12px var(--space-lg)", background: "var(--color-card)", borderBottom: "1px solid var(--color-border)", fontSize: "var(--text-sm)", color: "var(--color-muted-foreground)" }, // 상단 바: 내 정보·로그아웃
   main: { padding: "var(--space-lg)", maxWidth: 1360, width: "100%" }, // 본문 여백 (display 를 주지 않는다: hidden 속성이 먹어야 한다)
   pad2: { padding: "var(--space-xl)" }, // 안내 문구 여백
-  loginPage: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-xl)", width: "100%", maxWidth: 380, margin: "10vh auto 0" }, // 로그인 화면 틀: 가운데 흰 카드
+  loginPage: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-xl)", width: "calc(100% - 2 * var(--space-md))", maxWidth: 380, margin: "10vh auto 0" }, // 로그인 화면 틀: 가운데 흰 카드
 
   // 카드·제목·안내
   card: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)" }, // 흰 카드 상자
@@ -40,7 +40,7 @@ export const S = {
   detailHistoryValue: { margin: "var(--space-xs) 0 0", color: "var(--color-foreground)", fontWeight: 500 }, // 항목명 아래 날짜나 메모를 본문색으로 강조한다
   detailMemo: { margin: "var(--space-md) 0 0", paddingInline: "var(--space-md)" }, // 메모는 날짜 칸 아래에서 가로 폭 전체를 쓴다
   detailFilterGroup: { display: "flex", flexWrap: "wrap", gap: "var(--space-xs)", padding: "var(--space-xs)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)" }, // 필터 두 버튼을 하나의 테두리 안에 묶는다
-  detailFilterButton: { display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", minHeight: 28, paddingInline: "var(--space-sm)", border: 0, outlineOffset: -2 }, // 체크와 글자를 나란히 두고 키보드 테두리를 버튼 안쪽에 표시한다
+  detailFilterButton: { display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", minHeight: "var(--chip-min)", paddingInline: "var(--space-sm)", border: 0, outlineOffset: -2 }, // 체크와 글자를 나란히 두고 키보드 테두리를 버튼 안쪽에 표시한다
   detailFilterSelected: { background: "var(--color-selected)", color: "var(--color-link)", fontWeight: 700 }, // 현재 선택은 배경과 굵은 글자로 강조한다
   detailTableCount: { margin: 0, marginInlineStart: "auto", fontSize: "var(--text-sm)", color: "var(--color-muted-foreground)" }, // 표시 개수는 남는 공간의 오른쪽 끝에 둔다
 
@@ -76,10 +76,10 @@ export const S = {
   selectedMark: { boxShadow: "inset 3px 0 0 var(--color-primary)" }, // 체크한 줄의 첫 칸 왼쪽 파란 세로줄
 
   // 링크를 파란 주요 버튼 모양으로 (예: 발주서 작성). 화면 이동은 링크라 <a> 를 그대로 쓰고 모양만 버튼으로 입힌다
-  linkButton: { display: "inline-flex", alignItems: "center", minHeight: 36, padding: "0 14px", borderRadius: "var(--radius-sm)", background: "var(--color-primary)", color: "var(--color-on-primary)", fontWeight: 500, whiteSpace: "nowrap" },
+  linkButton: { display: "inline-flex", alignItems: "center", minHeight: "var(--control-min)", padding: "0 14px", borderRadius: "var(--radius-sm)", background: "var(--color-primary)", color: "var(--color-on-primary)", fontWeight: 500, whiteSpace: "nowrap" },
 
   // 링크를 흰 보조 버튼 모양으로 (예: 수정, 취소). 옆의 <button> 과 같은 높이·테두리
-  linkButtonGhost: { display: "inline-flex", alignItems: "center", minHeight: 36, padding: "0 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-border-strong)", background: "var(--color-card)", color: "var(--color-foreground)", fontWeight: 500, whiteSpace: "nowrap" },
+  linkButtonGhost: { display: "inline-flex", alignItems: "center", minHeight: "var(--control-min)", padding: "0 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-border-strong)", background: "var(--color-card)", color: "var(--color-foreground)", fontWeight: 500, whiteSpace: "nowrap" },
 
   // 상태 배지 (글자 + SVG 아이콘과 함께 쓴다. 부품은 lib/status-badge.tsx 의 StatusBadge)
   badgeDanger: { ...badgeBase, color: "var(--color-destructive)", background: "var(--color-destructive-bg)" }, // 부족·품절 위험

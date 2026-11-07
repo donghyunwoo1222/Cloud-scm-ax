@@ -146,7 +146,7 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
           </select>
         </label>
       )}
-      <label>수량{product && ` (${product.unit})`}* <input type="number" min={1} step={1} value={quantity} aria-describedby={product ? stockStatusId : undefined} onChange={(e) => setQuantity(e.target.value)} /></label>
+      <label>수량{product && ` (${product.unit})`}* <input type="number" inputMode="numeric" min={1} step={1} value={quantity} aria-describedby={product ? stockStatusId : undefined} onChange={(e) => setQuantity(e.target.value)} /></label>
       <label>
         {dateLabel}
         <input type="date" max={today || undefined} value={date} onChange={(e) => setDate(e.target.value)} />

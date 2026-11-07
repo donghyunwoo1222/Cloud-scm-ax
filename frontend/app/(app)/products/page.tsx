@@ -153,8 +153,8 @@ export default function ProductsPage() {
         <label>SKU* <input value={form.sku} onChange={(e) => set("sku", e.target.value)} /></label>
         <label>품목명* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
         <label>재고 단위* <input value={form.unit} onChange={(e) => set("unit", e.target.value)} placeholder="개, 병" /></label>
-        <label>재고 단위 단가(원)* <input type="number" value={form.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} /></label>
-        <label>안전재고 <input type="number" value={form.safety_stock} onChange={(e) => set("safety_stock", e.target.value)} /></label>
+        <label>재고 단위 단가(원)* <input type="number" inputMode="numeric" value={form.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} /></label>
+        <label>안전재고 <input type="number" inputMode="numeric" value={form.safety_stock} onChange={(e) => set("safety_stock", e.target.value)} /></label>
         <label>
           기본 공급업체*
           <select value={form.default_supplier_id} onChange={(e) => set("default_supplier_id", e.target.value)} style={S.block}>
@@ -168,11 +168,11 @@ export default function ProductsPage() {
           </select>
         </label>
         <label>박스 입수
-          <input type="number" min={1} max={1_000_000} step={1} required={form.box_unit_cost !== ""}
+          <input type="number" inputMode="numeric" min={1} max={1_000_000} step={1} required={form.box_unit_cost !== ""}
             value={form.units_per_box} onChange={(e) => set("units_per_box", e.target.value)} aria-describedby="product-box-hint" />
         </label>
         <label>박스당 구매 단가(원)
-          <input type="number" min={0} max={100_000_000} step={1} required={form.units_per_box !== ""}
+          <input type="number" inputMode="numeric" min={0} max={100_000_000} step={1} required={form.units_per_box !== ""}
             value={form.box_unit_cost} onChange={(e) => set("box_unit_cost", e.target.value)} aria-describedby="product-box-hint" />
         </label>
         <p id="product-box-hint" style={{ ...S.hint, flexBasis: "100%", margin: 0 }}>박스로 구매할 때 두 칸을 채우세요. 둘 다 비워 저장하면 박스 설정을 해제합니다.</p>

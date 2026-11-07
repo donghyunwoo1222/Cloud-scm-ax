@@ -139,7 +139,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
                     <option value="stock">재고 단위 ({unit})</option>
                   </select>
                 )}{" "}
-                <input type="number" required min={1} step={1} max={line.box && units != null ? boxLimit(units) : MAX_ORDER_QUANTITY}
+                <input type="number" inputMode="numeric" required min={1} step={1} max={line.box && units != null ? boxLimit(units) : MAX_ORDER_QUANTITY}
                   style={S.numInput} value={line.quantity} onChange={(e) => setLine(index, { quantity: e.target.value })}
                   aria-label={`${index + 1}번 줄 ${suffix}`} />
                 {!line.box && unit && <span style={S.sub}>재고 단위 ({unit})</span>}
@@ -153,7 +153,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
                     {count > 0 && <span style={S.sub}>합계 {(count * price).toLocaleString("ko-KR")}원</span>}
                   </>
                 ) : (
-                  <input type="number" required min={0} max={100_000_000} step={1} style={S.numInput}
+                  <input type="number" inputMode="numeric" required min={0} max={100_000_000} step={1} style={S.numInput}
                     value={line.unit_price} onChange={(e) => setLine(index, { unit_price: e.target.value })} aria-label={`${index + 1}번 줄 단가`} />
                 )}
               </td>

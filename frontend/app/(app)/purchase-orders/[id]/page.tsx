@@ -210,7 +210,7 @@ function Detail() {
                   </div>
                   <div className={styles.receiptEntry}>
                     <div className="receipt-controls">
-                      <input type="number" min={1} max={byBox ? maxBoxes : Math.min(remaining, MAX_ORDER_QUANTITY)} step={1}
+                      <input type="number" inputMode="numeric" min={1} max={byBox ? maxBoxes : Math.min(remaining, MAX_ORDER_QUANTITY)} step={1}
                         style={S.numInput} value={entry?.value ?? ""} disabled={busy}
                         onChange={(e) => setQty({ ...qty, [item.id]: { value: e.target.value, box: byBox } })}
                         aria-label={`${item.product_name} 이번 입고 수량 (${inputUnit})`} />
