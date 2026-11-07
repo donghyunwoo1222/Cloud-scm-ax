@@ -10,18 +10,20 @@ export default function Page() {
     <section>
       <h1>입고 등록</h1>
       <div style={S.kpiGrid}>
-        <section style={S.card}>
+        <section className="receipt-choice" style={S.card}>
           <h2>발주 입고</h2>
-          <p>발주서와 도착한 품목·수량을 대조합니다.</p>
+          <p className="receipt-desc">발주서와 도착한 품목과 수량을 대조합니다.</p>
           <p style={{ marginTop: "var(--space-sm)" }}><Link href="/purchase-orders?status=ORDERED" style={S.linkButton}>입고 대기 발주 보기</Link></p>
         </section>
-        <section style={S.card}>
+        <section className="receipt-choice receipt-direct-card" style={S.card}>
           <h2>직접 입고</h2>
           <p>반품처럼 연결할 발주서가 없는 물건을 등록합니다.</p>
           <p style={{ marginTop: "var(--space-sm)" }}><a href="#direct-receipt" style={S.linkButtonGhost}>직접 입고 입력</a></p>
         </section>
       </div>
       <h2 id="direct-receipt" tabIndex={-1} style={S.sectionTitle}>직접 입고 입력</h2>
+      <p className="receipt-direct-hint">반품처럼 연결할 발주서가 없는 물건을 등록합니다.</p>
+      {/* 모바일에서는 위의 직접 입고 카드가 숨겨지므로 설명을 여기에 한 줄로 둔다 */}
       <MovementForm types={["RECEIPT"]} />
     </section>
   );

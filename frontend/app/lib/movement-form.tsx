@@ -101,7 +101,7 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
   return (
     <>
     <form onSubmit={submit} style={S.formGridWide}>
-      <div style={{ flex: "1 1 220px", maxWidth: 320, minWidth: 0 }}>
+      <div className="movement-product" style={{ flex: "1 1 220px", maxWidth: 320, minWidth: 0 }}>
         <div className="movement-product-label">
           <span>품목*</span>
           <span id={stockStatusId} role="status">
