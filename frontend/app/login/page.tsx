@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation"; // 화면 이동 도구
 import { FormEvent, useEffect, useState } from "react"; // 폼 제출 이벤트, 처음 한 번 실행, 화면 상태
 
+import { Field } from "../lib/field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { api, ApiError } from "../lib/api"; // 공통 API 호출 함수
 import { S } from "../lib/styles"; // 화면 공통 스타일
 
@@ -40,16 +41,12 @@ export default function LoginPage() {
       {/* 화면 여백과 폭 */}
       <h1>Cloud SCM 로그인</h1>
       <p style={S.hint}>재고·입출고·발주 관리</p>
-      <form onSubmit={onSubmit} style={S.formStack}>
+      <form className="field-form field-stack" onSubmit={onSubmit} style={S.formStack}>
         {/* 입력칸을 세로로 쌓는다 */}
-        <label>
-          이메일
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" style={S.blockFull} />
-        </label>
-        <label>
-          비밀번호
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" style={S.blockFull} />
-        </label>
+        <Field label="이메일"><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" style={S.blockFull} />
+        </Field>
+        <Field label="비밀번호"><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" style={S.blockFull} />
+        </Field>
         {error && <p role="alert" style={S.error}>{error}</p>}
         {/* 오류가 있을 때만 표시. role="alert" 는 화면 낭독기가 바로 읽게 한다 */}
         <button type="submit" disabled={busy}>

@@ -93,8 +93,8 @@ export const S = {
   formStack: { display: "grid", gap: "12px", marginTop: "var(--space-lg)" }, // 세로로 쌓는 폼(로그인)
   fullRow: { gridColumn: "1 / -1", flexBasis: "100%" }, // 폼 줄에서 한 줄을 통째로 차지 (오류·완료 문장)
   buttons: { display: "flex", gap: "var(--space-sm)" }, // 버튼 가로 나열
-  toolbar: { display: "flex", gap: "var(--space-md)", flexWrap: "wrap", alignItems: "flex-start", margin: "var(--space-md) 0" }, // 필터 줄 (위쪽 기준 정렬)
-  panel: { display: "flex", gap: "var(--space-md)", flexWrap: "wrap", alignItems: "flex-start", padding: "12px", background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", margin: "var(--space-sm) 0" }, // 테두리 있는 작은 폼 상자
+  toolbar: { display: "flex", gap: "var(--field-row-gap) var(--field-gap)", flexWrap: "wrap", alignItems: "flex-start", margin: "var(--space-md) 0" }, // 필터 줄 (위쪽 기준 정렬)
+  panel: { display: "flex", gap: "var(--field-row-gap) var(--field-gap)", flexWrap: "wrap", alignItems: "flex-start", padding: "12px", background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", margin: "var(--space-sm) 0" }, // 테두리 있는 작은 폼 상자
   basisFull: { flexBasis: "100%" }, // 상자 안에서 한 줄 차지
   block: { display: "block" }, // 이름 글자 아래에 선택 상자를 줄바꿈해 놓기
   blockFull: { display: "block", width: "100%" }, // 줄바꿈 + 가로 꽉 채움 입력칸

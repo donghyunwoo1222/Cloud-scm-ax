@@ -714,6 +714,20 @@ details.reason > p {
     display: none;
   }
 
+  /* 여러 폼이 같이 쓰는 줄 규칙 */
+  .field-form > span {
+    flex-basis: 100%; /* 정정 폼 맨 위 요약 같은 설명 글은 한 줄 전체 폭 */
+  }
+
+  .form-compact > .form-actions {
+    margin-top: 4px !important; /* 입력칸과 버튼 줄 사이를 조금 더 띄운다 */
+  }
+
+  /* 로그인처럼 세로로 쌓는 폼(grid): 줄 간격만 라벨이 올라오는 만큼 넓힌다 */
+  .field-stack {
+    gap: var(--field-row-gap) !important; /* 로그인 폼의 간격은 inline style(S.formStack)이라 !important 가 필요하다 */
+  }
+
   /* 폼의 항목과 한 줄에 있는 버튼(예: 메모 옆 등록)은 라벨 줄이 없어졌으니 위쪽 간격을 풀고 입력칸과 높이를 맞춘다 */
   .field-form > button,
   .field-form > div:has(> button) {

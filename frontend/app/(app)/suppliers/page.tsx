@@ -4,6 +4,7 @@ import Link from "next/link"; // 공급업체 상세 화면 링크
 import { FormEvent, useRef, useState } from "react"; // 폼 제출, 상태
 
 import { api } from "../../lib/api"; // 공통 API 호출 함수
+import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
@@ -101,18 +102,18 @@ export default function SuppliersPage() {
       {created && <p role="status" style={S.ok}>공급업체를 등록했습니다. <Link href="/products">품목 등록으로 이동</Link></p>}
       <details ref={registration} style={S.sectionCard}>
       <summary>{editingId === null ? "공급업체 등록" : "공급업체 수정"}</summary>
-      <form onSubmit={save} style={S.formGrid}>
+      <form className="form-compact field-form" onSubmit={save} style={S.formGrid}>
         {/* 등록·수정 폼: 칸을 가로로 나열 */}
-        <label>업체명* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
-        <label>입고 소요일(일)* <input type="number" inputMode="numeric" value={form.lead_time_days} onChange={(e) => set("lead_time_days", e.target.value)} />
+        <Field label="업체명*"><input value={form.name} onChange={(e) => set("name", e.target.value)} /></Field>
+        <Field label="입고 소요일(일)*"><input type="number" inputMode="numeric" value={form.lead_time_days} onChange={(e) => set("lead_time_days", e.target.value)} />
           <small>발주 후 입고까지 걸리는 기간(리드타임)</small>
-        </label>
+        </Field>
         {/* 음수·소수 검사는 서버가 한다 (화면은 서버 message 를 보여준다) */}
-        <label>담당자 <input value={form.contact_name} onChange={(e) => set("contact_name", e.target.value)} /></label>
-        <label>연락처 <input value={form.phone} onChange={(e) => set("phone", e.target.value)} /></label>
-        <label>이메일 <input value={form.email} onChange={(e) => set("email", e.target.value)} /></label>
-        <label>메모 <input value={form.memo} onChange={(e) => set("memo", e.target.value)} /></label>
-        <div style={S.buttons}>
+        <Field label="담당자" className="field-half"><input value={form.contact_name} onChange={(e) => set("contact_name", e.target.value)} /></Field>
+        <Field label="연락처" className="field-half"><input value={form.phone} onChange={(e) => set("phone", e.target.value)} /></Field>
+        <Field label="이메일"><input value={form.email} onChange={(e) => set("email", e.target.value)} /></Field>
+        <Field label="메모"><input value={form.memo} onChange={(e) => set("memo", e.target.value)} /></Field>
+        <div className="form-actions" style={S.buttons}>
           <button type="submit">{editingId === null ? "등록" : "수정 저장"}</button>
           {editingId !== null && <button type="button" onClick={reset}>취소</button>}
           {/* 수정 중일 때만 취소 */}

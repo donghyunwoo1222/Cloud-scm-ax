@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation"; // 주소의 ?status= 읽기 
 import { FormEvent, Suspense, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 주소 읽는 부품 감싸기, 함수 기억, 처음·변경 시 실행, 즉시 확인용 ref, 상태
 
 import { api, apiList, Meta } from "../../lib/api"; // 공통 API 호출 함수
+import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
 import { STOCK_BADGE, StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
@@ -256,32 +257,32 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
       <p style={S.hint}>{historyProduct
         ? historyProduct.name ? `${historyProduct.name} · ${historyProduct.sku}` : "선택한 품목의 이력입니다."
         : "전체 품목의 이력입니다. 특정 품목은 위 목록에서 추이·이력 보기를 누르세요."}</p>
-      <div style={S.toolbar}>
+      <div className="form-compact field-form" style={S.toolbar}>
         {/* 유형과 기간은 선택한 품목의 이력에 적용한다. */}
-        <label>유형
+        <Field label="유형">
           <select value={type} onChange={(e) => filter(setType, e.target.value)} style={S.block}>
             <option value="">전체</option>
             {Object.entries(TYPE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
-        </label>
-        <label>시작일 <input type="date" value={from} onChange={(e) => filter(setFrom, e.target.value)} /></label>
-        <label>종료일 <input type="date" value={to} onChange={(e) => filter(setTo, e.target.value)} /></label>
+        </Field>
+        <Field label="시작일" className="field-half"><input type="date" value={from} onChange={(e) => filter(setFrom, e.target.value)} /></Field>
+        <Field label="종료일" className="field-half"><input type="date" value={to} onChange={(e) => filter(setTo, e.target.value)} /></Field>
       </div>
       {productId && <StockTrend key={`${productId}:${trendRevision}`} productId={productId} />}
       <ErrorText error={error} />
       {notice && <p role="status" style={S.ok}>{notice}</p>}
 
       {correcting && (
-        <form onSubmit={correct} style={S.panel}>
+        <form className="form-compact field-form" onSubmit={correct} style={S.panel}>
           {/* 정정 폼: 원래 이력 요약 + 수량·사유 */}
           <span>
             정정 대상: #{correcting.id} {correcting.product_name} {TYPE_LABEL[correcting.movement_type]} {quantityLabel(correcting.quantity, correcting.product_unit ?? undefined)} ({correcting.movement_date})
           </span>
-          <label>정정 수량* <input type="number" inputMode="numeric" min={1} max={correcting.correctable_quantity ?? correcting.quantity} step={1}
+          <Field label="정정 수량*" className="field-half"><input type="number" inputMode="numeric" min={1} max={correcting.correctable_quantity ?? correcting.quantity} step={1}
             aria-describedby="correction-limit" value={cQty} onChange={(e) => setCQty(e.target.value)} />
             <small id="correction-limit">이력 기준 최대 {quantityLabel(correcting.correctable_quantity ?? correcting.quantity, correcting.product_unit ?? undefined)}</small>
-          </label>
-          <label>사유* <input value={cReason} onChange={(e) => setCReason(e.target.value)} placeholder="예: 10개를 100개로 잘못 입력" /></label>
+          </Field>
+          <Field label="사유*"><input value={cReason} onChange={(e) => setCReason(e.target.value)} placeholder="예: 10개를 100개로 잘못 입력" /></Field>
           <button type="submit" disabled={busy}>{busy ? "등록 중…" : "정정 등록"}</button>
           <button type="button" onClick={() => setCorrecting(null)}>취소</button>
           <div style={S.basisFull}><ErrorText error={cError} labels={LABELS} /></div>
