@@ -43,7 +43,6 @@ export const S = {
   detailFilterButton: { display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", minHeight: 28, paddingInline: "var(--space-sm)", border: 0, outlineOffset: -2 }, // 체크와 글자를 나란히 두고 키보드 테두리를 버튼 안쪽에 표시한다
   detailFilterSelected: { background: "var(--color-selected)", color: "var(--color-link)", fontWeight: 700 }, // 현재 선택은 배경과 굵은 글자로 강조한다
   detailTableCount: { margin: 0, marginInlineStart: "auto", fontSize: "var(--text-sm)", color: "var(--color-muted-foreground)" }, // 표시 개수는 남는 공간의 오른쪽 끝에 둔다
-  receiptDateField: { maxWidth: "12rem" }, // 입고일 입력이 날짜에 필요한 너비만 차지하게 한다
 
   // 대시보드 숫자 카드 (#92)
   kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "var(--space-md)", marginTop: "var(--space-md)" }, // 카드 줄: 칸이 모자라면 다음 줄로 (160px: 768px 화면에서도 3장이 한 줄)

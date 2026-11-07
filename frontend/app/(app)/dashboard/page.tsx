@@ -255,7 +255,7 @@ export default function Page() {
       </section>
 
       <Link className={`kpi-card ${styles.monthRow}`} style={S.sectionCard}
-        href={`/inventory?summary=month&date_from=${month.month_start}&date_to=${month.month_end}#movement-history`}>
+        href={`/inventory?date_from=${month.month_start}&date_to=${month.month_end}#movement-history`}>
         <strong>이번 달 입출고</strong>
         <span>입고 <strong>{won(month.in_count)}건</strong> · 출고 <strong>{won(month.out_count)}건</strong></span>
         <span className={styles.monthLink}>입출고 이력 보기 →</span>

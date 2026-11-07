@@ -11,6 +11,7 @@ import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
 import { boxLimit, fmtDate, fmtTime, formatOrderUnitPrice, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, PoItemSort, PurchaseOrder, quantityLabel, remainingQuantity, totalAmount, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
+import styles from "./receipt.module.css";
 
 // 상태별로 누를 수 있는 버튼: [서버 동사 경로, 버튼 이름]. 승인은 관리자만 (서버도 403 으로 막는다)
 const ACTIONS: Record<string, [string, string][]> = {
@@ -31,6 +32,9 @@ function Detail() {
   const [receiving, setReceiving] = useState(false); // 입고 등록 폼을 열었는지
   const [busy, setBusy] = useState(false); // 입고 등록 중이면 버튼을 잠근다
   const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
+  const receiptTitle = useRef<HTMLHeadingElement>(null);
+  const receiptButton = useRef<HTMLButtonElement>(null);
+  const wasReceiving = useRef(false);
   const [qty, setQty] = useState<Record<number, { value: string; box: boolean }>>({}); // 줄 번호 → 이번 입고 수량과 단위
   const [date, setDate] = useState(""); // 입고일 (화면이 열린 뒤 서울 오늘로 채운다)
   const [today, setToday] = useState(""); // 입고일 상한 (미래 날짜 선택 불가)
@@ -50,6 +54,12 @@ function Detail() {
     const t = seoulToday(); // 서버 렌더링 때 시각을 읽으면 빌드가 막혀 화면이 열린 뒤 채운다
     setToday(t); setDate(t); // 상한과 기본값
   }, [load]);
+
+  useEffect(() => {
+    if (receiving) receiptTitle.current?.focus();
+    else if (wasReceiving.current) receiptButton.current?.focus();
+    wasReceiving.current = receiving;
+  }, [receiving]);
 
   const itemViewScope = order ? `${order.id}:${order.status}` : ""; // 같은 발주서가 같은 상태로 다시 오면 같은 범위다
   if (itemView.scope !== itemViewScope) { // 발주서나 상태가 바뀌는 렌더에서만 선택을 초기화한다
@@ -102,7 +112,8 @@ function Detail() {
   const delay = overdueDays(order, today); // 입고일에 쓰는 서울 오늘 날짜로 납기 지연도 판단한다
   const orderedStatus = order.status === "ORDERED"; // 발주함 상태에서만 미입고 필터를 보여준다
   const isFiltered = orderedStatus && itemView.onlyOutstanding; // 미입고 필터는 발주함 상태에서만 적용한다
-  const shownItems = visiblePoItems(order.items, isFiltered, itemView.sort); // 모든 상태에서 표에 그릴 배열만 정렬한다
+  const shownItems = visiblePoItems(order.items, receiving || isFiltered, itemView.sort); // 입고 모드는 잔량이 있는 품목만 보여 준다
+  const enteredCount = Object.values(qty).filter((entry) => entry.value !== "").length;
 
   return (
     <section>
@@ -164,61 +175,81 @@ function Detail() {
         {/* 작성 중일 때만 수정 화면으로 간다 */}
         {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving}
           className={action === "cancel" ? undefined : "primary-action"} onClick={() => act(action)}>{label}</button>)}
-        {order.status === "ORDERED" && !receiving && <button className="primary-action" type="button" onClick={() => setReceiving(true)}>입고 등록</button>}
+        {orderedStatus && !receiving && <button ref={receiptButton} className="primary-action" type="button"
+          onClick={() => { setError(null); setNotice(""); setReceiving(true); }}>입고 등록</button>}
       </div>
       {staffDraft && <p>승인은 관리자만 할 수 있습니다. 관리자에게 승인을 요청하세요.</p>}
       {/* 서버도 403 으로 막지만 화면에서도 안내한다 */}
 
       {orderedStatus && order.has_receipts && <p style={S.hint}>입고 기록이 있어 발주를 취소할 수 없습니다.</p>}
       {order.status === "APPROVED" && <p style={S.hint}>공급업체에 주문한 뒤 완료 표시를 누르세요.</p>}
-      {receiving && (
-        // 수량 입력을 별도 폼에 모아 휴대폰에서도 표를 옆으로 밀지 않게 한다.
-        <form style={S.sectionCard} onSubmit={receive}>
-          <h2>이번 입고</h2>
-          <p style={S.hint}>받은 수량만 입력하세요. 비워 둔 줄은 입고하지 않습니다.</p>
-          {shownItems.filter((i) => remainingQuantity(i) > 0).map((i) => {
-            const remaining = remainingQuantity(i);
-            const units = i.units_per_box; // 발주 당시의 입수로 입고 수량을 환산한다
-            const maxBoxes = units != null ? boxLimit(units, remaining) : 0;
-            const entry = qty[i.id];
-            const byBox = entry?.box ?? (maxBoxes > 0);
-            return (
-              <fieldset key={i.id} className="receipt-line" style={S.sectionCard}>
-                <legend>{i.product_name} · {i.product_sku}</legend>
-                <p>남은 수량 <strong>{quantityLabel(remaining, i.unit)}</strong></p>
-                <div className="receipt-controls">
-                      {maxBoxes > 0 && (
-                        <select value={byBox ? "box" : "stock"} disabled={busy} aria-label={`${i.product_name} 입고 단위`}
-                          onChange={(e) => setQty({ ...qty, [i.id]: { value: "", box: e.target.value === "box" } })}>
-                          <option value="box">박스</option>
-                          <option value="stock">재고 단위 ({i.unit})</option>
-                        </select>
-                      )}
+      {receiving ? (
+        <form style={{ ...S.sectionCard, padding: 0 }} onSubmit={receive} aria-labelledby="receipt-heading">
+          <header className={styles.receiptHeader}>
+            <h2 id="receipt-heading" ref={receiptTitle} tabIndex={-1}>이번 입고 <span>미입고 {shownItems.length}품목</span></h2>
+            <p style={S.hint}>받은 수량만 입력하세요. 비워 둔 품목은 이번 입고에서 제외됩니다.</p>
+          </header>
+          <div className={`${styles.receiptRow} ${styles.receiptColumns}`} aria-hidden="true">
+            <span>품목</span><span>남은 수량</span><span>이번 입고</span>
+          </div>
+          <ul className={styles.receiptRows} role="list">
+            {shownItems.map((item) => {
+              const remaining = remainingQuantity(item);
+              const units = item.units_per_box;
+              const maxBoxes = units != null ? boxLimit(units, remaining) : 0;
+              const entry = qty[item.id];
+              const byBox = entry?.box ?? (maxBoxes > 0);
+              const inputUnit = byBox ? "박스" : item.unit;
+              return (
+                <li key={item.id} className={styles.receiptRow} data-entered={Boolean(entry?.value)}>
+                  <div className={styles.receiptProduct}>
+                    <strong>{item.product_name}</strong><span style={S.sub}>{item.product_sku}</span>
+                  </div>
+                  <div className={styles.receiptRemaining}>
+                    <span>남은 수량 </span><strong>{quantityLabel(remaining, item.unit)}</strong>
+                  </div>
+                  <div className={styles.receiptEntry}>
+                    <div className="receipt-controls">
                       <input type="number" min={1} max={byBox ? maxBoxes : Math.min(remaining, MAX_ORDER_QUANTITY)} step={1}
                         style={S.numInput} value={entry?.value ?? ""} disabled={busy}
-                        onChange={(e) => setQty({ ...qty, [i.id]: { value: e.target.value, box: byBox } })}
-                        aria-label={`${i.product_name} 이번 입고 수량 (${byBox ? "박스" : i.unit})`} />
-                      {byBox && units != null && <span style={S.sub}>
-                        {entry?.value ? `재고 ${quantityLabel(Number(entry.value) * units, i.unit)}` : `1박스 · 재고 ${quantityLabel(units, i.unit)}`}
-                      </span>}
-                </div>
-                {!byBox && <small>재고 단위 ({i.unit})</small>}
-              </fieldset>
-            );
-          })}
-          {/* 날짜와 버튼은 한 줄에 맞추고 좁은 화면에서는 줄을 바꾼다. */}
-          <div style={S.formGrid}>
-            {/* 날짜 입력을 짧게 유지하고 미래 날짜는 선택할 수 없게 한다. */}
-            <label style={S.receiptDateField}>입고일 <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} /></label>
-            {/* 등록과 닫기 버튼은 한 묶음으로 배치한다. */}
-            <div style={S.buttons}>
-              <button type="submit" disabled={busy}>{busy ? "등록 중…" : "입고 확정"}</button>{/* 전송 중에는 중복 제출을 막는다. */}
-              <button type="button" disabled={busy} onClick={() => { setReceiving(false); setQty({}); }}>닫기</button>{/* 숨긴 줄의 입력값이 다음 입고에 섞이지 않게 비운다. */}
+                        onChange={(e) => setQty({ ...qty, [item.id]: { value: e.target.value, box: byBox } })}
+                        aria-label={`${item.product_name} 이번 입고 수량 (${inputUnit})`} />
+                      {maxBoxes > 0 ? (
+                        <select value={byBox ? "box" : "stock"} disabled={busy} aria-label={`${item.product_name} 입고 단위`}
+                          onChange={(e) => setQty({ ...qty, [item.id]: { value: "", box: e.target.value === "box" } })}>
+                          <option value="box">박스</option>
+                          <option value="stock">{item.unit}</option>
+                        </select>
+                      ) : <span>{item.unit}</span>}
+                    </div>
+                    {byBox && units != null && <span style={S.sub}>
+                      {entry?.value
+                        ? `${quantityLabel(Number(entry.value), "박스")} = ${quantityLabel(Number(entry.value) * units, item.unit)}`
+                        : `1박스 = ${quantityLabel(units, item.unit)}`}
+                    </span>}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          <div className={styles.receiptFooter}>
+            <ErrorText error={error} labels={PO_LABELS} />
+            <div className={styles.receiptFooterControls}>
+              <div className={styles.receiptDate}>
+                <label htmlFor="purchase-receipt-date">입고일</label>
+                <input id="purchase-receipt-date" type="date" value={date} max={today} disabled={busy}
+                  onChange={(e) => setDate(e.target.value)} />
+              </div>
+              <span role="status" className={styles.receiptCount}>입력한 품목 <strong>{enteredCount}개</strong></span>
+              <div style={S.buttons}>
+                <button type="button" disabled={busy} onClick={() => { setReceiving(false); setQty({}); setError(null); }}>닫기</button>
+                <button type="submit" disabled={busy || enteredCount === 0}>{busy ? "등록 중…" : "입고 확정"}</button>
+              </div>
             </div>
           </div>
         </form>
-      )}
-
+      ) : (
+      <>
       {/* 모든 상태의 품목 표에 같은 정렬 조작부를 표시한다. */}
       <div style={S.tableToolbar}>{/* 품목 표들과 같은 도구막대 스타일을 사용한다. */}
         {/* 발주함 상태에서는 필터 두 개를 붙이고 눌린 상태를 화면 읽기 도구에도 전달한다. */}
@@ -227,8 +258,7 @@ function Detail() {
             {[false, true].map((onlyOutstanding) => { // 전체 품목과 미입고만 보기 버튼을 차례로 만든다
               const selected = itemView.onlyOutstanding === onlyOutstanding; // 현재 보기와 일치하는 버튼만 선택 상태다
               return (
-                // 입고 폼을 열면 필터를 잠그고 선택 표시는 유지한다.
-                <button key={String(onlyOutstanding)} type="button" disabled={receiving} aria-pressed={selected}
+                <button key={String(onlyOutstanding)} type="button" aria-pressed={selected}
                   style={{ ...S.detailFilterButton, ...(selected ? S.detailFilterSelected : {}) }}
                   onClick={() => setItemView({ ...itemView, onlyOutstanding })}>
                   {/* 선택한 쪽만 체크를 보여 주되 두 버튼의 폭은 유지한다. */}
@@ -241,8 +271,7 @@ function Detail() {
             })}
           </div>
         )}
-        {/* 정렬 상자는 선택지에 필요한 너비만 차지하고 입고 중에는 잠긴다. */}
-        <select aria-label="품목 정렬" style={{ maxWidth: "100%" }} disabled={receiving} value={itemView.sort}
+        <select aria-label="품목 정렬" style={{ maxWidth: "100%" }} value={itemView.sort}
           onChange={(event) => setItemView({ ...itemView, sort: event.target.value as PoItemSort })}>
           <option value="registered">등록 순서</option>{/* 서버가 준 순서로 되돌린다. */}
           <option value="name-asc">품목명순 (오름차순)</option>{/* 가나다순으로 나열한다. */}
@@ -266,8 +295,7 @@ function Detail() {
             <tr>
               <td colSpan={6} style={S.empty}>
                 <p>조건에 맞는 품목이 없습니다.</p>{/* 미입고 필터 결과가 없음을 알린다. */}
-                {/* 다른 전환과 같이 입고 폼을 닫은 뒤 필터를 해제할 수 있다. */}
-                <button type="button" disabled={receiving} onClick={() => setItemView({ ...itemView, onlyOutstanding: false })}>필터 해제</button>
+                <button type="button" onClick={() => setItemView({ ...itemView, onlyOutstanding: false })}>필터 해제</button>
               </td>
             </tr>
           )}
@@ -304,9 +332,11 @@ function Detail() {
         </tfoot>
       </table>
       </div>
+      </>
+      )}
 
       {notice && <p role="status" style={S.ok}>{notice}</p>}
-      <ErrorText error={error} labels={PO_LABELS} />
+      {!receiving && <ErrorText error={error} labels={PO_LABELS} />}
     </section>
   );
 }
