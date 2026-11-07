@@ -236,7 +236,7 @@ function Recommendations({ productId }: { productId: number | null }) {
                           </>
                         ) : (
                           <>{/* 선택 가능한 품목만 수량을 고칠 수 있고 추천 수량은 서버 값이다 */}
-                            <input type="number" min={1} max={maxFor(i)} step={1}
+                            <input type="number" inputMode="numeric" min={1} max={maxFor(i)} step={1}
                               aria-label={i.product_sku + (i.units_per_box != null ? " 발주 박스 수" : " 발주 수량")}
                               style={S.numInput} value={quantityOf(i)}
                               onChange={(e) => setQty({ ...qty, [i.product_id]: { value: e.target.value, units: i.units_per_box } })} />

@@ -277,7 +277,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
           <span>
             정정 대상: #{correcting.id} {correcting.product_name} {TYPE_LABEL[correcting.movement_type]} {quantityLabel(correcting.quantity, correcting.product_unit ?? undefined)} ({correcting.movement_date})
           </span>
-          <label>정정 수량* <input type="number" min={1} max={correcting.correctable_quantity ?? correcting.quantity} step={1}
+          <label>정정 수량* <input type="number" inputMode="numeric" min={1} max={correcting.correctable_quantity ?? correcting.quantity} step={1}
             aria-describedby="correction-limit" value={cQty} onChange={(e) => setCQty(e.target.value)} />
             <small id="correction-limit">이력 기준 최대 {quantityLabel(correcting.correctable_quantity ?? correcting.quantity, correcting.product_unit ?? undefined)}</small>
           </label>

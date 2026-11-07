@@ -104,7 +104,7 @@ export default function SuppliersPage() {
       <form onSubmit={save} style={S.formGrid}>
         {/* 등록·수정 폼: 칸을 가로로 나열 */}
         <label>업체명* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
-        <label>입고 소요일(일)* <input type="number" value={form.lead_time_days} onChange={(e) => set("lead_time_days", e.target.value)} />
+        <label>입고 소요일(일)* <input type="number" inputMode="numeric" value={form.lead_time_days} onChange={(e) => set("lead_time_days", e.target.value)} />
           <small>발주 후 입고까지 걸리는 기간(리드타임)</small>
         </label>
         {/* 음수·소수 검사는 서버가 한다 (화면은 서버 message 를 보여준다) */}
