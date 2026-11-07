@@ -157,9 +157,14 @@ def test_month_movements_net_of_corrections(client, world, session):
     session.commit()
     d = get(client)["month"]
     assert d["month_start"] == TODAY.replace(day=1).isoformat()
+    assert d["month_end"] == TODAY.isoformat()
+    assert d["in_count"] == 2 and d["out_count"] == 2  # 정정·조정은 새 입출고 건이 아니다
     assert d["in_quantity"] == 52 and d["out_quantity"] == 15
     assert d["in_by_unit"] == {"개": 50, "박스": 2}
     assert d["out_by_unit"] == {"개": 15}
+    response = client.get(f"{URL}/month")
+    assert response.status_code == 200
+    assert response.json()["data"] == d
 
 
 # ----- 장기재고 -----
@@ -219,6 +224,19 @@ def test_dead_stock_list_capped(client, world, session):
     d = get(client)["dead_stock"]
     assert d["count"] == 21 and len(d["items"]) == 20
     assert d["items"][0]["current_stock"] == 21  # 가장 많은 재고가 맨 위
+
+
+def test_overstock_ranks_before_preview_limit(client, world, session):
+    """먼저 등록한 품목이어도 예상 소진일이 길면 목록 위에 남는다."""
+    for index in range(21):
+        product = add_product(session, world, "a", f"OVER-{index:02d}")
+        add_move(session, world, "a", product, "RECEIPT", "IN", 150, 25)
+        add_move(session, world, "a", product, "SALE", "OUT", 15 if index == 0 else 30, 1)
+    session.commit()
+
+    overstock = get(client)["overstock"]
+    assert overstock["count"] == 21 and len(overstock["items"]) == 20
+    assert overstock["items"][0]["sku"] == "OVER-00"
 
 
 def test_company_isolation(client, world, session):

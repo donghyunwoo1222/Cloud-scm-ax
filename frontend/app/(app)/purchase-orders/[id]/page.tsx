@@ -159,7 +159,7 @@ function Detail() {
         </div>
       </div>
 
-      <div className="receipt-controls">
+      <div className="receipt-controls purchase-order-actions">
         {order.status === "DRAFT" && <Link href={`/purchase-orders/${order.id}/edit`} style={S.linkButtonGhost}>수정</Link>}
         {/* 작성 중일 때만 수정 화면으로 간다 */}
         {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving}

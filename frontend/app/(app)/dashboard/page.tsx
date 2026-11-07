@@ -6,6 +6,7 @@ import { ReactNode, useEffect, useState } from "react"; // 카드 안 내용 타
 import { api, apiList } from "../../lib/api"; // 공통 API 호출 함수 (한 건, 목록)
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
 import { useMe } from "../../lib/me"; // 내 역할 (세 번째 카드가 역할마다 다르다)
+import { seoulToday } from "../../lib/movement-form"; // 이력 링크에 서울 기준 오늘을 쓴다
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 import styles from "./page.module.css"; // 입고 카드의 전체·세부 목록 링크
 
@@ -18,7 +19,7 @@ type Dashboard = {
     draft: number; approved: number; ordered: number; incoming_by_unit: UnitTotals;
     due_today?: number; overdue?: number; // 이전 API 응답에는 납기별 건수가 없을 수 있다
   };
-  month: { month_start: string; in_by_unit: UnitTotals; out_by_unit: UnitTotals }; // 이번 달 입고·출고 수량
+  month: { month_start: string; month_end: string; in_count: number; out_count: number }; // 이번 달 입고·출고 기록 건수
   dead_stock: { days: number; count: number; items: DeadItem[] }; // 장기재고 (기준 일수, 전체 건수, 화면에 보일 줄)
   shortage: { count: number; items: ShortItem[] }; // 부족 품목 (전체 건수, 화면에 보일 20줄)
   overstock: { days: number; count: number; items: OverItem[] }; // 과잉재고 (기준 일수 90, 전체 건수, 20줄)
@@ -52,7 +53,7 @@ function NumberCard({ label, value, sub, href, more }: { label: string; value: s
     : <div style={S.kpiCard}>{body}</div>; // 이동할 곳이 없는 숫자(이번 달 입출고)는 그냥 상자
 }
 
-// 대시보드 화면 (주소 /dashboard): 로그인 후 시작 화면. 위 → 아래로 "할 일 숫자 → 진행 중 발주 → 부족 → 이번 달 → 과잉·장기"
+// 오늘 할 일에서 시작해 재고 점검과 입출고 이력으로 이어진다.
 export default function Page() {
   const me = useMe(); // 내 정보 (레이아웃이 로그인을 확인하기 전에는 null)
   const [data, setData] = useState<Dashboard | null>(null); // 불러온 요약 (불러오기 전 null)
@@ -60,6 +61,7 @@ export default function Page() {
   const [hasSupplier, setHasSupplier] = useState<boolean | null>(null); // 첫 설정에서 가능한 다음 단계를 찾는다.
   const [productTotal, setProductTotal] = useState<number | null>(null); // 등록한 품목 수 (부족이 0일 때만 묻는다, 모르면 null)
   const [unknownTotal, setUnknownTotal] = useState<number | null>(null); // 판단 불가 품목 수 (품목이 있고 부족이 0일 때만 묻는다)
+  const [showMoreStock, setShowMoreStock] = useState(false);
 
   useEffect(() => {
     // 처음 열 때 한 번: 요약을 불러오고, 부족이 0일 때만 빈 화면 문구에 필요한 숫자를 더 묻는다
@@ -91,6 +93,11 @@ export default function Page() {
     Number(b.current_stock === 0) - Number(a.current_stock === 0) || (stockRatio(a) ?? 1) - (stockRatio(b) ?? 1)
   ).slice(0, SHORTAGE_PREVIEW_LIMIT);
   const won = (n: number) => n.toLocaleString(); // 천 단위 쉼표 (예: 1497 → "1,497")
+  const today = seoulToday();
+  const stockLimit = showMoreStock ? 20 : 3;
+  const overItems = over.items.slice(0, stockLimit);
+  const deadItems = dead.items.slice(0, stockLimit);
+  const overScale = Math.max(over.days * 2, ...overItems.map((item) => item.current_stock / item.avg_daily_sales));
 
   return (
     <section>
@@ -107,15 +114,10 @@ export default function Page() {
       )}
       {/* 품목이 하나도 없는 회사: 무엇부터 할지 안내 (빈 화면 대신 다음 행동) */}
 
+      <h2 style={S.sectionTitle}>오늘 확인할 일</h2>
       <div role="group" aria-label="오늘 확인할 일" style={S.kpiGrid}>
-        <NumberCard label="발주 추천" value={`${won(shortage.count)}건`} sub="재고 부족 품목 수와 같습니다" href="/recommendations" more="발주 추천 보기" />
-        {/* 1. 지금 발주할 품목 수 (부족 판정과 추천은 같은 계산이라 새로 계산하지 않는다) */}
         <div className={`kpi-card ${styles.receiptCard}`} style={S.kpiCard}>
           <span style={S.kpiLabel}>입고 대기 발주</span>
-          <div className={styles.receiptSummary}>
-            <span style={S.kpiValue}>{won(po.ordered)}건</span>
-            <span style={S.kpiSub}>입고 예정 {unitTotals(po.incoming_by_unit)}</span>
-          </div>
           {po.due_today != null && po.overdue != null && (
             <div className={styles.receiptLinks}>
               <Link href="/purchase-orders?status=ORDERED&receipt_due=TODAY"><span>오늘</span>{" "}<strong>{won(po.due_today)}건</strong></Link>
@@ -123,14 +125,16 @@ export default function Page() {
                 className={po.overdue > 0 ? styles.lateReceipts : undefined}><span>지연</span>{" "}<strong>{won(po.overdue)}건</strong></Link>
             </div>
           )}
+          <span style={S.kpiSub}>전체 {won(po.ordered)}건 · 입고 예정 {unitTotals(po.incoming_by_unit)}</span>
           <Link className={styles.allReceipts} href="/purchase-orders?status=ORDERED" style={S.kpiMore}>입고 대기 발주 보기 →</Link>
         </div>
+        <NumberCard label="발주 검토" value={`${won(shortage.count)}품목`} href="/recommendations" more="발주 추천 보기" />
         {me?.role === "ADMIN" && (
-          <NumberCard label="작성 중 발주서" value={`${won(po.draft)}건`} sub="승인 전 초안" href="/purchase-orders?status=DRAFT" more="작성 중 발주서 보기" />
+          <NumberCard label="승인할 발주" value={`${won(po.draft)}건`} sub="승인 전 초안" href="/purchase-orders?status=DRAFT" more="승인할 발주 보기" />
         )}
         {/* 3-관리자: 내가 승인해야 할 발주서 */}
         {me?.role === "STAFF" && (
-          <NumberCard label="승인됨" value={`${won(po.approved)}건`} sub="승인되어 발주를 보낼 차례" href="/purchase-orders?status=APPROVED" more="승인된 발주 보기" />
+          <NumberCard label="보낼 발주" value={`${won(po.approved)}건`} sub="공급업체에 보낼 승인 발주서" href="/purchase-orders?status=APPROVED" more="보낼 발주 보기" />
         )}
         {/* 3-담당자: 승인이 나서 공급업체에 보낼 발주서 */}
       </div>
@@ -203,75 +207,59 @@ export default function Page() {
         )}
       </div>
 
-      <h2 style={S.sectionTitle}>진행 중 발주</h2>
-      <Link href="/purchase-orders" className="kpi-card" style={S.kpiCard} aria-labelledby="all-purchase-orders" aria-describedby="purchase-order-flow incoming-quantity">{/* 카드 한 장을 발주 전체 목록에 연결한다 */}
-        <div id="purchase-order-flow" style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "var(--space-sm)" }}>{/* 폭이 모자라면 단계 단위로 줄을 바꾼다 */}
-          <span style={S.nowrap}>작성 중 <strong style={S.kpiValue}>{won(po.draft)}건</strong></span>{/* 작성 중 건수를 한 덩어리로 표시한다 */}
-          <span style={S.nowrap}><span aria-hidden="true">→ </span>승인됨 <strong style={S.kpiValue}>{won(po.approved)}건</strong></span>{/* 화살표는 보조기기에서 숨기고 다음 단계와 함께 줄을 바꾼다 */}
-          <span style={S.nowrap}><span aria-hidden="true">→ </span>발주함 <strong style={S.kpiValue}>{won(po.ordered)}건</strong></span>{/* 발주함 건수와 단위를 붙여 표시한다 */}
-        </div>{/* 세 단계의 현황 표시를 닫는다 */}
-        <span id="incoming-quantity" style={S.kpiSub}>입고 예정 수량 <strong>{unitTotals(po.incoming_by_unit)}</strong> (발주함 발주서의 아직 안 들어온 수량)</span>{/* 미입고 수량과 단위가 갈라지지 않게 한다 */}
-        <span id="all-purchase-orders" style={S.kpiMore}>발주 목록 전체 보기 →</span>{/* 카드에 보이는 문구를 보조기기의 링크 이름으로도 쓴다 */}
+      <p className={styles.orderLink}><Link href="/purchase-orders">발주 목록 전체 보기 →</Link></p>
+
+      <section style={S.sectionCard}>
+        <h2>재고 점검</h2>
+        {over.count === 0 && dead.count === 0 ? <p style={S.hint}>현재 기준으로 점검할 재고가 없습니다.</p> : (
+          <>
+            <div className={styles.reviewGrid} id="stock-review-list">
+              {over.count > 0 && <section>
+                <h3>과잉재고 <span>{won(over.count)}품목</span></h3>
+                <p style={S.hint}>최근 30일 판매 속도 기준 {over.days}일치 이상</p>
+                <ul className={styles.reviewList}>
+                  {overItems.map((item) => {
+                    const days = item.current_stock / item.avg_daily_sales;
+                    return <li key={item.product_id}>
+                      <Link href={`/inventory?product_id=${item.product_id}#movement-history`}>{item.name} <span style={S.sub}>{item.sku}</span></Link>
+                      <p>현재고 {won(item.current_stock)}{item.unit} · <strong>약 {won(Math.round(days))}일치</strong></p>
+                      <div className={styles.coverageBar} aria-hidden="true">
+                        <span style={{ width: `${days / overScale * 100}%` }} />
+                        <i style={{ left: `${over.days / overScale * 100}%` }} />
+                      </div>
+                    </li>;
+                  })}
+                </ul>
+                <p style={S.hint}>막대의 세로선은 {over.days}일 기준입니다.{over.count > overItems.length && ` · ${overItems.length}품목 표시`}</p>
+              </section>}
+              {dead.count > 0 && <section>
+                <h3>장기재고 <span>{won(dead.count)}품목</span></h3>
+                <p style={S.hint}>판매가 {dead.days}일 넘게 없는 재고 · 신규 품목 제외</p>
+                <ul className={styles.reviewList}>
+                  {deadItems.map((item) => <li key={item.product_id}>
+                    <Link href={`/inventory?product_id=${item.product_id}#movement-history`}>{item.name} <span style={S.sub}>{item.sku}</span></Link>
+                    <p>현재고 {won(item.current_stock)}{item.unit} · <strong>{item.last_sale_date
+                      ? `마지막 판매 ${won(Math.round((Date.parse(today) - Date.parse(item.last_sale_date)) / 86_400_000))}일 전`
+                      : "판매 기록 없음"}</strong></p>
+                  </li>)}
+                </ul>
+                {dead.count > deadItems.length && <p style={S.hint}>재고가 많은 {deadItems.length}품목 표시</p>}
+              </section>}
+            </div>
+            {(over.items.length > 3 || dead.items.length > 3) && (
+              <button className={styles.reviewToggle} type="button" aria-expanded={showMoreStock} aria-controls="stock-review-list"
+                onClick={() => setShowMoreStock(!showMoreStock)}>{showMoreStock ? "접기" : "점검 품목 더 보기"}</button>
+            )}
+          </>
+        )}
+      </section>
+
+      <Link className={`kpi-card ${styles.monthRow}`} style={S.sectionCard}
+        href={`/inventory?summary=month&date_from=${month.month_start}&date_to=${month.month_end}#movement-history`}>
+        <strong>이번 달 입출고</strong>
+        <span>입고 <strong>{won(month.in_count)}건</strong> · 출고 <strong>{won(month.out_count)}건</strong></span>
+        <span className={styles.monthLink}>입출고 이력 보기 →</span>
       </Link>
-
-      <h2 style={S.sectionTitle}>이번 달 입출고 ({month.month_start} ~ 오늘)</h2>
-      <div style={S.kpiGrid}>
-        <NumberCard label="입고량" value={unitTotals(month.in_by_unit)} />
-        <NumberCard label="출고량" value={unitTotals(month.out_by_unit)} />
-        {/* 정정은 원래 이력에서 뺀 순수량, 재고 조정은 제외 (서버 계산 그대로) */}
-      </div>
-
-      <div style={S.sectionCard}>
-        <h2>과잉재고 ({over.count}개)</h2>
-        <p style={S.hint}>현재고가 최근 30일 하루 평균 판매량의 {over.days}일치 이상인 품목입니다. (판매가 없는 품목은 아래 장기재고에서 봅니다)</p>
-        {over.count === 0 ? <p style={S.empty}>해당하는 품목이 없습니다.</p> : (
-          <>
-            <div style={S.tableBox}>
-              <table style={S.table}>
-                <thead><tr style={S.headRow}><th>SKU</th><th>품목명</th><th style={S.num}>현재고</th><th style={S.num}>일평균 판매</th></tr></thead>
-                <tbody>
-                  {over.items.map((i) => (
-                    <tr key={i.product_id} style={bodyRow(true)}>
-                      <td style={S.nowrap}>{i.sku}</td>
-                      <td>{i.name}</td>
-                      <td style={S.num}>{i.current_stock.toLocaleString()}{i.unit}</td>
-                      <td style={S.num}>{fmt(i.avg_daily_sales)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {over.count > over.items.length && <p style={S.hint}>최신 품목 {over.items.length}개만 보입니다.</p>}
-          </>
-        )}
-      </div>
-
-      <div style={S.sectionCard}>
-        <h2>장기재고 ({dead.count}개)</h2>
-        <p style={S.hint}>재고가 있는데 최근 {dead.days}일 동안 판매가 없는 품목입니다. (첫 입출고가 {dead.days}일 이내인 새 품목은 제외)</p>
-        {dead.count === 0 ? (
-          <p style={S.empty}>해당하는 품목이 없습니다.</p>
-        ) : (
-          <>
-            <div style={S.tableBox}>
-              <table style={S.table}>
-                <thead><tr style={S.headRow}><th>SKU</th><th>품목명</th><th style={S.num}>현재고</th><th>마지막 판매일</th></tr></thead>
-                <tbody>
-                  {dead.items.map((i) => (
-                    <tr key={i.product_id} style={bodyRow(true)}>
-                      <td style={S.nowrap}>{i.sku}</td>
-                      <td>{i.name}</td>
-                      <td style={S.num}>{i.current_stock.toLocaleString()}{i.unit}</td>
-                      <td>{i.last_sale_date ?? "판매 기록 없음"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {dead.count > dead.items.length && <p style={S.hint}>재고가 많은 {dead.items.length}개만 보입니다. 전체는 <Link href="/inventory">재고 현황</Link>에서 확인하세요.</p>}
-          </>
-        )}
-      </div>
     </section>
   );
 }
