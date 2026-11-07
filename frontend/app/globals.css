@@ -54,6 +54,7 @@
   --card-pad: 16px; /* 카드 안 여백 */
   --section-gap: 32px; /* 화면 안 두 번째 제목 위 간격 */
   --field-gap: 16px; /* 폼 항목 사이 간격 */
+  --field-row-gap: var(--field-gap); /* 폼 줄 사이(세로) 간격. 라벨이 테두리에 걸리는 폼은 모바일에서 더 둔다 */
 
   /* 폰트: Noto Sans KR 은 app/layout.tsx 에서 next/font 로 불러와 --font-noto-sans-kr 에 넣는다 */
   --font-sans: var(--font-noto-sans-kr), Pretendard, -apple-system, "Malgun Gothic", sans-serif;
@@ -523,6 +524,11 @@ details.reason > p {
   display: none;
 }
 
+/* 테두리에 걸친 라벨(#141): 데스크톱에서는 라벨이 입력칸 위(예전 모양)이고, 짧은 라벨은 모바일에서만 보인다 */
+.lb-short {
+  display: none;
+}
+
 /* 휴대폰(730px 미만): 터치 크기·앱바·드로어 */
 @media (max-width: 729px) {
   :root {
@@ -655,6 +661,81 @@ details.reason > p {
     margin: 0 0 var(--space-sm);
     color: var(--color-muted-foreground);
     text-wrap: balance;
+  }
+
+  /* 테두리에 걸친 라벨(outlined 입력칸): 라벨은 입력칸 위쪽 테두리 위에 걸려 있고 항상 보인다.
+     라벨 뒤 배경은 위쪽 절반 투명 + 아래쪽 절반 카드색이라 카드 안이든 페이지 배경 위든 테두리가 깨끗하게 끊긴다 */
+  .field-form {
+    --field-row-gap: 18px; /* 라벨이 위로 8px 올라오는 만큼 줄 사이를 넉넉히 */
+  }
+
+  .field,
+  .field-product {
+    position: relative;
+  }
+
+  .field .field-label,
+  .field-product .field-label {
+    position: absolute;
+    top: -8px;
+    left: 10px;
+    z-index: 1;
+    max-width: calc(100% - 24px);
+    padding: 0 4px;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 16px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--color-muted-foreground);
+    background: linear-gradient(to bottom, transparent 50%, var(--color-card) 50%);
+    pointer-events: none; /* 라벨을 눌러도 아래 입력칸이 눌린 것처럼 */
+  }
+
+  .field:focus-within .field-label,
+  .field-product:focus-within .field-label {
+    color: var(--color-primary);
+  }
+
+  /* 포커스: 바깥 윤곽선(라벨 글자를 가로지른다) 대신 파란 테두리 + 안쪽 1px 선 */
+  .field :is(input, select, textarea):focus-visible,
+  .field-product input:focus-visible {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: inset 0 0 0 1px var(--color-primary);
+  }
+
+  /* 모바일에서만 짧은 라벨 */
+  .field-label .lb-short {
+    display: inline;
+  }
+
+  .field-label:has(.lb-short) .lb-full {
+    display: none;
+  }
+
+  /* 폼의 항목과 한 줄에 있는 버튼(예: 메모 옆 등록)은 라벨 줄이 없어졌으니 위쪽 간격을 풀고 입력칸과 높이를 맞춘다 */
+  .field-form > button,
+  .field-form > div:has(> button) {
+    margin-top: 0 !important;
+  }
+
+  .field-form label.field.field-grow:has(> :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea)) {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  /* 품목 선택칸: 라벨은 왼쪽, 현재고 칩은 오른쪽 테두리에 걸친다 */
+  .field-product .movement-product-label {
+    display: block;
+    margin: 0;
+  }
+
+  .field-product .movement-product-label > span:last-child {
+    position: absolute;
+    top: -10px;
+    right: 10px;
+    z-index: 1;
   }
 
   /* 앱바: 위에 붙어 스크롤해도 따라온다. 햄버거(44px) + 현재 화면 이름 */

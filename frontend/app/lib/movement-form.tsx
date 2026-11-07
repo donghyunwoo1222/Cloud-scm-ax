@@ -4,6 +4,7 @@ import Link from "next/link"; // 발주 입고 이력에서 발주서로 이동�
 import { FormEvent, useCallback, useEffect, useId, useRef, useState } from "react"; // 폼 제출, 불러오기, 현재고 안내 연결, 중복 방지, 상태
 
 import { api, apiList } from "./api"; // 공통 API 호출 함수
+import { Field } from "./field"; // 모바일에서 라벨이 테두리에 걸치는 입력 항목
 import { ErrorText } from "./list"; // 서버 오류 표시
 import { ShipmentTypeBadge, StatusBadge } from "./status-badge"; // 출고 유형과 발주 입고 배지
 import { ProductOption, ProductPicker } from "./product-picker"; // 전체 품목에서 검색해 바로 선택한다
@@ -100,10 +101,10 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
 
   return (
     <>
-    <form onSubmit={submit} style={S.formGridWide}>
-      <div className="movement-product" style={{ flex: "1 1 220px", maxWidth: 320, minWidth: 0 }}>
+    <form className="form-compact field-form" onSubmit={submit} style={S.formGridWide}>
+      <div className="movement-product field-product" style={{ flex: "1 1 220px", maxWidth: 320, minWidth: 0 }}>
         <div className="movement-product-label">
-          <span>품목*</span>
+          <span className="field-label">품목*</span>
           <span id={stockStatusId} role="status">
             {product && (
               <span className="movement-stock">
@@ -122,38 +123,28 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
         }} />
       </div>
       {types.length > 1 && (
-        <label>
-          유형*
-          <select value={type} onChange={(e) => setType(e.target.value as MovementType)} style={S.block}>
+        <Field label="유형*" className={type === "SALE" ? "field-half" : ""}><select value={type} onChange={(e) => setType(e.target.value as MovementType)} style={S.block}>
             {types.map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
-          </select>
-        </label>
+          </select></Field>
       )}
       {type === "SALE" && (
-        <label>
-          판매 채널*
-          <select value={channel} onChange={(e) => setChannel(e.target.value)} style={S.block}>
+        <Field label="판매 채널*" className="field-half"><select value={channel} onChange={(e) => setChannel(e.target.value)} style={S.block}>
             {CHANNELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </label>
+          </select></Field>
       )}
       {type === "ADJUSTMENT" && (
-        <label>
-          방향*
-          <select value={direction} onChange={(e) => setDirection(e.target.value)} style={S.block}>
+        <Field label="방향*"><select value={direction} onChange={(e) => setDirection(e.target.value)} style={S.block}>
             <option value="OUT">감소 (실제가 더 적음)</option>
             <option value="IN">증가 (실제가 더 많음)</option>
-          </select>
-        </label>
+          </select></Field>
       )}
-      <label>수량{product && ` (${product.unit})`}* <input type="number" inputMode="numeric" min={1} step={1} value={quantity} aria-describedby={product ? stockStatusId : undefined} onChange={(e) => setQuantity(e.target.value)} /></label>
-      <label>
-        {dateLabel}
+      <Field label={`수량${product ? ` (${product.unit})` : ""}*`} className="field-half"><input type="number" inputMode="numeric" min={1} step={1} value={quantity} aria-describedby={product ? stockStatusId : undefined} onChange={(e) => setQuantity(e.target.value)} /></Field>
+      <Field label={dateLabel} className="field-half">
         <input type="date" max={today || undefined} value={date} onChange={(e) => setDate(e.target.value)} />
         {/* 오늘 이후는 고를 수 없다 (서버도 막는다) */}
-      </label>
-      {type === "ADJUSTMENT" && <label>사유* <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예: 실사 차이" /></label>}
-      <label>메모 <input value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
+      </Field>
+      {type === "ADJUSTMENT" && <Field label="사유*"><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예: 실사 차이" /></Field>}
+      <Field label="메모" className="field-grow"><input value={memo} onChange={(e) => setMemo(e.target.value)} /></Field>
       <button type="submit" disabled={busy}>{busy ? "등록 중…" : "등록"}</button>
       <div style={S.fullRow}>
         <ErrorText error={error} labels={labels} />
