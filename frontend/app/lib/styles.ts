@@ -10,7 +10,7 @@ const badgeBase: CSSProperties = {
 };
 
 // 입력 항목 줄: 항목 사이 16px, 위쪽 기준 정렬(한 항목 아래에 "현재고 N개" 가 생겨도 옆 라벨이 밀리지 않는다), 넘치면 다음 줄로
-const fieldRow: CSSProperties = { display: "flex", flexWrap: "wrap", gap: "var(--space-md)", alignItems: "flex-start", margin: "var(--space-md) 0" };
+const fieldRow: CSSProperties = { display: "flex", flexWrap: "wrap", gap: "var(--field-gap)", alignItems: "flex-start", margin: "var(--field-gap) 0" };
 
 // 여러 화면이 같이 쓰는 스타일 이름 → 값
 export const S = {
@@ -21,14 +21,14 @@ export const S = {
   navGroupTitle: { margin: 0, padding: "var(--space-md) 12px var(--space-xs)", fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--color-muted-foreground)" }, // 메뉴 그룹 제목 (예: 재고 업무). 링크보다 작고 흐리게 해 눌리는 메뉴와 구분
   content: { flex: "999 1 560px", minWidth: 0, display: "flex", flexDirection: "column" }, // 메뉴 오른쪽 전체 (표가 넓어도 화면 밖으로 밀지 않게 minWidth 0)
   topbar: { display: "flex", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", gap: "var(--space-md)", padding: "12px var(--space-lg)", background: "var(--color-card)", borderBottom: "1px solid var(--color-border)", fontSize: "var(--text-sm)", color: "var(--color-muted-foreground)" }, // 상단 바: 내 정보·로그아웃
-  main: { padding: "var(--space-lg)", maxWidth: 1360, width: "100%" }, // 본문 여백 (display 를 주지 않는다: hidden 속성이 먹어야 한다)
+  main: { padding: "var(--page-pad)", maxWidth: 1360, width: "100%" }, // 본문 여백 (display 를 주지 않는다: hidden 속성이 먹어야 한다)
   pad2: { padding: "var(--space-xl)" }, // 안내 문구 여백
   loginPage: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-xl)", width: "calc(100% - 2 * var(--space-md))", maxWidth: 380, margin: "10vh auto 0" }, // 로그인 화면 틀: 가운데 흰 카드
 
   // 카드·제목·안내
-  card: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)" }, // 흰 카드 상자
-  sectionCard: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-md)", marginTop: "var(--space-md)" }, // 화면 안에서 항목마다 쌓는 흰 카드 (대시보드)
-  sectionTitle: { marginTop: "var(--space-xl)" }, // 화면 안의 두 번째 제목
+  card: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--card-pad)" }, // 흰 카드 상자
+  sectionCard: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--card-pad)", marginTop: "var(--space-md)" }, // 화면 안에서 항목마다 쌓는 흰 카드 (대시보드)
+  sectionTitle: { marginTop: "var(--section-gap)" }, // 화면 안의 두 번째 제목
   detailHeader: { display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "var(--space-sm)", marginBottom: "var(--space-md)" }, // 상세 제목과 목록 링크를 양쪽에 두고 좁으면 줄바꿈
   detailTitle: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-sm)" }, // 발주번호와 상태 배지를 같이 읽도록 배치
   detailFacts: { display: "flex", flexWrap: "wrap", gap: "var(--space-md) var(--space-xl)", margin: 0 }, // 공급업체와 약속 납기를 같은 줄에 두되 좁으면 아래로

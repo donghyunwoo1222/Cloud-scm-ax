@@ -62,6 +62,7 @@ export default function ProductsPage() {
   const [editing, setEditing] = useState<Product | null>(null); // 수정 중인 품목 (null 이면 새 등록)
   const registration = useRef<HTMLDetailsElement>(null); // 목록에서 수정할 때 같은 폼을 연다.
   const [created, setCreated] = useState(false); // 첫 입고로 바로 이어갈 수 있게 한다.
+  const [boxOpen, setBoxOpen] = useState(false); // 모바일에서 "박스 발주 설정"을 펼쳤는지 (데스크톱은 항상 보인다)
   const [error, setError] = useState<unknown>(null); // 저장·버튼 오류
 
   useEffect(() => {
@@ -148,14 +149,14 @@ export default function ProductsPage() {
       <details ref={registration} style={S.sectionCard}>
       <summary>{editing ? `${editing.name} 수정` : "품목 등록"}</summary>
       {!editing && activeSuppliers.length === 0 && <p>기본 공급업체가 필요합니다. <Link href="/suppliers">공급업체 등록</Link></p>}
-      <form onSubmit={save} style={S.formGrid}>
-        {/* 등록·수정 폼 */}
-        <label>SKU* <input value={form.sku} onChange={(e) => set("sku", e.target.value)} /></label>
-        <label>품목명* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
-        <label>재고 단위* <input value={form.unit} onChange={(e) => set("unit", e.target.value)} placeholder="개, 병" /></label>
-        <label>재고 단위 단가(원)* <input type="number" inputMode="numeric" value={form.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} /></label>
-        <label>안전재고 <input type="number" inputMode="numeric" value={form.safety_stock} onChange={(e) => set("safety_stock", e.target.value)} /></label>
-        <label>
+      <form className="form-compact" data-box-open={boxOpen || form.units_per_box !== "" || form.box_unit_cost !== ""} onSubmit={save} style={S.formGrid}>
+        {/* 등록·수정 폼. 모바일에서는 짧은 항목을 두 칸씩 묶고 박스 설정은 접는다(값이 하나라도 있으면 펼친다) */}
+        <label className="field-half fld-sku">SKU* <input value={form.sku} onChange={(e) => set("sku", e.target.value)} /></label>
+        <label className="fld-name">품목명* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
+        <label className="field-half fld-unit">재고 단위* <input value={form.unit} onChange={(e) => set("unit", e.target.value)} placeholder="개, 병" /></label>
+        <label className="field-half fld-cost">재고 단위 단가(원)* <input type="number" inputMode="numeric" value={form.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} /></label>
+        <label className="field-half fld-safety">안전재고 <input type="number" inputMode="numeric" value={form.safety_stock} onChange={(e) => set("safety_stock", e.target.value)} /></label>
+        <label className="fld-supplier">
           기본 공급업체*
           <select value={form.default_supplier_id} onChange={(e) => set("default_supplier_id", e.target.value)} style={S.block}>
             <option value="">선택하세요</option>
@@ -167,16 +168,19 @@ export default function ProductsPage() {
             ))}
           </select>
         </label>
-        <label>박스 입수
+        <button type="button" className="box-toggle" aria-expanded={boxOpen || form.units_per_box !== "" || form.box_unit_cost !== ""}
+          onClick={() => setBoxOpen(!boxOpen)}>박스 발주 설정 (선택)<span aria-hidden="true">{boxOpen || form.units_per_box !== "" || form.box_unit_cost !== "" ? "접기" : "펼치기"}</span></button>
+        {/* 모바일 전용 접기 버튼: 데스크톱에서는 CSS 로 숨긴다 */}
+        <label className="field-half box-field">박스 입수
           <input type="number" inputMode="numeric" min={1} max={1_000_000} step={1} required={form.box_unit_cost !== ""}
             value={form.units_per_box} onChange={(e) => set("units_per_box", e.target.value)} aria-describedby="product-box-hint" />
         </label>
-        <label>박스당 구매 단가(원)
+        <label className="field-half box-field">박스당 구매 단가(원)
           <input type="number" inputMode="numeric" min={0} max={100_000_000} step={1} required={form.units_per_box !== ""}
             value={form.box_unit_cost} onChange={(e) => set("box_unit_cost", e.target.value)} aria-describedby="product-box-hint" />
         </label>
-        <p id="product-box-hint" style={{ ...S.hint, flexBasis: "100%", margin: 0 }}>박스로 구매할 때 두 칸을 채우세요. 둘 다 비워 저장하면 박스 설정을 해제합니다.</p>
-        <div style={S.buttons}>
+        <p id="product-box-hint" className="box-hint" style={{ ...S.hint, flexBasis: "100%", margin: 0 }}>박스로 구매할 때 두 칸을 채우세요. 둘 다 비워 저장하면 박스 설정을 해제합니다.</p>
+        <div className="form-actions" style={S.buttons}>
           <button type="submit" disabled={!editing && activeSuppliers.length === 0}>{editing === null ? "등록" : "수정 저장"}</button>
           {editing !== null && <button type="button" onClick={reset}>취소</button>}
         </div>

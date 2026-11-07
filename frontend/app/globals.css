@@ -49,6 +49,12 @@
   --chip-min: 28px; /* 필터 칩처럼 표 위에 붙는 작은 버튼 */
   --app-bar-height: 56px; /* 모바일 앱바 높이 */
 
+  /* 화면 여백 토큰: 데스크톱 기본값, 730px 미만에서는 더 촘촘하게 (아래 @media) */
+  --page-pad: 24px; /* 본문 좌우·위아래 여백 */
+  --card-pad: 16px; /* 카드 안 여백 */
+  --section-gap: 32px; /* 화면 안 두 번째 제목 위 간격 */
+  --field-gap: 16px; /* 폼 항목 사이 간격 */
+
   /* 폰트: Noto Sans KR 은 app/layout.tsx 에서 next/font 로 불러와 --font-noto-sans-kr 에 넣는다 */
   --font-sans: var(--font-noto-sans-kr), Pretendard, -apple-system, "Malgun Gothic", sans-serif;
 }
@@ -511,11 +517,27 @@ details.reason > p {
   font-variant-numeric: tabular-nums;
 }
 
+/* 모바일 폼 밀도(#139): 이 규칙들은 730px 미만에서만 쓰이고, 데스크톱에서는 숨기거나 영향이 없다 */
+.box-toggle,
+.receipt-direct-hint {
+  display: none;
+}
+
 /* 휴대폰(730px 미만): 터치 크기·앱바·드로어 */
 @media (max-width: 729px) {
   :root {
     --control-min: 44px; /* 손가락으로 누르는 최소 크기 */
     --chip-min: 44px;
+    --page-pad: 16px; /* 본문 좌우 여백 24→16 */
+    --card-pad: 12px; /* 카드 안 여백 16→12 */
+    --section-gap: 24px; /* 큰 간격 32→24 */
+    --field-gap: 12px; /* 폼 항목 간격 16→12 */
+  }
+
+  /* 화면 제목(h1)은 앱바에 같은 이름이 있어 작게 (제목은 화면 읽기 도구를 위해 남긴다) */
+  h1 {
+    font-size: 18px;
+    margin-bottom: var(--space-xs);
   }
 
   /* 입력칸 글자를 16px 이상으로: iOS Safari 는 16px 미만 칸에 포커스하면 화면을 자동 확대한다 */
@@ -551,6 +573,88 @@ details.reason > p {
 
   .compact-block {
     display: block;
+  }
+
+  /* 폼(.form-compact): 항목은 한 줄에 하나, 짧은 항목(.field-half)은 두 칸씩. 순서는 CSS 로만 바꿔 데스크톱 배치는 그대로 */
+  .form-compact label:has(> :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea)) {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+
+  .form-compact label.field-half:has(> :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea)) {
+    flex: 1 1 calc(50% - 6px); /* 6px = 항목 사이 간격(12px)의 절반 */
+  }
+
+  .fld-sku { order: 1; }
+  .fld-unit { order: 2; }
+  .fld-name { order: 3; }
+  .fld-cost { order: 4; }
+  .fld-safety { order: 5; }
+  .fld-supplier { order: 6; }
+  .box-toggle { order: 7; }
+  .box-field { order: 8; }
+  .box-hint { order: 9; }
+  .form-actions { order: 10; }
+
+  /* 선택 항목(박스 설정)은 접어 둔다. 한 칸이라도 값이 있으면 폼이 data-box-open="true" 로 펼쳐 둔다 */
+  .form-compact:not([data-box-open="true"]) .box-field,
+  .form-compact:not([data-box-open="true"]) .box-hint {
+    display: none;
+  }
+
+  .form-compact .box-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-style: dashed;
+    color: var(--color-muted-foreground);
+  }
+
+  /* 입력 항목 옆 버튼용 규칙(내용 크기만큼만, 라벨 높이만큼 내림)은 한 줄을 통째로 차지하는 이 둘에는 맞지 않아 !important 로 덮는다
+     (그 규칙의 우선순위가 더 높다) */
+  .form-compact > .box-toggle,
+  .form-compact > .form-actions {
+    flex: 1 1 100% !important;
+    margin-top: 0 !important;
+    align-self: stretch !important;
+  }
+
+  /* 입출고 폼의 품목 칸: 다른 항목처럼 한 줄 전체 폭 (폭 제한은 inline style 이라 !important 가 필요하다) */
+  .movement-product {
+    flex: 1 1 100% !important;
+    max-width: none !important;
+  }
+
+  /* 입고 등록: 발주 입고 카드는 제목 + 버튼 한 줄, 직접 입고 카드는 아래 폼이 같은 화면에 있어 숨기고 안내 한 줄로 */
+  .receipt-choice.receipt-direct-card {
+    display: none; /* .receipt-choice 의 display:flex 보다 우선하도록 두 클래스를 함께 쓴다 */
+  }
+
+  .receipt-choice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+  }
+
+  .receipt-choice h2 {
+    margin: 0;
+  }
+
+  .receipt-choice .receipt-desc {
+    display: none;
+  }
+
+  .receipt-choice p {
+    margin: 0 !important; /* 버튼 줄의 위쪽 간격은 inline style 이라 !important 가 있어야 풀린다 */
+  }
+
+  .receipt-direct-hint {
+    display: block;
+    margin: 0 0 var(--space-sm);
+    color: var(--color-muted-foreground);
+    text-wrap: balance;
   }
 
   /* 앱바: 위에 붙어 스크롤해도 따라온다. 햄버거(44px) + 현재 화면 이름 */
