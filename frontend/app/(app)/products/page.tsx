@@ -4,6 +4,7 @@ import Link from "next/link"; // 공급업체와 첫 입고로 이동한다.
 import { FormEvent, useEffect, useRef, useState } from "react"; // 폼 제출, 처음 한 번 실행, 상태
 
 import { api, apiList } from "../../lib/api"; // 공통 API 호출 함수
+import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸치는 입력 항목
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
@@ -149,16 +150,14 @@ export default function ProductsPage() {
       <details ref={registration} style={S.sectionCard}>
       <summary>{editing ? `${editing.name} 수정` : "품목 등록"}</summary>
       {!editing && activeSuppliers.length === 0 && <p>기본 공급업체가 필요합니다. <Link href="/suppliers">공급업체 등록</Link></p>}
-      <form className="form-compact" data-box-open={boxOpen || form.units_per_box !== "" || form.box_unit_cost !== ""} onSubmit={save} style={S.formGrid}>
+      <form className="form-compact field-form" data-box-open={boxOpen || form.units_per_box !== "" || form.box_unit_cost !== ""} onSubmit={save} style={S.formGrid}>
         {/* 등록·수정 폼. 모바일에서는 짧은 항목을 두 칸씩 묶고 박스 설정은 접는다(값이 하나라도 있으면 펼친다) */}
-        <label className="field-half fld-sku">SKU* <input value={form.sku} onChange={(e) => set("sku", e.target.value)} /></label>
-        <label className="fld-name">품목명* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
-        <label className="field-half fld-unit">재고 단위* <input value={form.unit} onChange={(e) => set("unit", e.target.value)} placeholder="개, 병" /></label>
-        <label className="field-half fld-cost">재고 단위 단가(원)* <input type="number" inputMode="numeric" value={form.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} /></label>
-        <label className="field-half fld-safety">안전재고 <input type="number" inputMode="numeric" value={form.safety_stock} onChange={(e) => set("safety_stock", e.target.value)} /></label>
-        <label className="fld-supplier">
-          기본 공급업체*
-          <select value={form.default_supplier_id} onChange={(e) => set("default_supplier_id", e.target.value)} style={S.block}>
+        <Field label="SKU*" className="field-half fld-sku"><input value={form.sku} onChange={(e) => set("sku", e.target.value)} /></Field>
+        <Field label="품목명*" className="fld-name"><input value={form.name} onChange={(e) => set("name", e.target.value)} /></Field>
+        <Field label="재고 단위*" className="field-half fld-unit"><input value={form.unit} onChange={(e) => set("unit", e.target.value)} placeholder="개, 병" /></Field>
+        <Field label="재고 단위 단가(원)*" short="단가(원)*" className="field-half fld-cost"><input type="number" inputMode="numeric" value={form.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} /></Field>
+        <Field label="안전재고" className="field-half fld-safety"><input type="number" inputMode="numeric" value={form.safety_stock} onChange={(e) => set("safety_stock", e.target.value)} /></Field>
+        <Field label="기본 공급업체*" className="fld-supplier"><select value={form.default_supplier_id} onChange={(e) => set("default_supplier_id", e.target.value)} style={S.block}>
             <option value="">선택하세요</option>
             {currentMissing && <option value={currentMissing.id}>{currentMissing.name} (비활성, 현재 값)</option>}
             {activeSuppliers.map((s) => ( // 새 연결은 활성 공급업체만 가능하다
@@ -166,19 +165,14 @@ export default function ProductsPage() {
                 {s.name} (리드타임 {s.lead_time_days}일)
               </option>
             ))}
-          </select>
-        </label>
+          </select></Field>
         <button type="button" className="box-toggle" aria-expanded={boxOpen || form.units_per_box !== "" || form.box_unit_cost !== ""}
           onClick={() => setBoxOpen(!boxOpen)}>박스 발주 설정 (선택)<span aria-hidden="true">{boxOpen || form.units_per_box !== "" || form.box_unit_cost !== "" ? "접기" : "펼치기"}</span></button>
         {/* 모바일 전용 접기 버튼: 데스크톱에서는 CSS 로 숨긴다 */}
-        <label className="field-half box-field">박스 입수
-          <input type="number" inputMode="numeric" min={1} max={1_000_000} step={1} required={form.box_unit_cost !== ""}
-            value={form.units_per_box} onChange={(e) => set("units_per_box", e.target.value)} aria-describedby="product-box-hint" />
-        </label>
-        <label className="field-half box-field">박스당 구매 단가(원)
-          <input type="number" inputMode="numeric" min={0} max={100_000_000} step={1} required={form.units_per_box !== ""}
-            value={form.box_unit_cost} onChange={(e) => set("box_unit_cost", e.target.value)} aria-describedby="product-box-hint" />
-        </label>
+        <Field label="박스 입수" className="field-half box-field"><input type="number" inputMode="numeric" min={1} max={1_000_000} step={1} required={form.box_unit_cost !== ""}
+            value={form.units_per_box} onChange={(e) => set("units_per_box", e.target.value)} aria-describedby="product-box-hint" /></Field>
+        <Field label="박스당 구매 단가(원)" short="박스 단가(원)" className="field-half box-field"><input type="number" inputMode="numeric" min={0} max={100_000_000} step={1} required={form.units_per_box !== ""}
+            value={form.box_unit_cost} onChange={(e) => set("box_unit_cost", e.target.value)} aria-describedby="product-box-hint" /></Field>
         <p id="product-box-hint" className="box-hint" style={{ ...S.hint, flexBasis: "100%", margin: 0 }}>박스로 구매할 때 두 칸을 채우세요. 둘 다 비워 저장하면 박스 설정을 해제합니다.</p>
         <div className="form-actions" style={S.buttons}>
           <button type="submit" disabled={!editing && activeSuppliers.length === 0}>{editing === null ? "등록" : "수정 저장"}</button>

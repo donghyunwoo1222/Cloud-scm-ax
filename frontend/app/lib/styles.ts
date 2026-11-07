@@ -10,7 +10,7 @@ const badgeBase: CSSProperties = {
 };
 
 // 입력 항목 줄: 항목 사이 16px, 위쪽 기준 정렬(한 항목 아래에 "현재고 N개" 가 생겨도 옆 라벨이 밀리지 않는다), 넘치면 다음 줄로
-const fieldRow: CSSProperties = { display: "flex", flexWrap: "wrap", gap: "var(--field-gap)", alignItems: "flex-start", margin: "var(--field-gap) 0" };
+const fieldRow: CSSProperties = { display: "flex", flexWrap: "wrap", gap: "var(--field-row-gap) var(--field-gap)", alignItems: "flex-start", margin: "var(--field-gap) 0" };
 
 // 여러 화면이 같이 쓰는 스타일 이름 → 값
 export const S = {
