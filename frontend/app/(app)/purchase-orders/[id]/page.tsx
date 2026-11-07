@@ -280,8 +280,8 @@ function Detail() {
         {/* 미입고만 볼 때 전체 줄 수와 표시 줄 수를 함께 알린다. */}
         {isFiltered && <p role="status" style={S.detailTableCount}>전체 {order.items.length}품목 중 {shownItems.length}품목 표시</p>}
       </div>
-      <div style={S.tableBox}>
-      {/* 표 윗여백을 없애 조작부와 붙인다. */}
+      <div className="table-view" style={S.tableBox}>
+      {/* 표 윗여백을 없애 조작부와 붙인다. 730px 미만에서는 이 표 대신 아래 압축 행 목록을 보여 준다 */}
       <table style={{ ...S.table, marginTop: 0 }}>
         <thead>
           <tr style={S.headRow}>
@@ -331,6 +331,37 @@ function Detail() {
           </tr>
         </tfoot>
       </table>
+      </div>
+      <div className="compact-block">
+        {isFiltered && shownItems.length === 0 && (
+          <div className="compact-empty">
+            <p>조건에 맞는 품목이 없습니다.</p>
+            <button type="button" onClick={() => setItemView({ ...itemView, onlyOutstanding: false })}>필터 해제</button>
+          </div>
+        )}
+        <ul className="compact-list" aria-label="발주 품목">
+          {shownItems.map((i) => {
+            const remaining = remainingQuantity(i); // 표와 같은 잔량 계산
+            const ordered = i.quantity.toLocaleString("ko-KR"); // 표와 같은 쉼표 표기
+            return (
+              <li key={i.id} className="compact-row">
+                <div className="compact-main">
+                  <strong>{i.product_name}</strong>
+                  <span className="compact-value">{i.box_quantity == null ? `${ordered}${i.unit}` : `${quantityLabel(i.box_quantity, "박스")} (${ordered}${i.unit})`}</span>
+                  {/* 1줄: 품목과 발주 수량 (박스 발주는 박스 수와 재고 수량) */}
+                </div>
+                <div className="compact-sub">
+                  <span>{i.product_sku}</span>
+                  <span>{remaining === 0 ? "전량 입고" : `${i.received_quantity.toLocaleString("ko-KR")} / ${ordered}${i.unit} 입고 · ${remaining.toLocaleString("ko-KR")}${i.unit} 남음`}</span>
+                  <span>금액 {lineAmount(i).toLocaleString("ko-KR")}원</span>
+                  {/* 2줄: SKU · 입고 현황 · 금액 (단가는 표에서) */}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="compact-total"><span>발주 금액 합계</span><strong>{totalAmount(order).toLocaleString("ko-KR")}원</strong></p>
+        {/* 합계는 표처럼 모든 품목 기준 */}
       </div>
       </>
       )}
