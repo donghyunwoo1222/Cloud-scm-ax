@@ -288,7 +288,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
         </form>
       )}
 
-      <div style={S.tableBox}>
+      <div className="table-view" style={S.tableBox}>
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}><th>번호</th><th>입출고일</th><th>품목</th><th>유형</th><th style={S.num}>수량</th><th>사유·채널·메모</th><th></th></tr>
@@ -310,6 +310,33 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
         </tbody>
       </table>
       </div>
+      <ul className="compact-list" aria-label="입출고 이력">
+        {rows.map((m) => (
+          <li key={m.id} className="compact-row compact-with-action">
+            <div className="compact-body">
+              <div className="compact-main">
+                <strong>{m.product_name}</strong>
+                <span className="compact-value">{m.direction === "IN" ? "+" : "−"}{quantityLabel(m.quantity, m.product_unit ?? undefined)}</span>
+                {/* 1줄: 품목과 수량 */}
+              </div>
+              <div className="compact-sub">
+                <span>#{m.id}</span>
+                <span>{m.product_sku}</span>
+                <span>{TYPE_LABEL[m.movement_type] ?? m.movement_type}{m.reverses_movement_id !== null && ` (#${m.reverses_movement_id})`}</span>
+                <span>{m.movement_date}</span>
+                {/* 2줄: 번호 · SKU · 유형(정정은 바로잡은 번호) · 날짜 */}
+              </div>
+              {[m.sales_channel && CHANNEL_LABEL[m.sales_channel], m.reason, m.memo].some(Boolean) && (
+                <div className="compact-note">{[m.sales_channel && CHANNEL_LABEL[m.sales_channel], m.reason, m.memo].filter(Boolean).join(" · ")}</div>
+              )}
+            </div>
+            {m.movement_type !== "CORRECTION" && (m.correctable_quantity ?? m.quantity) > 0 && (
+              <button type="button" onClick={() => startCorrect(m)}>정정</button>
+            )}
+            {/* 정정 버튼은 오른쪽에 두어 줄 높이를 늘리지 않는다. 정정 행에는 숨긴다 (정정의 정정 금지) */}
+          </li>
+        ))}
+      </ul>
       {meta?.total === 0 && <p style={S.empty}>조건에 맞는 이력이 없습니다.</p>}
       <Pager meta={meta} onPage={setPage} />
     </section>

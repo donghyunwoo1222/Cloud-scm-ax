@@ -224,7 +224,8 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
         <>
         <p style={S.hint}>현재고(지금) 열은 각 줄 등록 후 재고가 아니라 지금 재고입니다.</p>
         {/* 오해를 막는 설명을 표 바로 위에 늘 보이게 둔다 (마우스를 올려야 보이는 방식은 쓰지 않는다) */}
-        <div style={S.tableBox}>
+        <div className="table-view" style={S.tableBox}>
+          {/* 730px 미만에서는 이 표를 숨기고 아래 압축 행 목록을 보여 준다 */}
           <table style={S.table}>
             <thead>
               <tr style={S.headRow}>
@@ -262,6 +263,32 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
             </tbody>
           </table>
         </div>
+        <ul className="compact-list" aria-label={isReceipt ? "최근 입고" : "최근 출고·조정"}>
+          {rows.map((m) => (
+            <li key={m.id} className="compact-row">
+              <div className="compact-main">
+                <strong>{m.product_name}</strong>
+                <span className="compact-value">{m.direction === "IN" ? "+" : "−"}{quantityLabel(m.quantity, m.product_unit ?? undefined)}</span>
+                {/* 1줄: 품목과 수량 (늘면 +, 줄면 −) */}
+              </div>
+              <div className="compact-sub">
+                <span>{m.product_sku}</span>
+                {!isReceipt && <span><ShipmentTypeBadge type={m.movement_type}>{TYPE_LABEL[m.movement_type] ?? m.movement_type}</ShipmentTypeBadge></span>}
+                {m.sales_channel && <span>{CHANNEL_LABEL[m.sales_channel] ?? m.sales_channel}</span>}
+                <span>{m.movement_date}</span>
+                {/* 2줄: SKU · 유형 · 채널 · 날짜 (지금 재고는 표에서, 등록 직후 안내에도 나온다) */}
+              </div>
+              {(m.purchase_order_item_id != null || m.reason || m.memo) && (
+                <div className="compact-note">
+                  {m.purchase_order_id != null ? <Link href={`/purchase-orders/${m.purchase_order_id}`}>발주 입고 보기</Link>
+                    : m.purchase_order_item_id != null && <StatusBadge kind="info">발주 입고</StatusBadge>}
+                  {[m.reason, m.memo].filter(Boolean).join(" · ")}
+                  {/* 발주 입고 링크와 조정 사유·메모는 있을 때만 3번째 줄로 */}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
         </>
       )}
     </section>

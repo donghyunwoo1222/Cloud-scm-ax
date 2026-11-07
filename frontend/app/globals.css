@@ -426,6 +426,91 @@ details.reason > p {
   }
 }
 
+/* 압축 행(#136): 표 대신 모바일에서 보이는 2줄 요약 목록. 데스크톱에서는 숨기고 표를 쓴다 */
+.compact-list,
+.compact-block {
+  display: none;
+}
+
+.compact-list {
+  list-style: none;
+  border-top: 1px solid var(--color-border);
+}
+
+.compact-row {
+  padding: var(--space-sm) var(--space-xs);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.compact-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.compact-main strong {
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.compact-value {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.compact-sub,
+.compact-note {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--color-muted-foreground);
+}
+
+/* 항목 사이의 점은 앞 항목 뒤에 붙인다 (줄이 꺾여도 점이 새 줄 맨 앞에 오지 않는다) */
+.compact-sub > span:not(:last-child)::after {
+  content: "·";
+  margin-inline: var(--space-sm);
+}
+
+.compact-note a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-min);
+}
+
+/* 줄 오른쪽에 버튼이 붙는 행 (예: 이력의 정정 버튼): 내용은 왼쪽, 버튼은 세로 가운데 */
+.compact-with-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.compact-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.compact-empty {
+  padding: var(--space-lg) var(--space-md);
+  text-align: center;
+  color: var(--color-muted-foreground);
+}
+
+.compact-total {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-xs);
+  font-size: var(--text-sm);
+}
+
+.compact-total strong {
+  font-variant-numeric: tabular-nums;
+}
+
 /* 휴대폰(730px 미만): 터치 크기·앱바·드로어 */
 @media (max-width: 729px) {
   :root {
@@ -453,6 +538,19 @@ details.reason > p {
   input[type="radio"] {
     width: 20px;
     height: 20px;
+  }
+
+  /* 표는 숨기고 압축 행 목록을 보여 준다 */
+  .table-view {
+    display: none;
+  }
+
+  .compact-list {
+    display: block;
+  }
+
+  .compact-block {
+    display: block;
   }
 
   /* 앱바: 위에 붙어 스크롤해도 따라온다. 햄버거(44px) + 현재 화면 이름 */
