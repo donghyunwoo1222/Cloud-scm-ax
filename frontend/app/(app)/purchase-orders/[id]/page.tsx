@@ -164,6 +164,8 @@ function Detail() {
             )}
           </dl>
           <dl style={S.detailMemo}>
+            <dt>납품장소 · 지불조건</dt>
+            <dd style={S.detailHistoryValue}>{order.delivery_address ?? "회사 주소"} · {order.payment_terms ?? "-"}</dd>
             <dt>메모</dt>
             <dd style={S.detailHistoryValue}>{order.memo ?? "-"}</dd>
           </dl>
@@ -172,6 +174,7 @@ function Detail() {
 
       <div className="receipt-controls purchase-order-actions">
         {order.status === "DRAFT" && <Link href={`/purchase-orders/${order.id}/edit`} style={S.linkButtonGhost}>수정</Link>}
+        {["APPROVED", "ORDERED", "RECEIVED"].includes(order.status) && <Link href={`/purchase-orders/${order.id}/document`} style={S.linkButtonGhost}>발주서 문서</Link>}
         {/* 작성 중일 때만 수정 화면으로 간다 */}
         {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving}
           className={action === "cancel" ? undefined : "primary-action"} onClick={() => act(action)}>{label}</button>)}

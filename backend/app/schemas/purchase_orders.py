@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator  # 모양 정
 from app.schemas.common import (  # 공통 칸 타입(번호·수량·단가 상한 #71)·PATCH 규칙
     Id,
     Memo,
+    OptionalText,
     PatchModel,
     Quantity,
     Won,
@@ -49,6 +50,8 @@ class PurchaseOrderCreate(BaseModel):
     supplier_id: Id  # 발주 대상 공급업체 (활성만)
     due_date: date | None = None  # 약속(희망) 납기
     memo: Memo = None  # 메모
+    delivery_address: OptionalText = None  # 납품장소 (비우면 문서에 회사 주소)
+    payment_terms: OptionalText = None  # 지불조건 (비우면 공급업체 기본값을 복사한다)
     items: Annotated[list[ItemIn], Field(min_length=1)]  # 품목 줄 1개 이상
 
 
@@ -61,6 +64,8 @@ class PurchaseOrderUpdate(PatchModel):
 
     due_date: date | None = None  # 약속 납기 (null 이면 비움)
     memo: Memo = None  # 메모 (null 이면 비움)
+    delivery_address: OptionalText = None  # 납품장소 (null 이면 비움)
+    payment_terms: OptionalText = None  # 지불조건 (null 이면 비움)
     items: Annotated[list[ItemIn], Field(min_length=1)] | None = None  # 최종 품목 줄 목록
 
 
@@ -89,6 +94,8 @@ class PurchaseOrderOut(BaseModel):
     status: str  # DRAFT / APPROVED / ORDERED / RECEIVED / CANCELLED
     due_date: date | None  # 약속 납기
     memo: str | None  # 메모
+    delivery_address: str | None  # 납품장소
+    payment_terms: str | None  # 지불조건
     created_by: int  # 작성자
     approved_by: int | None  # 승인자
     approved_at: datetime | None  # 승인 시각

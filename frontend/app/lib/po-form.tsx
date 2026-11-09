@@ -25,6 +25,8 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   const [supplierId, setSupplierId] = useState(""); // 고른 공급업체
   const [dueDate, setDueDate] = useState(order?.due_date ?? ""); // 약속 납기
   const [memo, setMemo] = useState(order?.memo ?? ""); // 메모
+  const [deliveryAddress, setDeliveryAddress] = useState(order?.delivery_address ?? ""); // 납품장소 (비우면 문서에 회사 주소)
+  const [paymentTerms, setPaymentTerms] = useState(order?.payment_terms ?? ""); // 지불조건 (새 발주서는 서버가 공급업체 기본값을 채운다)
   const nextLineKey = useRef(order?.items.length ?? 1); // 앞 줄을 지워도 다른 줄의 검색 상태가 섞이지 않는다
   const [lines, setLines] = useState<Line[]>(
     order ? order.items.map((i, key) => ({
@@ -81,8 +83,8 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
     })); // 서버는 보낸 단위에 맞춰 발주량과 당시 값을 저장한다
     try {
       const saved = order
-        ? await api<PurchaseOrder>(`/purchase-orders/${order.id}`, { method: "PATCH", body: { due_date: dueDate || null, memo: memo || null, items } }) // 수정: items 전체 교체
-        : await api<PurchaseOrder>("/purchase-orders", { method: "POST", body: { supplier_id: num(supplierId), due_date: dueDate || null, memo: memo || null, items } }); // 작성
+        ? await api<PurchaseOrder>(`/purchase-orders/${order.id}`, { method: "PATCH", body: { due_date: dueDate || null, memo: memo || null, delivery_address: deliveryAddress || null, payment_terms: paymentTerms || null, items } }) // 수정: items 전체 교체
+        : await api<PurchaseOrder>("/purchase-orders", { method: "POST", body: { supplier_id: num(supplierId), due_date: dueDate || null, memo: memo || null, delivery_address: deliveryAddress || null, payment_terms: paymentTerms || null, items } }); // 작성
       router.push(`/purchase-orders/${saved.id}`); // 저장되면 상세 화면으로
     } catch (e) {
       setError(e); // 서버 문장 그대로 보여주고 입력값은 그대로 둔다
@@ -113,6 +115,8 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
           </Field>
         )}
         <Field label="약속 납기" className="field-half"><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
+        <Field label="납품장소" className="field-half"><input value={deliveryAddress} maxLength={200} placeholder="비우면 회사 주소" onChange={(e) => setDeliveryAddress(e.target.value)} /></Field>
+        <Field label="지불조건" className="field-half"><input value={paymentTerms} maxLength={200} placeholder={order ? "" : "비우면 공급업체 기본값"} onChange={(e) => setPaymentTerms(e.target.value)} /></Field>
         <Field label="메모"><input value={memo} onChange={(e) => setMemo(e.target.value)} /></Field>
       </div>
 

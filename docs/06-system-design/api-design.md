@@ -52,6 +52,7 @@
 | F5 재고 추이 | GET /stock/{product\_id}/trend | 서울 기준 오늘 포함 30일의 품목별 마감 재고와 입고 기록 (#126) | 둘 다 |
 | F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status`·`receipt_due` 필터, `q` 발주번호 부분 검색), DRAFT 발주서 만들기(직접). 응답의 `has_receipts`는 전량 정정된 입고 이력도 포함한다. | 둘 다 |
 | F6 | GET /purchase-orders/{id}, PATCH /purchase-orders/{id} | 상세, DRAFT 일 때만 품목·수량 수정 | 둘 다 |
+| 자동화 발주서 문서 | GET /purchase-orders/{id}/document, GET /purchase-orders/{id}/document.xlsx | 승인 이후(APPROVED·ORDERED·RECEIVED) 발주서의 문서 값(수신처·발주처·품목표·금액·한글 금액·발주 조건)과 같은 값의 엑셀 파일 (#157) | 둘 다 |
 | F6 | POST /purchase-orders/{id}/approve | DRAFT → APPROVED | 관리자 |
 | F6 | POST /purchase-orders/{id}/order | APPROVED → ORDERED(공급업체에 발주했음 표시) | 둘 다 |
 | F6 | POST /purchase-orders/{id}/receipts | 발주 품목 입고(부분 가능). 이력 등록 + 상태 갱신을 한 번에 | 둘 다 |
@@ -60,7 +61,7 @@
 | F8 발주 추천 | GET /recommendations | 현재 시점 추천 목록 계산·반환 | 둘 다 |
 | F8 | POST /recommendations/drafts | 선택한 품목으로 공급업체별 DRAFT 발주서 생성·품목 추가 | 둘 다 |
 
-합계 엔드포인트는 37개다(점검용 `GET /health` 제외, 2026-11-09 라우터 기준, 판매 가져오기 3개 포함). 발주 상태 변경을 PATCH의 status 칸으로 하지 않고 동사 경로(approve, order, cancel)로 나눴다. 이렇게 하면 "승인은 관리자만", "취소는 입고 없을 때만" 같은 규칙을 경로 하나에 하나씩 붙일 수 있고, 상태를 건너뛰는 요청(승인 생략)이 경로에서부터 존재하지 않는다(R5).
+합계 엔드포인트는 39개다(점검용 `GET /health` 제외, 2026-11-09 라우터 기준, 판매 가져오기 3개 포함, 발주서 문서 2개 포함). 발주 상태 변경을 PATCH의 status 칸으로 하지 않고 동사 경로(approve, order, cancel)로 나눴다. 이렇게 하면 "승인은 관리자만", "취소는 입고 없을 때만" 같은 규칙을 경로 하나에 하나씩 붙일 수 있고, 상태를 건너뛰는 요청(승인 생략)이 경로에서부터 존재하지 않는다(R5).
 
 ## 핵심 API 상세
 
@@ -150,6 +151,13 @@
 - `POST /sales-imports` (201): 같은 입력 + `sales_channel` 필수. 품목을 번호순으로 잠근 뒤 다시 계산하고 `register_movement`로 SALE을 날짜순으로 쓴다(한 트랜잭션). 문제 행이 있고 `exclude_problems`가 아니면 409 `IMPORT_HAS_PROBLEMS`, 반영할 행이 없으면 409 `NOTHING_TO_IMPORT`, 동시에 같은 주문번호가 들어오면 409 `DUPLICATE_REF`.
 - 문제 행 사유: `MISSING_SKU`, `INVALID_QUANTITY`(1~100만 정수), `INVALID_DATE`, `FUTURE_DATE`, `MISSING_REF`, `DUPLICATE_REF_IN_FILE`(뒤의 행만), `UNKNOWN_SKU`(다른 회사 SKU 포함), `INSUFFICIENT_STOCK`(품목마다 현재고에서 (날짜, 줄) 순으로 빼 음수가 되는 행. 문제 행은 재고를 쓰지 않은 것으로 친다).
 - 파일 오류는 422 `FILE_TOO_LARGE`·`TOO_MANY_ROWS`·`INVALID_FILE`.
+
+### 발주서 문서 (#157)
+
+- `purchase_orders`에 선택 칸 `delivery_address`(납품장소), `payment_terms`(지불조건)가 생겼다(각 200자까지, 작성·수정·응답 공통). 작성할 때 `payment_terms`를 안 보내면 공급업체 기본값을 복사하고(추천 초안도 같다), 수정에서 `null`·빈 글자는 비운다.
+- `GET /purchase-orders/{id}/document`: 화면과 엑셀이 같이 쓰는 값을 서버가 한 번 계산해 준다. `supplier`(수신처), `buyer`(발주처, 작성자 이름 포함), `lines`(No·품목명·SKU·단위·수량·단가·공급가액·비고), `supply_total`·`vat`·`total`·`total_korean`, `due_date`·`delivery_address`(비면 회사 주소)·`payment_terms`·`memo`. 회사 정보가 비어 있어도 만들어진다(해당 칸은 null).
+- 금액: 단가는 부가세 별도. 공급가액 합계의 10%를 원 미만 버림으로 한 번만 계산하고(줄별 세액 없음, 예: 1,005원 → 100원), 합계 = 공급가액 + 부가세. 박스 발주 줄은 단위 "박스", 수량은 박스 수, 단가는 박스 단가이고 비고에 `1박스=24개`를 적는다. 한글 금액은 `일금 팔십삼만육천 원정` 식이며 금액 문서 관례대로 1도 읽는다(`일천`, `일십만`).
+- `GET /purchase-orders/{id}/document.xlsx`: 같은 값의 엑셀 한 장(수량·단가·금액은 숫자 칸). 두 경로 모두 DRAFT·CANCELLED는 409 `INVALID_STATUS`, 다른 회사·없는 번호는 404. 읽기만 하므로 GET이다. 서버 PDF는 만들지 않고 화면의 브라우저 인쇄로 저장한다(PDF 라이브러리는 메일 첨부 이슈 #158에서 확인).
 
 ### 회사 정보 (#156)
 
@@ -272,6 +280,7 @@
 | 발주 초안 생성·수정, 추천으로 초안 만들기 | 허용 | 허용 | 임시 확정 |
 | 발주 승인(approve) | 허용 | 막힘 | 확정 |
 | 발주함 표시(order)·입고·취소 | 허용 | 허용 | 임시 확정 |
+| 발주서 문서·엑셀 보기(승인 이후) | 허용 | 허용 | 임시 확정 |
 | 모든 조회(재고·이력·추천·대시보드) | 허용 | 허용 | 임시 확정 |
 
 권한 검사는 경로마다 서버에서 한다. 화면이 버튼을 숨기는 것은 편의일 뿐 보안이 아니다.

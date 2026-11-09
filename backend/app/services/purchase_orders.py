@@ -131,6 +131,8 @@ def create_order(company_id: int, db: Session, user_id: int, data: PurchaseOrder
     order = PurchaseOrder(
         company_id=company_id, supplier_id=supplier.id, po_number=next_po_number(company_id, db),
         due_date=data.due_date, memo=data.memo, created_by=user_id,  # 상태는 DB 기본값 DRAFT
+        delivery_address=data.delivery_address or None,  # 빈 글자는 비움
+        payment_terms=data.payment_terms or supplier.payment_terms,  # 안 보내면 공급업체 기본값을 복사 (#157)
     )
     db.add(order)
     db.flush()  # 발주서 id 받기 (확정은 아직)
@@ -161,7 +163,9 @@ def update_order(company_id: int, db: Session, order_id: int, data: PurchaseOrde
                     setattr(existing[pid], field, value)
             else:  # 새 줄
                 db.add(PurchaseOrderItem(company_id=company_id, purchase_order_id=order.id, product_id=pid, **values))
-    for field, value in data.model_dump(exclude_unset=True, exclude={"items"}).items():  # 납기·메모 중 보낸 칸 (줄 검사를 모두 통과한 뒤에 바꾼다)
+    for field, value in data.model_dump(exclude_unset=True, exclude={"items"}).items():  # 납기·메모·납품장소·지불조건 중 보낸 칸 (줄 검사를 모두 통과한 뒤에 바꾼다)
+        if field in ("delivery_address", "payment_terms"):
+            value = value or None  # 빈 글자는 비움
         setattr(order, field, value)
     db.flush()
     return order

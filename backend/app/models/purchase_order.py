@@ -37,6 +37,8 @@ class PurchaseOrder(CompanyMixin, Base):
     status: Mapped[str] = mapped_column(server_default="DRAFT")  # 상태, 기본 DRAFT
     due_date: Mapped[date | None]  # 약속(희망) 납기
     memo: Mapped[str | None]  # 메모
+    delivery_address: Mapped[str | None]  # 납품장소 (비우면 문서에는 회사 주소가 나온다, #157)
+    payment_terms: Mapped[str | None]  # 지불조건 (만들 때 공급업체 기본값을 복사, 발주서에서 수정 가능, #157)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))  # 작성자
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))  # 승인자 (승인 전에는 비움)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 승인 시각
