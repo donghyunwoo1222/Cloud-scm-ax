@@ -50,7 +50,7 @@ export const S = {
   kpiLabel: { fontSize: "var(--text-sm)", fontWeight: 500, color: "var(--color-muted-foreground)" }, // 카드 이름
   kpiValue: { fontSize: "var(--text-xl)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }, // 큰 숫자 (자릿수 폭 고정)
   kpiSub: { fontSize: "var(--text-xs)", color: "var(--color-muted-foreground)" }, // 숫자 아래 보조 설명
-  kpiMore: { marginTop: "auto", paddingTop: "var(--space-xs)", fontSize: "var(--text-sm)", color: "var(--color-link)" }, // "… 보기 →" (카드 맨 아래로 밀어 높이가 달라도 줄을 맞춘다)
+  kpiMore: { marginTop: "auto", paddingTop: "var(--space-xs)", fontSize: "var(--text-sm)", color: "var(--color-link)" }, // "… 보기" (카드 맨 아래로 밀어 높이가 달라도 줄을 맞춘다)
   hint: { color: "var(--color-muted-foreground)" }, // 화면 설명·보조 글자
   empty: { padding: "var(--space-lg)", textAlign: "center", color: "var(--color-muted-foreground)" }, // 목록이 비었을 때 안내
   error: { color: "var(--color-destructive)" }, // 오류 문장

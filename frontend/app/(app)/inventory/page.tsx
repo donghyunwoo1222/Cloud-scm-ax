@@ -2,12 +2,13 @@
 
 import Link from "next/link"; // 재고 화면에서 실사 조정으로 이동한다.
 import { useSearchParams } from "next/navigation"; // 주소의 ?status= 읽기 (대시보드 링크에서 걸러진 채로 열기)
-import { FormEvent, Suspense, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 주소 읽는 부품 감싸기, 함수 기억, 처음·변경 시 실행, 즉시 확인용 ref, 상태
+import { FormEvent, Suspense, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 배지 타입, 주소 읽는 부품 감싸기, 함수 기억, 처음·변경 시 실행, 말풍선 연결 번호, 즉시 확인용 ref, 상태
 
 import { api, apiList, Meta } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
 import { STOCK_BADGE, StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
+import { InfoTip, Tip } from "../../lib/tip"; // 상태 이유·보조 설명 말풍선
 import { quantityLabel } from "../../lib/po"; // 입출고 이력에도 실제 단위를 붙인다.
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 import { StockTrend } from "./stock-trend"; // 선택한 품목의 30일 마감 재고
@@ -208,30 +209,30 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
       <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>품목명</th><th>SKU</th><th style={S.num}>현재고</th><th style={S.num}>발주 진행 중</th><th style={S.num}>안전재고</th><th>상태</th><th></th></tr>
+          <tr style={S.headRow}><th>품목명</th><th>SKU</th><th style={S.num}>현재고</th><th style={S.num}>발주 진행 중</th><th style={S.num}>안전재고</th><th>상태</th></tr>
         </thead>
         <tbody>
           {stockReady && !stock.error && stock.rows.map((s) => { // 현재 검색의 결과만 표에 그린다
             const selected = String(s.product_id) === productId; // 아래 추이와 이력이 열린 품목
             return (
             <tr key={s.product_id} style={selected ? { ...bodyRow(s.is_active), ...S.selectedRow } : bodyRow(s.is_active)}>
-              <td style={selected ? S.selectedMark : undefined}>{s.name}{!s.is_active && " (비활성)"}</td>
+              <td style={selected ? S.selectedMark : undefined}>
+                {/* 품목 이름을 누르면 아래 추이·이력이 열린다(다시 누르면 닫힘). 줄마다 버튼 칸을 두지 않는다 */}
+                <button ref={selected ? selectedHistoryButton : undefined} type="button" className="text-button" aria-expanded={selected}
+                  aria-label={`${s.name} 추이·이력 ${selected ? "닫기" : "보기"}`} onClick={() => toggleHistory(s)}>{s.name}</button>{!s.is_active && " (비활성)"}
+              </td>
               <td style={S.nowrap}>{s.sku}</td>
               <td style={S.num}>{s.current_stock} {s.unit}</td>
               <td style={S.num}>{quantityLabel(s.in_transit, s.unit)}</td>
               <td style={S.num}>{quantityLabel(s.safety_stock, s.unit)}</td>
-              <td title={s.status_reason?.message}>
-                {s.status ? <StatusBadge kind={STOCK_BADGE[s.status].kind}>{STOCK_BADGE[s.status].label}</StatusBadge> : "-"}
-                {s.status === "SHORTAGE" && s.reorder_point != null && <span style={S.sub}>가용 {quantityLabel(s.current_stock + s.in_transit, s.unit)} · 기준 {quantityLabel(s.reorder_point, s.unit)}</span>}
-                {s.status_reason && <span style={S.sub}>{s.status_reason.message}</span>}
-                {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 판단 불가는 이유를 작게 보인다. 비활성은 "-" */}
-              </td>
               <td>
-                <button ref={selected ? selectedHistoryButton : undefined} type="button" aria-expanded={selected} onClick={() => toggleHistory(s)}>
-                  {selected ? "추이·이력 닫기" : "추이·이력 보기"}
-                </button>
+                {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 이유는 표를 두껍게 하지 않게 말풍선으로 보인다. 비활성은 "-" */}
+                {s.status ? <Tip detail={s.status === "SHORTAGE" && s.reorder_point != null
+                  ? `가용재고 ${quantityLabel(s.current_stock + s.in_transit, s.unit)} · 재주문점 ${quantityLabel(Math.round(s.reorder_point * 10) / 10, s.unit)}`
+                  : s.status_reason?.message}>
+                  <StatusBadge kind={STOCK_BADGE[s.status].kind}>{STOCK_BADGE[s.status].label}</StatusBadge>
+                </Tip> : "-"}
               </td>
-              {/* 아래 이력을 이 품목으로 거른다 */}
             </tr>
             );
           })}
@@ -255,7 +256,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
       {/* tabIndex -1: 키 이동 순서에는 넣지 않고, 코드로만 포커스를 줄 수 있게 */}
       <p style={S.hint}>{historyProduct
         ? historyProduct.name ? `${historyProduct.name} · ${historyProduct.sku}` : "선택한 품목의 이력입니다."
-        : "전체 품목의 이력입니다. 특정 품목은 위 목록에서 추이·이력 보기를 누르세요."}</p>
+        : "전체 품목의 이력입니다. 특정 품목은 위 목록에서 품목 이름을 누르세요."}</p>
       <div style={S.toolbar}>
         {/* 유형과 기간은 선택한 품목의 이력에 적용한다. */}
         <label>유형
@@ -272,18 +273,25 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
       {notice && <p role="status" style={S.ok}>{notice}</p>}
 
       {correcting && (
-        <form onSubmit={correct} style={S.panel}>
-          {/* 정정 폼: 원래 이력 요약 + 수량·사유 */}
-          <span>
-            정정 대상: #{correcting.id} {correcting.product_name} {TYPE_LABEL[correcting.movement_type]} {quantityLabel(correcting.quantity, correcting.product_unit ?? undefined)} ({correcting.movement_date})
-          </span>
-          <label>정정 수량* <input type="number" inputMode="numeric" min={1} max={correcting.correctable_quantity ?? correcting.quantity} step={1}
-            aria-describedby="correction-limit" value={cQty} onChange={(e) => setCQty(e.target.value)} />
-            <small id="correction-limit">이력 기준 최대 {quantityLabel(correcting.correctable_quantity ?? correcting.quantity, correcting.product_unit ?? undefined)}</small>
+        <form onSubmit={correct} className="correction-form" style={S.panel}>
+          {/* 정정 폼: 위에 원래 이력 요약, 아래에 수량·사유·버튼 한 줄. 보조 설명은 말풍선 */}
+          <div className="correction-head">
+            <span className="correction-title">정정 대상</span>
+            <strong>#{correcting.id} {correcting.product_name}</strong>
+            <span className="correction-meta">{TYPE_LABEL[correcting.movement_type]} · {quantityLabel(correcting.quantity, correcting.product_unit ?? undefined)} · {correcting.movement_date}</span>
+          </div>
+          <label>정정 수량*
+            <span className="correction-qty">
+              <input type="number" inputMode="numeric" min={1} max={correcting.correctable_quantity ?? correcting.quantity} step={1}
+                aria-describedby="correction-limit" value={cQty} onChange={(e) => setCQty(e.target.value)} />
+              <InfoTip id="correction-limit" label="정정 가능한 최대 수량" detail={`이력 기준 최대 ${quantityLabel(correcting.correctable_quantity ?? correcting.quantity, correcting.product_unit ?? undefined)}`} />
+            </span>
           </label>
-          <label>사유* <input value={cReason} onChange={(e) => setCReason(e.target.value)} placeholder="예: 10개를 100개로 잘못 입력" /></label>
-          <button type="submit" disabled={busy}>{busy ? "등록 중…" : "정정 등록"}</button>
-          <button type="button" onClick={() => setCorrecting(null)}>취소</button>
+          <label className="correction-reason">사유* <input value={cReason} onChange={(e) => setCReason(e.target.value)} placeholder="예: 10개를 100개로 잘못 입력" /></label>
+          <div className="correction-actions">
+            <button type="submit" disabled={busy}>{busy ? "등록 중…" : "정정 등록"}</button>
+            <button type="button" onClick={() => setCorrecting(null)}>취소</button>
+          </div>
           <div style={S.basisFull}><ErrorText error={cError} labels={LABELS} /></div>
         </form>
       )}
@@ -303,7 +311,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
               {/* 정정 행은 어떤 이력을 바로잡았는지 번호로 보인다 (예: 정정 (#2)) */}
               <td style={S.num}>{m.direction === "IN" ? "+" : "−"}{quantityLabel(m.quantity, m.product_unit ?? undefined)}</td>
               <td>{[m.sales_channel && CHANNEL_LABEL[m.sales_channel], m.reason, m.memo].filter(Boolean).join(" · ")}</td>
-              <td>{m.movement_type !== "CORRECTION" && (m.correctable_quantity ?? m.quantity) > 0 && <button type="button" onClick={() => startCorrect(m)}>정정</button>}</td>
+              <td>{m.movement_type !== "CORRECTION" && (m.correctable_quantity ?? m.quantity) > 0 && <button type="button" className="text-button" aria-label={`#${m.id} 정정`} onClick={() => startCorrect(m)}>정정</button>}</td>
               {/* 정정 행에는 버튼을 숨긴다 (정정의 정정 금지) */}
             </tr>
           ))}

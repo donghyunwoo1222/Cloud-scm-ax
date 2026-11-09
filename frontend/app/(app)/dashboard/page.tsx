@@ -35,7 +35,7 @@ type DeadItem = { product_id: number; sku: string; name: string; unit: string; c
 const stockRatio = (item: ShortItem) => item.reorder_point > 0 ? item.available / item.reorder_point : null;
 const SHORTAGE_PREVIEW_LIMIT = 5; // 첫 화면에 보여 줄 부족 품목 수
 
-// 숫자 카드 하나: 이름 · 큰 숫자 · 보조 글자. href 가 있으면 카드 전체가 링크(사용자 결정)이고 맨 아래에 "… 보기 →" 를 항상 보여 누를 수 있음을 알린다
+// 숫자 카드 하나: 이름 · 큰 숫자 · 보조 글자. href 가 있으면 카드 전체가 링크(사용자 결정)이고 맨 아래에 "… 보기" 를 항상 보여 누를 수 있음을 알린다
 function NumberCard({ label, value, sub, href, more }: { label: string; value: string; sub?: ReactNode; href?: string; more?: string }) {
   const body = (
     <>
@@ -45,7 +45,7 @@ function NumberCard({ label, value, sub, href, more }: { label: string; value: s
       {/* 큰 숫자 (예: 5건) */}
       {sub && <span style={S.kpiSub}>{sub}</span>}
       {/* 보조 설명 (예: 입고 예정 155개) */}
-      {more && <span style={S.kpiMore}>{more} →</span>}{/* 카드마다 어디로 가는지 다른 문구로 알린다 */}
+      {more && <span style={S.kpiMore}>{more}</span>}{/* 카드마다 어디로 가는지 다른 문구로 알린다 */}
     </>
   );
   return href
@@ -126,7 +126,7 @@ export default function Page() {
             </div>
           )}
           <span style={S.kpiSub}>전체 {won(po.ordered)}건 · 입고 예정 {unitTotals(po.incoming_by_unit)}</span>
-          <Link className={styles.allReceipts} href="/purchase-orders?status=ORDERED" style={S.kpiMore}>입고 대기 발주 보기 →</Link>
+          <Link className={styles.allReceipts} href="/purchase-orders?status=ORDERED" style={S.kpiMore}>입고 대기 발주 보기</Link>
         </div>
         <NumberCard label="발주 검토" value={`${won(shortage.count)}품목`} href="/recommendations" more="발주 추천 보기" />
         {me?.role === "ADMIN" && (
@@ -154,9 +154,8 @@ export default function Page() {
           )
         ) : (
           <>
-            <p style={S.hint}>현재고 0인 품목을 먼저 표시합니다. 가용재고는 현재고와 입고 예정 수량의 합입니다.</p>
             <div style={S.tableBox}>
-              <table style={{ ...S.table, minWidth: 520 }}>
+              <table className="plain-table" style={{ ...S.table, minWidth: 520 }}>{/* 대시보드는 칸선 없이 막대로 한눈에 보인다 */}
                 <thead>
                   <tr style={S.headRow}>
                     <th scope="col">품목</th><th scope="col" style={S.num}>현재고</th><th scope="col" style={S.num}>가용재고 / 재주문점</th><th scope="col" style={S.num}>추천 수량</th>
@@ -168,16 +167,16 @@ export default function Page() {
                     return (
                       <tr key={i.product_id} style={bodyRow(true)}>
                         <th scope="row" style={{ textAlign: "left", fontWeight: 500, background: "transparent", color: "var(--color-foreground)" }}>
-                          {i.name}<span style={S.sub}>{i.sku}</span>
-                          {/* 품목 바로 아래에 두어 좁은 화면에서도 작업 링크가 먼저 보인다. */}
-                          <Link href={`/recommendations?product_id=${i.product_id}`} style={S.nowrap}
-                            aria-label={`${i.name} (${i.sku}) 발주 검토`}>발주 검토 →</Link>
+                          {/* 품목 이름이 발주 검토 링크다(줄마다 따로 링크를 두지 않는다). 읽기 도구에는 하는 일까지 알린다 */}
+                          <Link href={`/recommendations?product_id=${i.product_id}`}
+                            aria-label={`${i.name} (${i.sku}) 발주 검토`}>{i.name}</Link><span style={S.sub}>{i.sku}</span>
                         </th>
                         <td style={S.num}>
                           {i.current_stock === 0 ? <strong style={{ color: "var(--color-destructive)" }}>0{i.unit}</strong> : <>{won(i.current_stock)}{i.unit}</>}
                         </td>
                         <td style={{ ...S.num, minWidth: "10rem" }}>
                           <span style={S.nowrap}>{won(i.available)} / {fmt(i.reorder_point)}{i.unit}</span>
+                          {/* 막대 하나로 급한 정도를 보인다(숫자 "가용 / 재주문점"은 위 한 줄). 재주문점 0이면 비율이 없어 막대 대신 글자 */}
                           {ratio === null ? <span style={S.sub}>재주문점 0</span> : (
                             <>
                               <span aria-hidden="true" style={{
@@ -186,7 +185,6 @@ export default function Page() {
                               }}>
                                 <span style={{ display: "block", width: `${ratio * 100}%`, height: "100%", background: "var(--color-primary)" }} />
                               </span>
-                              <span style={S.sub}>재주문점의 {fmt(ratio * 100)}%</span>
                             </>
                           )}
                         </td>
@@ -197,17 +195,18 @@ export default function Page() {
                 </tbody>
               </table>
             </div>
+            <p style={S.hint}>현재고 0인 품목을 먼저 표시합니다. 가용재고는 현재고와 입고 예정 수량의 합이고, 막대는 재주문점에 대한 가용재고의 비율입니다.</p>
             {shortage.count > shortageItems.length && <p style={S.hint}>
               {shortage.count > shortage.items.length
                 ? `최근 등록한 부족 품목 ${won(shortage.items.length)}개 중 ${shortageItems.length}개를 표시합니다.`
                 : `부족 품목 ${won(shortage.count)}개 중 ${shortageItems.length}개를 표시합니다.`}
             </p>}
-            <p><Link href="/inventory?status=SHORTAGE">부족 품목 전체 보기 →</Link></p>
+            <p><Link href="/inventory?status=SHORTAGE">부족 품목 전체 보기</Link></p>
           </>
         )}
       </div>
 
-      <p className={styles.orderLink}><Link href="/purchase-orders">발주 목록 전체 보기 →</Link></p>
+      <p className={styles.orderLink}><Link href="/purchase-orders">발주 목록 전체 보기</Link></p>
 
       <section style={S.sectionCard}>
         <h2>재고 점검</h2>
@@ -258,7 +257,7 @@ export default function Page() {
         href={`/inventory?date_from=${month.month_start}&date_to=${month.month_end}#movement-history`}>
         <strong>이번 달 입출고</strong>
         <span>입고 <strong>{won(month.in_count)}건</strong> · 출고 <strong>{won(month.out_count)}건</strong></span>
-        <span className={styles.monthLink}>입출고 이력 보기 →</span>
+        <span className={styles.monthLink}>입출고 이력 보기</span>
       </Link>
     </section>
   );

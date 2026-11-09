@@ -143,6 +143,144 @@ button:hover:not(:disabled) {
   background: var(--color-hover);
 }
 
+/* 글자처럼 보이는 버튼: 표 안에서 줄마다 테두리 버튼을 두지 않고 이름·짧은 글자로 동작을 건다(#149) */
+button.text-button {
+  min-height: 24px; /* 테두리는 없애도 누르는 칸은 24px 이상(WCAG 2.5.8) */
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-link);
+  font-weight: inherit;
+  text-align: start;
+  white-space: normal;
+}
+
+button.text-button:hover:not(:disabled) {
+  background: none;
+  text-decoration: underline;
+}
+
+/* 재고 상태 배지 말풍선(#149): 버튼 모양은 지우고 배지만 보인다. 말풍선은 popover(맨 위 층)라 표 상자에 잘리지 않는다 */
+button.status-tip {
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: help;
+}
+
+button.status-tip:hover:not(:disabled) {
+  background: none;
+}
+
+/* 정정 폼(#149): 위에 원래 이력 요약 한 줄, 아래에 수량·사유·버튼을 한 줄로 */
+.correction-form {
+  display: grid !important; /* styles.ts 의 panel(flex)보다 우선 */
+  grid-template-columns: minmax(130px, 170px) minmax(200px, 1fr) auto;
+  align-items: end;
+  gap: var(--space-sm) var(--space-md);
+}
+
+.correction-form > label {
+  max-width: none;
+}
+
+.correction-head {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs) var(--space-sm);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.correction-title,
+.correction-meta {
+  font-size: var(--text-sm);
+  color: var(--color-muted-foreground);
+}
+
+.correction-qty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.correction-qty input {
+  flex: 1;
+  min-width: 0;
+}
+
+.correction-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.correction-form > div:last-child {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 729px) {
+  .correction-form {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+}
+
+/* 공급업체 상세 정보 줄(#149): 이름·값을 칸으로 나눠 한눈에 보인다 */
+.info-strip {
+  display: grid;
+  grid-auto-flow: column; /* 칸 수가 몇 개든 한 줄에 나란히(칸이 모자라 줄이 꺾이면 빈 자리가 회색으로 보인다) */
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 1px;
+  margin: var(--space-md) 0 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-border-strong);
+  overflow: hidden;
+}
+
+.info-strip > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-card);
+}
+
+@media (max-width: 729px) {
+  .info-strip {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+  }
+}
+
+.info-strip dt {
+  font-size: var(--text-xs);
+  color: var(--color-muted-foreground);
+}
+
+.info-strip dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.status-tip-text {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  max-width: 240px;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-card);
+  color: var(--color-foreground);
+  font-size: var(--text-xs);
+  box-shadow: var(--shadow-sm), 0 4px 12px rgb(30 41 59 / 12%);
+}
+
 button[type="submit"],
 button.primary-action {
   background: var(--color-primary);
@@ -360,6 +498,57 @@ tbody tr:hover {
   background: var(--color-hover);
 }
 
+/* 데스크톱 표: 바깥 테두리와 칸 사이 세로선으로 칸을 나눠 숫자를 세로로 비교하기 쉽게 한다.
+   모바일(730px 미만)은 표 대신 압축 행을 쓰거나 가로 스크롤이라 그대로 둔다.
+   기존 구분선 색(--color-border)은 세로선으로 쓰면 거의 안 보여서 한 단계 진한 기존 변수를 쓴다(새 색은 만들지 않는다) */
+@media (min-width: 730px) {
+  table {
+    border: 1px solid var(--color-border-strong);
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    border: 1px solid var(--color-border-strong);
+  }
+
+  /* 칸선을 넣지 않는 표(대시보드의 발주 검토 품목): 예전처럼 줄 아래 선만 둔다 */
+  table.plain-table,
+  table.plain-table th,
+  table.plain-table td {
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+}
+
+/* 부드럽게 펼쳐지는 등록·수정 폼(#149): 닫힌 높이 0 → 펼친 높이(auto)로 움직인다.
+   ::details-content 와 interpolate-size 를 지원하지 않는 브라우저는 예전처럼 바로 열린다. 움직임 줄이기를 켠 사람은 움직임 없음 */
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    interpolate-size: allow-keywords;
+  }
+
+  details.smooth-details::details-content {
+    block-size: 0;
+    overflow: hidden;
+    transition: block-size 280ms ease, content-visibility 280ms allow-discrete;
+  }
+
+  details.smooth-details[open]::details-content {
+    block-size: auto;
+  }
+}
+
+details.smooth-details {
+  scroll-margin-top: var(--page-pad);
+}
+
+@media (max-width: 729px) {
+  details.smooth-details {
+    scroll-margin-top: calc(var(--app-bar-height) + var(--space-md)); /* 모바일 앱바에 가리지 않게 */
+  }
+}
+
 /* 접었다 펴는 이유 칸 (<details className="reason">): 접힌 상태는 한 줄 요약 + "자세히", 펼치면 전체 문장 + "접기" */
 details.reason > summary {
   cursor: pointer;
@@ -413,6 +602,11 @@ details.reason > p {
   padding: var(--space-xs) 12px var(--space-md);
 }
 
+/* 데스크톱 햄버거(사이드 메뉴 접기)는 모바일에서 숨긴다 */
+.sidebar-toggle {
+  display: none;
+}
+
 /* 모바일 전용 부품은 데스크톱에서 숨긴다 */
 .app-bar,
 .drawer-scrim,
@@ -420,6 +614,49 @@ details.reason > p {
 .drawer-user,
 .drawer-logout {
   display: none;
+}
+
+/* 사이드 메뉴 접기(데스크톱): 위쪽 햄버거를 누르면 폭 56px 의 얇은 띠에 햄버거만 남고, 다시 누르면 펼쳐진다 */
+@media (min-width: 730px) {
+  .sidebar-heading {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding-bottom: var(--space-sm);
+  }
+
+  .sidebar-heading .sidebar-brand {
+    padding: 0;
+    white-space: nowrap;
+  }
+
+  .sidebar-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 40px;
+    min-height: 40px;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .sidebar[data-collapsed="true"] {
+    flex-basis: 56px;
+    padding-inline: var(--space-xs);
+  }
+
+  .sidebar[data-collapsed="true"] .sidebar-brand,
+  .sidebar[data-collapsed="true"] .side-nav {
+    display: none !important; /* 접히면 글자 메뉴는 숨기고(Tab 순서에서도 빠진다) 햄버거만 남긴다. 메뉴 배치는 inline style 이라 !important 가 필요 */
+  }
+}
+
+@media (min-width: 730px) and (prefers-reduced-motion: no-preference) {
+  .sidebar {
+    transition: flex-basis 200ms ease;
+  }
 }
 
 /* 사이드 메뉴 고정(데스크톱): 화면(본문)을 스크롤해도 메뉴는 제자리. 메뉴가 화면보다 길면 메뉴 안에서만 스크롤 */
