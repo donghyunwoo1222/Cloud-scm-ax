@@ -10,3 +10,5 @@ pydantic-settings==2.16.2   # .env·환경 변수 읽기
 pytest==9.2.0               # 자동 테스트 실행기
 httpx2==2.16.0              # 테스트에서 가짜 HTTP 요청을 보낼 때 필요 (httpx 후속판, starlette 권장)
 ruff==0.17.3                # 코드 검사(린트) 도구, 개발용 (python -m ruff check .)
+openpyxl==3.1.5              # .xlsx 파일 읽기 (판매 가져오기, 읽기 전용 모드)
+python-multipart==0.0.33     # 파일 업로드(multipart) 요청 받기 (FastAPI 필수)

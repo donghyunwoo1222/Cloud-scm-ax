@@ -17,7 +17,7 @@ export class ApiError extends Error {
 
 type Options = {
   method?: "GET" | "POST" | "PATCH"; // 상태를 바꾸는 요청은 POST/PATCH 만 쓴다 (GET 은 읽기만)
-  body?: unknown; // 보낼 JSON 본문
+  body?: unknown; // 보낼 JSON 본문 (FormData 면 파일 업로드: 그대로 보낸다)
   redirectOn401?: boolean; // 401 이면 로그인 화면으로 보낼지 (로그인 요청 자체는 false)
 };
 
@@ -43,8 +43,9 @@ async function request(path: string, options: Options) {
   try {
     response = await fetch(`/api/v1${path}`, {
       method, // 요청 방식
-      headers: body === undefined ? undefined : { "Content-Type": "application/json" }, // 본문이 있을 때만 JSON 표시
-      body: body === undefined ? undefined : JSON.stringify(body), // 객체 → JSON 문자열
+      // FormData 는 브라우저가 경계 문자열이 든 Content-Type 을 직접 붙이므로 우리가 지정하지 않는다
+      headers: body === undefined || body instanceof FormData ? undefined : { "Content-Type": "application/json" }, // 본문이 JSON 일 때만 표시
+      body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body), // 객체 → JSON 문자열
       credentials: "same-origin", // 같은 주소의 쿠키(로그인 토큰)를 자동으로 붙인다
     });
   } catch {

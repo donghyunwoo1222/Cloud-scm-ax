@@ -119,6 +119,7 @@ def register_movement(
     memo: str | None = None,
     purchase_order_item_id: int | None = None,
     reverses_movement_id: int | None = None,
+    external_ref: str | None = None,
 ) -> tuple[InventoryMovement, int]:
     """이력 한 줄을 쓰는 유일한 함수. 한 트랜잭션 안에서 ① 품목 줄 잠금 ② 현재고 계산 ③ 0 미만이면 거절 ④ 저장(flush).
 
@@ -140,6 +141,7 @@ def register_movement(
         movement_type=movement_type, direction=direction, quantity=quantity, movement_date=movement_date,
         sales_channel=sales_channel, reason=reason, memo=memo,
         purchase_order_item_id=purchase_order_item_id, reverses_movement_id=reverses_movement_id,
+        external_ref=external_ref,  # 가져오기 파일의 주문번호 (중복 반영을 DB 가 막는다)
     )
     db.add(movement)  # ④ 저장
     db.flush()  # DB 에 보내 id 를 받는다 (확정은 아직). 호출한 쪽의 commit 때 확정되고 잠금이 풀린다
