@@ -168,7 +168,7 @@ erDiagram
 | sales\_channel | 선택지 | 선택 | SMARTSTORE, OWN\_MALL, OTHER. SALE일 때만 필수, 그 외에는 비움(임시 확정) |
 | reason | 문자열 | 선택 | 조정·정정 사유. ADJUSTMENT(R10)와 CORRECTION일 때 필수 |
 | memo | 문자열 | 선택 | 메모 |
-| external\_ref | 문자열(100) | 선택 | 판매 가져오기 파일의 고유 주문번호(#154). 직접 입력한 이력은 비움. 값이 있을 때만 (company\_id, external\_ref)가 유일(부분 유일 인덱스 `uq_movements_company_external_ref`)이라 같은 파일을 다시 올려도 두 번 반영되지 않는다 |
+| external\_ref | 문자열(100) | 선택 | 가져오기 파일의 고유 번호(판매 주문번호 #154, 입고 번호 #155). 직접 입력한 이력은 비움. 값이 있을 때만 (company\_id, movement\_type, external\_ref)가 유일(부분 유일 인덱스 `uq_movements_company_type_external_ref`)이라 같은 파일을 다시 올려도 두 번 반영되지 않고, 판매와 입고 번호가 같아도 서로 막지 않는다 |
 | created\_by | 정수 | 필수 | 등록한 사용자 |
 
 이 표의 규칙이 제일 중요하다. 첫째, 한 번 쌓인 행은 고치거나 지울 수 없다(R2, 확정). 잘못 등록했을 때는 원래 이력을 가리키는 정정(CORRECTION) 행을 사유와 함께 추가한다. ADJUSTMENT는 재고 실사 차이 전용으로 남긴다. 둘째, 등록 직후 품목의 현재고가 0 미만이 되는 행은 저장하지 않는다(R3). 셋째, 조회가 빨라지도록 (company\_id, product\_id, movement\_date) 순서로 인덱스를 두고, 발주 품목별 누적 입고량 조회를 위해 purchase\_order\_item\_id에도 인덱스를 둔다(임시 확정).

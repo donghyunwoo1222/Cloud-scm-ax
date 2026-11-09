@@ -112,11 +112,11 @@ def read_table(filename: str, content: bytes) -> tuple[list[str], list[list[str]
     return headers, rows
 
 
-def suggest_columns(headers: list[str]) -> dict[str, int | None]:
+def suggest_columns(headers: list[str], hints: dict[str, list[str]] = HINTS) -> dict[str, int | None]:
     """머리글 이름이 비슷한 열을 미리 고르는 힌트. 낱말 우선순위대로 처음 맞는 열 (없으면 None)."""
     lowered = [h.lower() for h in headers]
     out: dict[str, int | None] = {}
-    for key, words in HINTS.items():
+    for key, words in hints.items():
         out[key] = next((i for w in words for i, h in enumerate(lowered) if w in h), None)
     return out
 
@@ -229,6 +229,7 @@ def analyze(company_id: int, db: Session, rows: list[list[str]], opts: SalesImpo
     existing = set(db.scalars(
         select(InventoryMovement.external_ref).where(
             InventoryMovement.company_id == company_id,  # 우리 회사 이력만 (R1)
+            InventoryMovement.movement_type == "SALE",  # 번호는 유형마다 따로 센다 (입고 번호와 겹쳐도 무관, #155)
             InventoryMovement.external_ref.in_([c.ref for c in candidates]),
         )
     )) if candidates else set()

@@ -46,6 +46,7 @@
 | F4 | POST /inventory-movements/{id}/corrections | 잘못 넣은 이력 {id}를 정정(CORRECTION 등록) | 둘 다 |
 | F4 | GET /inventory-movements | 이력 조회(품목·유형(여러 개 가능)·기간 필터, 정렬: 입출고일순 또는 등록순) | 둘 다 |
 | 자동화 판매 가져오기 | POST /sales-imports/inspect, POST /sales-imports/preview, POST /sales-imports | 주문 파일(CSV·.xlsx) 열 확인, 미리보기, SALE 이력 일괄 반영 (#154, MVP 이후) | 둘 다 |
+| 자동화 품목·입고 가져오기 | POST /receipt-imports/inspect, POST /receipt-imports/preview, POST /receipt-imports | 입고·품목 파일로 새 품목 등록 + 직접 입고 일괄 반영 (#155, MVP 이후) | 둘 다 |
 | F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 안전재고. 발주 진행 중 수량(`in_transit`), 상태(`status`: 가용재고 ≤ 재주문점이면 SHORTAGE, 추천 제외 품목은 UNKNOWN + `status_reason`, 비활성은 null, 추천과 같은 계산, #76). `q`(최대 100자)는 공백을 다듬어 SKU·품목명 부분 일치 검색에 사용한다(대소문자 무시, `%`·`_`는 글자 그대로). `status`와 함께 주면 두 조건으로 거른 뒤 쪽을 나눈다. | 둘 다 |
 | F5 재고 추이 | GET /stock/{product\_id}/trend | 서울 기준 오늘 포함 30일의 품목별 마감 재고와 입고 기록 (#126) | 둘 다 |
 | F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status`·`receipt_due` 필터, `q` 발주번호 부분 검색), DRAFT 발주서 만들기(직접). 응답의 `has_receipts`는 전량 정정된 입고 이력도 포함한다. | 둘 다 |
@@ -148,6 +149,15 @@
 - `POST /sales-imports` (201): 같은 입력 + `sales_channel` 필수. 품목을 번호순으로 잠근 뒤 다시 계산하고 `register_movement`로 SALE을 날짜순으로 쓴다(한 트랜잭션). 문제 행이 있고 `exclude_problems`가 아니면 409 `IMPORT_HAS_PROBLEMS`, 반영할 행이 없으면 409 `NOTHING_TO_IMPORT`, 동시에 같은 주문번호가 들어오면 409 `DUPLICATE_REF`.
 - 문제 행 사유: `MISSING_SKU`, `INVALID_QUANTITY`(1~100만 정수), `INVALID_DATE`, `FUTURE_DATE`, `MISSING_REF`, `DUPLICATE_REF_IN_FILE`(뒤의 행만), `UNKNOWN_SKU`(다른 회사 SKU 포함), `INSUFFICIENT_STOCK`(품목마다 현재고에서 (날짜, 줄) 순으로 빼 음수가 되는 행. 문제 행은 재고를 쓰지 않은 것으로 친다).
 - 파일 오류는 422 `FILE_TOO_LARGE`·`TOO_MANY_ROWS`·`INVALID_FILE`.
+
+### 품목·입고 가져오기 (#155)
+
+파일 규칙과 세 단계는 판매 가져오기와 같다.
+
+- `POST /receipt-imports/inspect` (`file`): `headers`, `row_count`, `suggested`.
+- `POST /receipt-imports/preview` (`file`, `options` JSON): `options`는 `product_col`(필수), 선택 `quantity_col`(없으면 품목만 등록)·`date_col`(수량 열이 있으면 필수)·`ref_col`(없으면 `날짜|SKU|수량|n번째`로 번호를 만든다), 새 품목용 `name_col`·`unit_col`·`cost_col`·`safety_col`(비면 0), `default_supplier_id`, `exclude_problems`. 열은 서로 달라야 한다. 응답은 `new_product_count`·`new_products`(앞 200개), `apply_count`, `skipped`(`ALREADY_IMPORTED`·`PRODUCT_EXISTS`·`SAME_SKU_ABOVE`), `date_from`·`date_to`, `total_quantity`, `problem_count`, `problems`. `default_supplier_id`가 다른 회사면 404, 비활성이면 409.
+- `POST /receipt-imports` (201): 품목을 번호순으로 잠근 뒤 다시 계산하고, 새 품목을 만든 다음 RECEIPT를 날짜순으로 쓴다(한 트랜잭션). 새 품목이 있는데 공급업체가 없으면 422, 문제 행이 있으면 409 `IMPORT_HAS_PROBLEMS`, 할 일이 없으면 409 `NOTHING_TO_IMPORT`, 같은 SKU·번호가 동시에 들어오면 409 `IMPORT_CONFLICT`.
+- 문제 행 사유: `MISSING_SKU`(비었거나 50자 초과), `INVALID_QUANTITY`, `INVALID_DATE`, `FUTURE_DATE`, `MISSING_REF`, `DUPLICATE_REF_IN_FILE`, `INVALID_PRODUCT_INFO`(새 SKU의 첫 행 값이 품목 등록 규칙에 어긋남, 그 SKU의 모든 행).
 
 ### 품목별 재고 추이 (#126)
 
