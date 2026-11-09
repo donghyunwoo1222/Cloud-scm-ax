@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useRef, useState } from "react"; // 폼 제출, �
 import { api } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
+import { InfoTip } from "../../lib/tip"; // 보조 설명 말풍선
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/suppliers 의 한 행
@@ -98,8 +99,8 @@ export default function SuppliersPage() {
       <form onSubmit={save} style={S.formGrid}>
         {/* 등록·수정 폼: 칸을 가로로 나열 */}
         <label>업체명* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
-        <label>입고 소요일(일)* <input type="number" inputMode="numeric" value={form.lead_time_days} onChange={(e) => set("lead_time_days", e.target.value)} />
-          <small>발주 후 입고까지 걸리는 기간(리드타임)</small>
+        <label>입고 소요일(일)* <InfoTip label="입고 소요일 설명" detail="발주 후 입고까지 걸리는 기간(리드타임)" />
+          <input type="number" inputMode="numeric" value={form.lead_time_days} onChange={(e) => set("lead_time_days", e.target.value)} />
         </label>
         {/* 음수·소수 검사는 서버가 한다 (화면은 서버 message 를 보여준다) */}
         <label>담당자 <input value={form.contact_name} onChange={(e) => set("contact_name", e.target.value)} /></label>

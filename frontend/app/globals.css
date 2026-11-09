@@ -173,6 +173,100 @@ button.status-tip:hover:not(:disabled) {
   background: none;
 }
 
+/* 정정 폼(#149): 위에 원래 이력 요약 한 줄, 아래에 수량·사유·버튼을 한 줄로 */
+.correction-form {
+  display: grid !important; /* styles.ts 의 panel(flex)보다 우선 */
+  grid-template-columns: minmax(130px, 170px) minmax(200px, 1fr) auto;
+  align-items: end;
+  gap: var(--space-sm) var(--space-md);
+}
+
+.correction-form > label {
+  max-width: none;
+}
+
+.correction-head {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs) var(--space-sm);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.correction-title,
+.correction-meta {
+  font-size: var(--text-sm);
+  color: var(--color-muted-foreground);
+}
+
+.correction-qty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.correction-qty input {
+  flex: 1;
+  min-width: 0;
+}
+
+.correction-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.correction-form > div:last-child {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 729px) {
+  .correction-form {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+}
+
+/* 공급업체 상세 정보 줄(#149): 이름·값을 칸으로 나눠 한눈에 보인다 */
+.info-strip {
+  display: grid;
+  grid-auto-flow: column; /* 칸 수가 몇 개든 한 줄에 나란히(칸이 모자라 줄이 꺾이면 빈 자리가 회색으로 보인다) */
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 1px;
+  margin: var(--space-md) 0 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-border-strong);
+  overflow: hidden;
+}
+
+.info-strip > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-card);
+}
+
+@media (max-width: 729px) {
+  .info-strip {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+  }
+}
+
+.info-strip dt {
+  font-size: var(--text-xs);
+  color: var(--color-muted-foreground);
+}
+
+.info-strip dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .status-tip-text {
   position: fixed;
   inset: auto;
@@ -416,6 +510,14 @@ tbody tr:hover {
   th,
   td {
     border: 1px solid var(--color-border-strong);
+  }
+
+  /* 칸선을 넣지 않는 표(대시보드의 발주 검토 품목): 예전처럼 줄 아래 선만 둔다 */
+  table.plain-table,
+  table.plain-table th,
+  table.plain-table td {
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
   }
 }
 

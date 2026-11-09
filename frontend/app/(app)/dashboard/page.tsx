@@ -155,7 +155,7 @@ export default function Page() {
         ) : (
           <>
             <div style={S.tableBox}>
-              <table style={{ ...S.table, minWidth: 520 }}>
+              <table className="plain-table" style={{ ...S.table, minWidth: 520 }}>{/* 대시보드는 칸선 없이 막대로 한눈에 보인다 */}
                 <thead>
                   <tr style={S.headRow}>
                     <th scope="col">품목</th><th scope="col" style={S.num}>현재고</th><th scope="col" style={S.num}>가용재고 / 재주문점</th><th scope="col" style={S.num}>추천 수량</th>

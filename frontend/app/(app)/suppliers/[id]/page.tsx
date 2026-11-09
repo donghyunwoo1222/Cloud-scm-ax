@@ -44,12 +44,17 @@ function Detail() {
           <button type="button" onClick={() => setActive(supplier, !supplier.is_active)}>{supplier.is_active ? "비활성" : "다시 활성"}</button>
         </div>}
       </div>
-      <p><Link href="/suppliers">목록</Link></p>
+      <p style={S.hint}><Link href="/suppliers">공급업체 목록</Link></p>
       <ErrorText error={error} />
       {supplier && (
-        <p>
-          리드타임 {supplier.lead_time_days}일 · 담당자 {supplier.contact_name ?? "-"} · 연락처 {supplier.phone ?? "-"} · 이메일 {supplier.email ?? "-"} · {supplier.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}
-        </p>
+        <dl className="info-strip">
+          {/* 한 줄 줄글 대신 이름·값 칸. 비어 있는 값은 "-" */}
+          <div><dt>리드타임</dt><dd>{supplier.lead_time_days}일</dd></div>
+          <div><dt>담당자</dt><dd>{supplier.contact_name ?? "-"}</dd></div>
+          <div><dt>연락처</dt><dd>{supplier.phone ?? "-"}</dd></div>
+          <div><dt>이메일</dt><dd>{supplier.email ?? "-"}</dd></div>
+          <div><dt>상태</dt><dd>{supplier.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}</dd></div>
+        </dl>
       )}
 
       <h2 style={S.sectionTitle}>발주 이력</h2>

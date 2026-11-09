@@ -2,12 +2,13 @@
 
 import Link from "next/link"; // 재고 화면에서 실사 조정으로 이동한다.
 import { useSearchParams } from "next/navigation"; // 주소의 ?status= 읽기 (대시보드 링크에서 걸러진 채로 열기)
-import { FormEvent, ReactNode, Suspense, useCallback, useEffect, useId, useRef, useState } from "react"; // 폼 제출, 배지 타입, 주소 읽는 부품 감싸기, 함수 기억, 처음·변경 시 실행, 말풍선 연결 번호, 즉시 확인용 ref, 상태
+import { FormEvent, Suspense, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 배지 타입, 주소 읽는 부품 감싸기, 함수 기억, 처음·변경 시 실행, 말풍선 연결 번호, 즉시 확인용 ref, 상태
 
 import { api, apiList, Meta } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
 import { STOCK_BADGE, StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
+import { InfoTip, Tip } from "../../lib/tip"; // 상태 이유·보조 설명 말풍선
 import { quantityLabel } from "../../lib/po"; // 입출고 이력에도 실제 단위를 붙인다.
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 import { StockTrend } from "./stock-trend"; // 선택한 품목의 30일 마감 재고
@@ -41,31 +42,6 @@ function focusInView(target: HTMLElement | null, block: ScrollLogicalPosition) {
 
 // 재고 현황 화면 (주소 /inventory): 품목별 현재고 + 입출고 이력(필터·정정)
 // 주소의 ?status= 는 화면이 열릴 때 알 수 있어 Suspense 로 감싼다 (Next.js 가 빌드 때 미리 그리는 동안 기다릴 자리)
-// 상태 배지 + 이유 말풍선. 마우스를 올리거나 누르거나(터치) Tab 으로 오면 열린다.
-// 표 상자의 가로 스크롤에 잘리지 않게 popover(맨 위 층)로 띄우고 배지 바로 아래에 둔다. 이유가 없으면 배지만 보인다
-function StatusTip({ detail, children }: { detail?: string; children: ReactNode }) {
-  const id = useId();
-  const button = useRef<HTMLButtonElement>(null);
-  const tip = useRef<HTMLSpanElement>(null);
-  if (!detail) return <>{children}</>;
-  const hide = () => { if (tip.current?.matches(":popover-open")) tip.current.hidePopover(); };
-  const show = () => {
-    const t = tip.current, rect = button.current?.getBoundingClientRect();
-    if (!t || !rect) return;
-    t.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 248))}px`; // 말풍선 폭 240px + 여백 8px 이 화면 밖으로 나가지 않게
-    t.style.top = `${rect.bottom + 4}px`;
-    if (!t.matches(":popover-open")) t.showPopover();
-    window.addEventListener("scroll", hide, { capture: true, once: true }); // 위치가 고정이라 스크롤하면 닫는다
-  };
-  return (
-    <>
-      <button ref={button} type="button" className="status-tip" aria-describedby={id}
-        onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide} onClick={show}>{children}</button>
-      <span ref={tip} id={id} role="tooltip" popover="auto" className="status-tip-text">{detail}</span>
-    </>
-  );
-}
-
 export default function Page() {
   return (
     <Suspense fallback={<p>불러오는 중…</p>}>
@@ -251,11 +227,11 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
               <td style={S.num}>{quantityLabel(s.safety_stock, s.unit)}</td>
               <td>
                 {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 이유는 표를 두껍게 하지 않게 말풍선으로 보인다. 비활성은 "-" */}
-                {s.status ? <StatusTip detail={s.status === "SHORTAGE" && s.reorder_point != null
+                {s.status ? <Tip detail={s.status === "SHORTAGE" && s.reorder_point != null
                   ? `가용재고 ${quantityLabel(s.current_stock + s.in_transit, s.unit)} · 재주문점 ${quantityLabel(Math.round(s.reorder_point * 10) / 10, s.unit)}`
                   : s.status_reason?.message}>
                   <StatusBadge kind={STOCK_BADGE[s.status].kind}>{STOCK_BADGE[s.status].label}</StatusBadge>
-                </StatusTip> : "-"}
+                </Tip> : "-"}
               </td>
             </tr>
             );
@@ -297,18 +273,25 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
       {notice && <p role="status" style={S.ok}>{notice}</p>}
 
       {correcting && (
-        <form onSubmit={correct} style={S.panel}>
-          {/* 정정 폼: 원래 이력 요약 + 수량·사유 */}
-          <span>
-            정정 대상: #{correcting.id} {correcting.product_name} {TYPE_LABEL[correcting.movement_type]} {quantityLabel(correcting.quantity, correcting.product_unit ?? undefined)} ({correcting.movement_date})
-          </span>
-          <label>정정 수량* <input type="number" inputMode="numeric" min={1} max={correcting.correctable_quantity ?? correcting.quantity} step={1}
-            aria-describedby="correction-limit" value={cQty} onChange={(e) => setCQty(e.target.value)} />
-            <small id="correction-limit">이력 기준 최대 {quantityLabel(correcting.correctable_quantity ?? correcting.quantity, correcting.product_unit ?? undefined)}</small>
+        <form onSubmit={correct} className="correction-form" style={S.panel}>
+          {/* 정정 폼: 위에 원래 이력 요약, 아래에 수량·사유·버튼 한 줄. 보조 설명은 말풍선 */}
+          <div className="correction-head">
+            <span className="correction-title">정정 대상</span>
+            <strong>#{correcting.id} {correcting.product_name}</strong>
+            <span className="correction-meta">{TYPE_LABEL[correcting.movement_type]} · {quantityLabel(correcting.quantity, correcting.product_unit ?? undefined)} · {correcting.movement_date}</span>
+          </div>
+          <label>정정 수량*
+            <span className="correction-qty">
+              <input type="number" inputMode="numeric" min={1} max={correcting.correctable_quantity ?? correcting.quantity} step={1}
+                aria-describedby="correction-limit" value={cQty} onChange={(e) => setCQty(e.target.value)} />
+              <InfoTip id="correction-limit" label="정정 가능한 최대 수량" detail={`이력 기준 최대 ${quantityLabel(correcting.correctable_quantity ?? correcting.quantity, correcting.product_unit ?? undefined)}`} />
+            </span>
           </label>
-          <label>사유* <input value={cReason} onChange={(e) => setCReason(e.target.value)} placeholder="예: 10개를 100개로 잘못 입력" /></label>
-          <button type="submit" disabled={busy}>{busy ? "등록 중…" : "정정 등록"}</button>
-          <button type="button" onClick={() => setCorrecting(null)}>취소</button>
+          <label className="correction-reason">사유* <input value={cReason} onChange={(e) => setCReason(e.target.value)} placeholder="예: 10개를 100개로 잘못 입력" /></label>
+          <div className="correction-actions">
+            <button type="submit" disabled={busy}>{busy ? "등록 중…" : "정정 등록"}</button>
+            <button type="button" onClick={() => setCorrecting(null)}>취소</button>
+          </div>
           <div style={S.basisFull}><ErrorText error={cError} labels={LABELS} /></div>
         </form>
       )}
