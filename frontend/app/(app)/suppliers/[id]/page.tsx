@@ -24,9 +24,26 @@ function Detail() {
     api<Supplier>(`/suppliers/${id}`).then(setSupplier).catch(setError); // 서버에서 업체 한 건
   }, [id]);
 
+  // 비활성·다시 활성은 목록 표가 아니라 이 상세 화면에서만 한다 (잘못 누르기 어렵게)
+  async function setActive(s: Supplier, active: boolean) {
+    if (!active && !window.confirm(`${s.name}을 비활성화할까요? 새 발주에서는 제외되며 기존 이력은 남습니다.`)) return;
+    try {
+      setSupplier(await api<Supplier>(`/suppliers/${s.id}`, { method: "PATCH", body: { is_active: active } })); // 바뀐 업체로 다시 그린다 (삭제는 없다)
+      setError(null);
+    } catch (e) {
+      setError(e);
+    }
+  }
+
   return (
     <section>
-      <h1>공급업체{supplier && ` · ${supplier.name}`}</h1>
+      <div style={S.detailHeader}>
+        <h1>공급업체{supplier && ` · ${supplier.name}`}</h1>
+        {supplier && <div style={S.buttons}>
+          <Link href={`/suppliers?edit=${supplier.id}`} style={S.linkButtonGhost}>수정</Link>{/* 목록 화면의 수정 폼을 이 업체로 연다 */}
+          <button type="button" onClick={() => setActive(supplier, !supplier.is_active)}>{supplier.is_active ? "비활성" : "다시 활성"}</button>
+        </div>}
+      </div>
       <p><Link href="/suppliers">목록</Link></p>
       <ErrorText error={error} />
       {supplier && (

@@ -1,7 +1,7 @@
 "use client"; // 목록·폼을 다루는 화면이라 브라우저에서 실행
 
 import Link from "next/link"; // 공급업체 상세 화면 링크
-import { FormEvent, useRef, useState } from "react"; // 폼 제출, 상태
+import { FormEvent, useEffect, useRef, useState } from "react"; // 폼 제출, 처음 한 번 실행(?edit= 읽기), 상태
 
 import { api } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
@@ -39,7 +39,7 @@ function toBody(form: Form) {
   };
 }
 
-// 공급업체 화면 (주소 /suppliers): 목록 + 등록·수정 폼 + 비활성·다시 활성
+// 공급업체 화면 (주소 /suppliers): 목록 + 등록·수정 폼 (수정·비활성은 업체 상세 화면에서 시작한다)
 export default function SuppliersPage() {
   const list = useList<Supplier>("/suppliers"); // 목록 상태 (20개씩, 최신순, 검색, 비활성 포함)
   const [form, setForm] = useState<Form>(EMPTY); // 폼 입력값
@@ -52,16 +52,21 @@ export default function SuppliersPage() {
     setForm({ ...form, [field]: value }); // 한 칸만 바꾼다
   }
 
-  function startEdit(s: Supplier) {
-    if (registration.current) registration.current.open = true;
-    registration.current?.querySelector("input")?.focus();
-    setEditingId(s.id); // 수정 모드
-    setForm({
-      name: s.name, lead_time_days: String(s.lead_time_days), contact_name: s.contact_name ?? "",
-      phone: s.phone ?? "", email: s.email ?? "", memo: s.memo ?? "",
-    }); // 그 업체 값으로 폼 채우기
-    setError(null);
-  }
+  // 상세 화면의 "수정"은 /suppliers?edit=번호 로 온다: 그 업체를 불러와 수정 폼을 연다 (목록 표에는 수정 버튼을 두지 않는다)
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("edit");
+    if (!id) return;
+    window.history.replaceState(null, "", "/suppliers"); // 저장 후 새로고침해도 폼이 다시 열리지 않게 주소에서 지운다
+    api<Supplier>(`/suppliers/${id}`).then((s) => {
+      if (registration.current) registration.current.open = true;
+      registration.current?.querySelector("input")?.focus();
+      setEditingId(s.id); // 수정 모드
+      setForm({
+        name: s.name, lead_time_days: String(s.lead_time_days), contact_name: s.contact_name ?? "",
+        phone: s.phone ?? "", email: s.email ?? "", memo: s.memo ?? "",
+      }); // 그 업체 값으로 폼 채우기
+    }).catch(setError);
+  }, []);
 
   function reset() {
     setEditingId(null); // 새 등록 모드로
@@ -80,17 +85,6 @@ export default function SuppliersPage() {
       await list.reload(); // 목록 다시 불러오기
     } catch (e) {
       setError(e); // 서버 message 그대로 보여준다 (예: 업체명 중복)
-    }
-  }
-
-  async function setActive(s: Supplier, active: boolean) {
-    if (!active && !window.confirm(`${s.name}을 비활성화할까요? 새 발주에서는 제외되며 기존 이력은 남습니다.`)) return;
-    try {
-      await api(`/suppliers/${s.id}`, { method: "PATCH", body: { is_active: active } }); // 비활성·다시 활성 (삭제는 없다)
-      setError(null);
-      await list.reload();
-    } catch (e) {
-      setError(e);
     }
   }
 
@@ -127,7 +121,7 @@ export default function SuppliersPage() {
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}>
-            <th>업체명</th><th style={S.num}>입고 소요일</th><th>담당자</th><th>연락처</th><th>상태</th><th></th>
+            <th>업체명</th><th style={S.num}>입고 소요일</th><th>담당자</th><th>연락처</th><th>상태</th>
           </tr>
         </thead>
         <tbody>
@@ -139,12 +133,6 @@ export default function SuppliersPage() {
               <td>{s.contact_name ?? "-"}</td>
               <td style={S.nowrap}>{s.phone ?? "-"}</td>
               <td style={S.nowrap}>{s.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}</td>
-              <td style={S.nowrap}>
-                <button type="button" onClick={() => startEdit(s)}>수정</button>{" "}
-                {s.is_active
-                  ? <button type="button" onClick={() => setActive(s, false)}>비활성</button>
-                  : <button type="button" onClick={() => setActive(s, true)}>다시 활성</button>}
-              </td>
             </tr>
           ))}
         </tbody>
