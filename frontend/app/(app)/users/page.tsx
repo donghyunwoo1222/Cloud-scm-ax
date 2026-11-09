@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react"; // 폼 제출, 상태
 
 import { api } from "../../lib/api"; // 공통 API 호출 함수
+import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { Me, ROLE_LABEL, useMe } from "../../lib/me"; // 내 정보·역할 한글 이름
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
@@ -75,25 +76,21 @@ function UsersAdmin({ me }: { me: Me }) {
     <section>
       <h1>사용자 관리</h1>
 
-      <form onSubmit={create} style={S.formGrid}>
+      <form className="form-compact field-form" onSubmit={create} style={S.formGrid}>
         {/* 계정 생성 폼 */}
-        <label>이름* <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
-        <label>이메일* <input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} autoComplete="off" /></label>
-        <label>
-          임시 비밀번호*
-          <input type="password" value={form.password} onChange={(e) => set("password", e.target.value)} autoComplete="new-password" minLength={8} aria-describedby="temporary-password-hint" />
+        <Field label="이름*" className="field-half"><input value={form.name} onChange={(e) => set("name", e.target.value)} /></Field>
+        <Field label="이메일*" className="field-half"><input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} autoComplete="off" /></Field>
+        <Field label="임시 비밀번호*"><input type="password" value={form.password} onChange={(e) => set("password", e.target.value)} autoComplete="new-password" minLength={8} aria-describedby="temporary-password-hint" />
           <small id="temporary-password-hint">8자 이상으로 입력하고 직원에게 안전한 방식으로 직접 전달하세요.</small>
           {/* 화면에 글자를 보이지 않게, 브라우저가 내 비밀번호를 자동으로 채우지 않게 */}
-        </label>
-        <label>
-          역할*
-          <select value={form.role} onChange={(e) => set("role", e.target.value)} style={S.block}>
+        </Field>
+        <Field label="역할*"><select value={form.role} onChange={(e) => set("role", e.target.value)} style={S.block}>
             <option value="">선택하세요</option>
             <option value="STAFF">담당자</option>
             <option value="ADMIN">관리자</option>
           </select>
-        </label>
-        <div><button type="submit">계정 만들기</button></div>
+        </Field>
+        <div className="form-actions"><button type="submit">계정 만들기</button></div>
       </form>
       <ErrorText error={error} labels={LABELS} />
 
