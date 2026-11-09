@@ -166,6 +166,13 @@ function Detail() {
               <dt>발주함 표시</dt>
               <dd style={S.detailHistoryValue}>{fmtTime(order.ordered_at)}</dd>
             </div>
+            {order.emailed_at && (
+              <div style={S.detailHistoryCell}>
+                <dt>메일 발송</dt>
+                {/* 메일 서버로 보낸 시각과 주소. 공급업체가 받았는지는 알 수 없다 */}
+                <dd style={S.detailHistoryValue}>{fmtTime(order.emailed_at)}<br />{order.emailed_to}</dd>
+              </div>
+            )}
             <div style={S.detailHistoryCell}>
               <dt>입고 완료일</dt>
               <dd style={S.detailHistoryValue}>{fmtDate(order.received_at)}</dd>

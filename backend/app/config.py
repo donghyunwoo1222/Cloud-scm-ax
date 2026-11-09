@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     database_url: str  # DB 주소 (DATABASE_URL), 기본값 없음: 비어 있으면 시작할 때 바로 오류
     secret_key: str = Field(min_length=32)  # 로그인 토큰 서명 키 (SECRET_KEY), 기본값 없음. 짧으면 추측당하기 쉬워 32자 미만이면 시작 거부
     cookie_secure: bool = False  # COOKIE_SECURE: 배포(HTTPS)에서만 true. true면 쿠키가 HTTPS로만 전송된다
+    # 발주서 메일 발송(#158). 코드에 비밀번호를 넣지 않고 환경 변수로만 받는다. SMTP_HOST 가 비면 발송 요청은 503
+    smtp_host: str = ""  # SMTP_HOST: 메일 서버 주소 (예: smtp.gmail.com, 로컬은 mailpit)
+    smtp_port: int = 587  # SMTP_PORT: 587(STARTTLS) / 465(SSL) / 1025(로컬 mailpit)
+    smtp_user: str = ""  # SMTP_USER: 로그인 아이디 (비면 로그인 생략, 로컬 mailpit)
+    smtp_password: str = ""  # SMTP_PASSWORD: 로그인 비밀번호 (앱 비밀번호)
+    smtp_from: str = ""  # SMTP_FROM: 보내는 주소 하나 (시스템 주소). 답장은 Reply-To 로 담당자에게 간다
+    smtp_security: str = "starttls"  # SMTP_SECURITY: starttls / ssl / none (none 은 로컬 전용)
 
 
 settings = Settings()  # 앱 어디서나 import 해서 쓰는 설정 한 벌

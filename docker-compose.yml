@@ -27,6 +27,11 @@ services:
       # Docker 안에서는 DB 호스트가 서비스 이름 db, 포트는 5432 (.env 의 localhost:5433 보다 우선한다)
       DATABASE_URL: postgresql+psycopg://scm:scm_local_pw@db:5432/scm
       WATCHFILES_FORCE_POLLING: "true"   # Windows 폴더 변경을 컨테이너가 놓치지 않게 주기적으로 확인
+      # 발주서 메일(#158): 로컬은 가짜 메일함 mailpit 으로 보낸다 (밖으로 나가지 않는다, 받은 메일은 http://localhost:8025)
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_FROM: noreply@scm.local
+      SMTP_SECURITY: none                # 로컬 가짜 메일함은 암호화·로그인 없음 (배포에서는 starttls/ssl)
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload  # 개발용: 코드 저장 시 자동 재시작
     volumes:
       - ./backend:/app                   # 내 컴퓨터 backend/ 를 컨테이너 /app 에 연결 (다시 빌드 없이 코드 반영)
@@ -35,6 +40,13 @@ services:
     depends_on:
       db:
         condition: service_healthy       # DB 준비가 끝난 뒤 백엔드를 띄운다
+      mailpit:
+        condition: service_started       # 가짜 메일함도 함께 띄운다
+
+  mailpit:
+    image: axllent/mailpit:v1.27         # 개발용 가짜 메일 서버: 받은 메일을 웹 화면으로 보여 주고 밖으로 보내지 않는다
+    ports:
+      - "8025:8025"                      # 받은 메일 보기 http://localhost:8025
 
 volumes:
   db-data:                               # DB 데이터를 담는 이름 있는 볼륨

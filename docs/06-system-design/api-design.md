@@ -53,6 +53,7 @@
 | F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status`·`receipt_due` 필터, `q` 발주번호 부분 검색), DRAFT 발주서 만들기(직접). 응답의 `has_receipts`는 전량 정정된 입고 이력도 포함한다. | 둘 다 |
 | F6 | GET /purchase-orders/{id}, PATCH /purchase-orders/{id} | 상세, DRAFT 일 때만 품목·수량 수정 | 둘 다 |
 | 자동화 발주서 문서 | GET /purchase-orders/{id}/document, GET /purchase-orders/{id}/document.xlsx | 승인 이후(APPROVED·ORDERED·RECEIVED) 발주서의 문서 값(수신처·발주처·품목표·금액·한글 금액·발주 조건)과 같은 값의 엑셀 파일 (#157) | 둘 다 |
+| 자동화 메일 발송 | GET /purchase-orders/{id}/email, POST /purchase-orders/{id}/email | 메일 미리보기(받는 사람·답장 주소·제목·기본 앞머리·고정 본문·첨부 이름)와 발송(성공하면 APPROVED → ORDERED, 발송 기록 저장) (#158) | 둘 다 |
 | F6 | POST /purchase-orders/{id}/approve | DRAFT → APPROVED | 관리자 |
 | F6 | POST /purchase-orders/{id}/order | APPROVED → ORDERED(공급업체에 발주했음 표시) | 둘 다 |
 | F6 | POST /purchase-orders/{id}/receipts | 발주 품목 입고(부분 가능). 이력 등록 + 상태 갱신을 한 번에 | 둘 다 |
@@ -61,7 +62,7 @@
 | F8 발주 추천 | GET /recommendations | 현재 시점 추천 목록 계산·반환 | 둘 다 |
 | F8 | POST /recommendations/drafts | 선택한 품목으로 공급업체별 DRAFT 발주서 생성·품목 추가 | 둘 다 |
 
-합계 엔드포인트는 39개다(점검용 `GET /health` 제외, 2026-11-09 라우터 기준, 판매 가져오기 3개 포함, 발주서 문서 2개 포함). 발주 상태 변경을 PATCH의 status 칸으로 하지 않고 동사 경로(approve, order, cancel)로 나눴다. 이렇게 하면 "승인은 관리자만", "취소는 입고 없을 때만" 같은 규칙을 경로 하나에 하나씩 붙일 수 있고, 상태를 건너뛰는 요청(승인 생략)이 경로에서부터 존재하지 않는다(R5).
+합계 엔드포인트는 41개다(점검용 `GET /health` 제외, 2026-11-09 라우터 기준, 판매 가져오기 3개 포함, 발주서 문서 2개·메일 발송 2개 포함). 발주 상태 변경을 PATCH의 status 칸으로 하지 않고 동사 경로(approve, order, cancel)로 나눴다. 이렇게 하면 "승인은 관리자만", "취소는 입고 없을 때만" 같은 규칙을 경로 하나에 하나씩 붙일 수 있고, 상태를 건너뛰는 요청(승인 생략)이 경로에서부터 존재하지 않는다(R5).
 
 ## 핵심 API 상세
 
@@ -157,7 +158,14 @@
 - `purchase_orders`에 선택 칸 `delivery_address`(납품장소), `payment_terms`(지불조건)가 생겼다(각 200자까지, 작성·수정·응답 공통). 작성할 때 `payment_terms`를 안 보내면 공급업체 기본값을 복사하고(추천 초안도 같다), 수정에서 `null`·빈 글자는 비운다.
 - `GET /purchase-orders/{id}/document`: 화면과 엑셀이 같이 쓰는 값을 서버가 한 번 계산해 준다. `supplier`(수신처), `buyer`(발주처, 작성자 이름 포함), `lines`(No·품목명·SKU·단위·수량·단가·공급가액·비고), `supply_total`·`vat`·`total`·`total_korean`, `due_date`·`delivery_address`(비면 회사 주소)·`payment_terms`·`memo`. 회사 정보가 비어 있어도 만들어진다(해당 칸은 null).
 - 금액: 단가는 부가세 별도. 공급가액 합계의 10%를 원 미만 버림으로 한 번만 계산하고(줄별 세액 없음, 예: 1,005원 → 100원), 합계 = 공급가액 + 부가세. 박스 발주 줄은 단위 "박스", 수량은 박스 수, 단가는 박스 단가이고 비고에 `1박스=24개`를 적는다. 한글 금액은 `일금 팔십삼만육천 원정` 식이며 금액 문서 관례대로 1도 읽는다(`일천`, `일십만`).
-- `GET /purchase-orders/{id}/document.xlsx`: 같은 값의 엑셀 한 장(수량·단가·금액은 숫자 칸). 두 경로 모두 DRAFT·CANCELLED는 409 `INVALID_STATUS`, 다른 회사·없는 번호는 404. 읽기만 하므로 GET이다. 서버 PDF는 만들지 않고 화면의 브라우저 인쇄로 저장한다(PDF 라이브러리는 메일 첨부 이슈 #158에서 확인).
+- `GET /purchase-orders/{id}/document.xlsx`: 같은 값의 엑셀 한 장(수량·단가·금액은 숫자 칸). 두 경로 모두 DRAFT·CANCELLED는 409 `INVALID_STATUS`, 다른 회사·없는 번호는 404. 읽기만 하므로 GET이다. 화면의 PDF는 브라우저 인쇄로 저장하고, 서버 PDF(`fpdf2`, 나눔고딕 동봉)는 메일 첨부(#158)에만 쓴다.
+
+### 메일 반자동 발송 (#158)
+
+- `GET /purchase-orders/{id}/email`: `to`(공급업체 이메일, 없으면 null), `supplier_id`, `reply_to`(지금 사용자 이메일), `subject`(`[회사명] 발주서 PO-… (발주일자)`), `intro`(기본 앞머리), `fixed_html`(품목표·합계·발주 조건, 서버가 escape), `attachments`(PDF·엑셀 이름), `status`, `emailed_at`·`emailed_to`, `mail_ready`(SMTP 설정 여부). APPROVED·ORDERED만, 그 밖은 409 `INVALID_STATUS`.
+- `POST /purchase-orders/{id}/email` 본문 `{"intro": "앞머리(1~2000자)", "resend": false}`. 받는 사람·제목·고정 본문은 서버가 만들고 본문으로 바꿀 수 없다(모르는 칸 422). 발주서 행을 잠근 뒤 검사 → SMTP 발송 → 성공이면 APPROVED는 ORDERED(+`ordered_at`), `emailed_at`·`emailed_to`·`emailed_by`를 덮어쓰고 커밋한다. 응답은 발주서 하나.
+- 오류: ORDERED인데 `resend`가 없으면 409 `ALREADY_ORDERED`(더블클릭 두 번째 요청도 여기서 막힌다), 공급업체 이메일 없음 409 `NO_SUPPLIER_EMAIL`, SMTP 설정 없음 503 `MAIL_NOT_CONFIGURED`, 메일 서버 거부·연결 실패 502 `MAIL_FAILED`(상태는 APPROVED 그대로), 메일은 나갔는데 저장 실패 500 `MAIL_SENT_NOT_SAVED`(다시 보내지 말고 확인 후 "주문 완료 표시"). 다른 회사 404. 권한은 "주문 완료 표시"와 같이 관리자·담당자 둘 다.
+- 보내는 주소는 시스템 주소 하나(`SMTP_FROM`, 표시 이름은 회사명), `Reply-To`는 보낸 사용자. SMTP 계정은 환경 변수(`SMTP_HOST`·`SMTP_PORT`·`SMTP_USER`·`SMTP_PASSWORD`·`SMTP_FROM`·`SMTP_SECURITY`)로만 받는다. 로컬 Docker는 가짜 메일함 mailpit(http://localhost:8025)으로 보낸다.
 
 ### 회사 정보 (#156)
 

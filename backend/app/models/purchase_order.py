@@ -45,6 +45,10 @@ class PurchaseOrder(CompanyMixin, Base):
     ordered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # ORDERED로 바뀐 시각
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # RECEIVED로 바뀐 시각
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # CANCELLED로 바뀐 시각
+    # 메일 발송 기록 (#158): 이력 표 없이 마지막 1건만 남긴다 (다시 보내면 덮어쓴다)
+    emailed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 마지막 발송 시각 (메일 서버가 받은 시각, 공급업체 수신 확인 아님)
+    emailed_to: Mapped[str | None]  # 마지막 수신 주소 (그때의 공급업체 이메일, 나중에 업체 이메일을 바꿔도 남는다)
+    emailed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))  # 마지막으로 보낸 사용자
 
 
 class PurchaseOrderItem(CompanyMixin, Base):
