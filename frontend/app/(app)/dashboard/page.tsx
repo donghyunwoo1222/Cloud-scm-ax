@@ -35,15 +35,22 @@ type DeadItem = { product_id: number; sku: string; name: string; unit: string; c
 const stockRatio = (item: ShortItem) => item.reorder_point > 0 ? item.available / item.reorder_point : null;
 const SHORTAGE_PREVIEW_LIMIT = 5; // 첫 화면에 보여 줄 부족 품목 수
 
-// 요약 띠의 칸 하나: 이름 · 큰 숫자 · 보조 글자. 숫자가 링크이고 칸 전체를 덮는다(밑줄로 링크임을 알린다, 사용자 결정)
-function NumberCell({ label, value, sub, href }: { label: string; value: string; sub?: ReactNode; href: string }) {
-  return (
-    <div className={styles.cell}>
-      <span className={styles.cellLabel}>{label}</span>{/* 칸 이름 (예: 발주 검토) */}
-      <Link href={href} className={`${styles.cellValue} ${styles.cellLink}`}>{value}</Link>{/* 큰 숫자 (예: 5건), 누르면 걸러진 목록으로 */}
-      {sub && <span className={styles.cellSub}>{sub}</span>}{/* 보조 설명 (예: 승인 전 초안) */}
-    </div>
+// 숫자 카드 하나: 이름 · 큰 숫자 · 보조 글자. href 가 있으면 카드 전체가 링크(사용자 결정)이고 맨 아래에 "… 보기" 를 항상 보여 누를 수 있음을 알린다
+function NumberCard({ label, value, sub, href, more }: { label: string; value: string; sub?: ReactNode; href?: string; more?: string }) {
+  const body = (
+    <>
+      <span style={S.kpiLabel}>{label}</span>
+      {/* 카드 이름 (예: 발주 추천) */}
+      <span style={S.kpiValue}>{value}</span>
+      {/* 큰 숫자 (예: 5건) */}
+      {sub && <span style={S.kpiSub}>{sub}</span>}
+      {/* 보조 설명 (예: 입고 예정 155개) */}
+      {more && <span style={S.kpiMore}>{more}</span>}{/* 카드마다 어디로 가는지 다른 문구로 알린다 */}
+    </>
   );
+  return href
+    ? <Link href={href} className="kpi-card" style={S.kpiCard}>{body}</Link> // 누르면 걸러진 목록으로 (테두리 강조는 globals.css 의 .kpi-card)
+    : <div style={S.kpiCard}>{body}</div>; // 이동할 곳이 없는 숫자(이번 달 입출고)는 그냥 상자
 }
 
 // 오늘 할 일에서 시작해 재고 점검과 입출고 이력으로 이어진다.
@@ -108,27 +115,26 @@ export default function Page() {
       {/* 품목이 하나도 없는 회사: 무엇부터 할지 안내 (빈 화면 대신 다음 행동) */}
 
       <h2 style={S.sectionTitle}>오늘 확인할 일</h2>
-      <div role="group" aria-label="오늘 확인할 일" className={styles.strip}>
-        <div className={styles.cell}>
-          <span className={styles.cellLabel}>입고 대기 발주</span>
-          <Link className={`${styles.cellValue} ${styles.cellLink}`} href="/purchase-orders?status=ORDERED">{won(po.ordered)}건</Link>
+      <div role="group" aria-label="오늘 확인할 일" style={S.kpiGrid}>
+        <div className={`kpi-card ${styles.receiptCard}`} style={S.kpiCard}>
+          <span style={S.kpiLabel}>입고 대기 발주</span>
           {po.due_today != null && po.overdue != null && (
-            <span className={styles.cellSub}>
-              <Link href="/purchase-orders?status=ORDERED&receipt_due=TODAY">오늘 <strong>{won(po.due_today)}건</strong></Link>
-              {" · "}
+            <div className={styles.receiptLinks}>
+              <Link href="/purchase-orders?status=ORDERED&receipt_due=TODAY"><span>오늘</span>{" "}<strong>{won(po.due_today)}건</strong></Link>
               <Link href="/purchase-orders?status=ORDERED&receipt_due=OVERDUE"
-                className={po.overdue > 0 ? styles.lateReceipts : undefined}>지연 <strong>{won(po.overdue)}건</strong></Link>
-            </span>
+                className={po.overdue > 0 ? styles.lateReceipts : undefined}><span>지연</span>{" "}<strong>{won(po.overdue)}건</strong></Link>
+            </div>
           )}
-          <span className={styles.cellSub}>입고 예정 {unitTotals(po.incoming_by_unit)}</span>
+          <span style={S.kpiSub}>전체 {won(po.ordered)}건 · 입고 예정 {unitTotals(po.incoming_by_unit)}</span>
+          <Link className={styles.allReceipts} href="/purchase-orders?status=ORDERED" style={S.kpiMore}>입고 대기 발주 보기</Link>
         </div>
-        <NumberCell label="발주 검토" value={`${won(shortage.count)}품목`} href="/recommendations" />
+        <NumberCard label="발주 검토" value={`${won(shortage.count)}품목`} href="/recommendations" more="발주 추천 보기" />
         {me?.role === "ADMIN" && (
-          <NumberCell label="승인할 발주" value={`${won(po.draft)}건`} sub="승인 전 초안" href="/purchase-orders?status=DRAFT" />
+          <NumberCard label="승인할 발주" value={`${won(po.draft)}건`} sub="승인 전 초안" href="/purchase-orders?status=DRAFT" more="승인할 발주 보기" />
         )}
         {/* 3-관리자: 내가 승인해야 할 발주서 */}
         {me?.role === "STAFF" && (
-          <NumberCell label="보낼 발주" value={`${won(po.approved)}건`} sub="공급업체에 보낼 승인 발주서" href="/purchase-orders?status=APPROVED" />
+          <NumberCard label="보낼 발주" value={`${won(po.approved)}건`} sub="공급업체에 보낼 승인 발주서" href="/purchase-orders?status=APPROVED" more="보낼 발주 보기" />
         )}
         {/* 3-담당자: 승인이 나서 공급업체에 보낼 발주서 */}
       </div>
@@ -149,10 +155,10 @@ export default function Page() {
         ) : (
           <>
             <div style={S.tableBox}>
-              <table style={{ ...S.table, minWidth: 600 }}>
+              <table style={{ ...S.table, minWidth: 520 }}>
                 <thead>
                   <tr style={S.headRow}>
-                    <th scope="col">품목</th><th scope="col" style={S.num}>현재고</th><th scope="col" style={S.num}>가용재고</th><th scope="col" style={S.num}>재주문점</th><th scope="col" style={S.num}>충족률</th><th scope="col" style={S.num}>추천 수량</th>
+                    <th scope="col">품목</th><th scope="col" style={S.num}>현재고</th><th scope="col" style={S.num}>가용재고 / 재주문점</th><th scope="col" style={S.num}>추천 수량</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -168,9 +174,20 @@ export default function Page() {
                         <td style={S.num}>
                           {i.current_stock === 0 ? <strong style={{ color: "var(--color-destructive)" }}>0{i.unit}</strong> : <>{won(i.current_stock)}{i.unit}</>}
                         </td>
-                        <td style={S.num}>{won(i.available)}{i.unit}</td>
-                        <td style={S.num}>{fmt(i.reorder_point)}{i.unit}</td>
-                        <td style={S.num}>{ratio === null ? "-" : `${fmt(ratio * 100)}%`}</td>
+                        <td style={{ ...S.num, minWidth: "10rem" }}>
+                          <span style={S.nowrap}>{won(i.available)} / {fmt(i.reorder_point)}{i.unit}</span>
+                          {/* 막대 하나로 급한 정도를 보인다(숫자 "가용 / 재주문점"은 위 한 줄). 재주문점 0이면 비율이 없어 막대 대신 글자 */}
+                          {ratio === null ? <span style={S.sub}>재주문점 0</span> : (
+                            <>
+                              <span aria-hidden="true" style={{
+                                display: "block", marginBlock: "var(--space-xs)", height: "var(--space-sm)",
+                                background: "var(--color-muted)", borderRadius: "var(--radius-sm)", overflow: "hidden",
+                              }}>
+                                <span style={{ display: "block", width: `${ratio * 100}%`, height: "100%", background: "var(--color-primary)" }} />
+                              </span>
+                            </>
+                          )}
+                        </td>
                         <td style={S.num}>{won(i.recommended_quantity)}{i.unit}</td>
                       </tr>
                     );
@@ -178,18 +195,18 @@ export default function Page() {
                 </tbody>
               </table>
             </div>
-            <p style={S.hint}>현재고 0인 품목을 먼저 표시합니다. 가용재고는 현재고와 입고 예정 수량의 합이고, 충족률은 가용재고 ÷ 재주문점입니다.</p>
+            <p style={S.hint}>현재고 0인 품목을 먼저 표시합니다. 가용재고는 현재고와 입고 예정 수량의 합이고, 막대는 재주문점에 대한 가용재고의 비율입니다.</p>
             {shortage.count > shortageItems.length && <p style={S.hint}>
               {shortage.count > shortage.items.length
                 ? `최근 등록한 부족 품목 ${won(shortage.items.length)}개 중 ${shortageItems.length}개를 표시합니다.`
                 : `부족 품목 ${won(shortage.count)}개 중 ${shortageItems.length}개를 표시합니다.`}
             </p>}
-            <p><Link className={styles.textLink} href="/inventory?status=SHORTAGE">부족 품목 전체 보기</Link></p>
+            <p><Link href="/inventory?status=SHORTAGE">부족 품목 전체 보기</Link></p>
           </>
         )}
       </div>
 
-      <p className={styles.orderLink}><Link className={styles.textLink} href="/purchase-orders">발주 목록 전체 보기</Link></p>
+      <p className={styles.orderLink}><Link href="/purchase-orders">발주 목록 전체 보기</Link></p>
 
       <section style={S.sectionCard}>
         <h2>재고 점검</h2>

@@ -1,86 +1,53 @@
-/* 오늘 확인할 일: 카드 3장 대신 한 줄 띠. 칸 사이는 1px 틈에 구분선 색을 비춰 선을 만든다(칸이 다음 줄로 넘어가도 선이 깨지지 않음) */
-.strip {
-  display: grid;
-  grid-auto-flow: column; /* 칸 수가 몇 개든 한 줄에 나란히(빈 칸이 생기지 않는다) */
-  grid-auto-columns: minmax(0, 1fr);
-  gap: 1px;
-  margin-top: var(--space-md);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-border-strong);
-  overflow: hidden;
-}
-
-.cell {
+.receiptCard {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  min-width: 0;
-  padding: var(--space-sm) var(--space-md);
-  background: var(--color-card);
 }
 
-.cell:hover {
-  background: var(--color-hover);
-}
-
-.cellLabel {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--color-muted-foreground);
-}
-
-.cellValue {
-  font-size: var(--text-xl);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-/* 칸 전체가 링크: 숫자 링크의 ::after 가 칸을 덮는다. 링크임은 밑줄로 알린다 */
-.cellLink {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.cellLink::after {
+/* 카드 여백은 전체 목록으로, 두 건수는 각 납기 목록으로 연결한다. */
+.allReceipts::after {
   content: "";
   position: absolute;
   inset: 0;
+  border-radius: var(--radius-md);
 }
 
-.cellSub {
-  font-size: var(--text-xs);
-  color: var(--color-muted-foreground);
+.receiptLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-block: var(--space-xs);
 }
 
-/* 칸 안의 작은 링크(오늘·지연)는 칸 전체 링크 위에 올려 따로 누를 수 있게 한다 */
-.cellSub a {
+.receiptLinks a {
   position: relative;
   z-index: 1;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  flex: 1 1 0;
+  min-inline-size: max-content;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-hover);
+  font-size: var(--text-xs);
+  text-decoration: none;
+  white-space: nowrap;
 }
 
-.cellSub strong {
+.receiptLinks a:hover {
+  border-color: currentColor;
+}
+
+.receiptLinks strong {
+  font-size: var(--text-base);
   font-variant-numeric: tabular-nums;
 }
 
-.cellSub .lateReceipts {
+.receiptLinks .lateReceipts {
   color: var(--color-destructive);
-}
-
-/* 모바일(730px 미만)은 칸을 위아래로 쌓는다 */
-@media (max-width: 729px) {
-  .strip {
-    grid-auto-flow: row;
-    grid-auto-columns: auto;
-  }
-}
-
-.textLink {
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  background: var(--color-destructive-bg);
 }
 
 .orderLink {
@@ -165,15 +132,14 @@
 .monthLink {
   margin-inline-start: auto;
   color: var(--color-link);
+}
+
+.monthRow:hover .monthLink {
   text-decoration: underline;
-  text-underline-offset: 3px;
 }
 
 @media (pointer: coarse) {
-  .cellSub a {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25em; /* inline-flex 는 글자와 숫자 사이 공백을 지우므로 간격을 따로 준다 */
+  .receiptLinks a {
     min-height: 44px;
   }
 }
