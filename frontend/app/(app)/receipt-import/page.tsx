@@ -158,6 +158,15 @@ export default function Page() {
           {preview.skipped.length > 0 && (
             <p style={S.hint}>건너뜀 {preview.skipped_count}건: {preview.skipped.map((s) => `${s.message} ${s.count}건`).join(", ")}</p>
           )}
+          {(() => { // 넣을 줄이 없고 이미 반영된 줄만 있으면, 버튼의 "반영할 행 없음"만으로는 이유가 안 보여 크게 알린다
+            const already = preview.skipped.find((s) => s.reason === "ALREADY_IMPORTED")?.count ?? 0;
+            return !hasWork && already > 0 && (
+              <p role="status" style={S.ok}>
+                이 파일은 이미 모두 반영되었습니다 ({already.toLocaleString()}건). 다시 반영할 필요가 없습니다.
+                {preview.problem_count > 0 && ` 문제 행 ${preview.problem_count}건은 파일에서 고친 뒤 다시 올리면 그 줄만 반영됩니다.`}
+              </p>
+            );
+          })()}
 
           {preview.new_product_count > 0 && (
             <>
