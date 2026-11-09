@@ -97,8 +97,14 @@ export default function ProductsPage() {
   }
 
   function startEdit(p: Product) {
-    if (registration.current) registration.current.open = true;
-    registration.current?.querySelector("input")?.focus();
+    const form = registration.current;
+    if (form) {
+      form.open = true; // 펼침은 CSS 가 부드럽게 움직인다(.smooth-details)
+      const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches; // 움직임 줄이기를 켠 사람에게는 바로 이동
+      form.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "start" }); // 폼이 있는 위쪽으로 부드럽게 올라간다
+      // 펼치는 동안에는 내용이 아직 숨겨져 있어 바로 포커스가 안 먹으므로 다음 화면 갱신 때 준다(스크롤은 다시 튀지 않게 막는다)
+      requestAnimationFrame(() => form.querySelector("input")?.focus({ preventScroll: true }));
+    }
     setEditing(p); // 수정 모드
     setForm(formOf(p)); // 그 품목 값으로 폼 채우기
     setError(null);
@@ -149,7 +155,7 @@ export default function ProductsPage() {
       <h1>품목</h1>
 
       {created && <p role="status" style={S.ok}>품목을 등록했습니다. <Link href="/receipts#direct-receipt">입고 등록으로 이동</Link></p>}
-      <details ref={registration} style={S.sectionCard}>
+      <details ref={registration} className="smooth-details" style={S.sectionCard}>
       <summary>{editing ? `${editing.name} 수정` : "품목 등록"}</summary>
       {!editing && activeSuppliers.length === 0 && <p>기본 공급업체가 필요합니다. <Link href="/suppliers">공급업체 등록</Link></p>}
       <form className="form-compact field-form" data-box-open={boxOpen || form.units_per_box !== "" || form.box_unit_cost !== ""} onSubmit={save} style={S.formGrid}>

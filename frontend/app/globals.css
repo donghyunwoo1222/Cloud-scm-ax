@@ -521,6 +521,34 @@ tbody tr:hover {
   }
 }
 
+/* 부드럽게 펼쳐지는 등록·수정 폼(#149): 닫힌 높이 0 → 펼친 높이(auto)로 움직인다.
+   ::details-content 와 interpolate-size 를 지원하지 않는 브라우저는 예전처럼 바로 열린다. 움직임 줄이기를 켠 사람은 움직임 없음 */
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    interpolate-size: allow-keywords;
+  }
+
+  details.smooth-details::details-content {
+    block-size: 0;
+    overflow: hidden;
+    transition: block-size 280ms ease, content-visibility 280ms allow-discrete;
+  }
+
+  details.smooth-details[open]::details-content {
+    block-size: auto;
+  }
+}
+
+details.smooth-details {
+  scroll-margin-top: var(--page-pad);
+}
+
+@media (max-width: 729px) {
+  details.smooth-details {
+    scroll-margin-top: calc(var(--app-bar-height) + var(--space-md)); /* 모바일 앱바에 가리지 않게 */
+  }
+}
+
 /* 접었다 펴는 이유 칸 (<details className="reason">): 접힌 상태는 한 줄 요약 + "자세히", 펼치면 전체 문장 + "접기" */
 details.reason > summary {
   cursor: pointer;

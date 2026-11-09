@@ -59,8 +59,8 @@ export default function SuppliersPage() {
     if (!id) return;
     window.history.replaceState(null, "", "/suppliers"); // 저장 후 새로고침해도 폼이 다시 열리지 않게 주소에서 지운다
     api<Supplier>(`/suppliers/${id}`).then((s) => {
-      if (registration.current) registration.current.open = true;
-      registration.current?.querySelector("input")?.focus();
+      if (registration.current) registration.current.open = true; // 펼침은 CSS 가 부드럽게 움직인다(.smooth-details)
+      requestAnimationFrame(() => registration.current?.querySelector("input")?.focus({ preventScroll: true })); // 펼치는 동안에는 바로 포커스가 안 먹어 다음 갱신 때 준다
       setEditingId(s.id); // 수정 모드
       setForm({
         name: s.name, lead_time_days: String(s.lead_time_days), contact_name: s.contact_name ?? "",
@@ -94,7 +94,7 @@ export default function SuppliersPage() {
       <h1>공급업체</h1>
 
       {created && <p role="status" style={S.ok}>공급업체를 등록했습니다. <Link href="/products">품목 등록으로 이동</Link></p>}
-      <details ref={registration} style={S.sectionCard}>
+      <details ref={registration} className="smooth-details" style={S.sectionCard}>
       <summary>{editingId === null ? "공급업체 등록" : "공급업체 수정"}</summary>
       <form onSubmit={save} style={S.formGrid}>
         {/* 등록·수정 폼: 칸을 가로로 나열 */}
