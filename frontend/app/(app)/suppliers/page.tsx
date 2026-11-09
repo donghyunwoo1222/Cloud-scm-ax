@@ -19,15 +19,16 @@ type Supplier = {
   phone: string | null; // 연락처
   email: string | null; // 이메일
   memo: string | null; // 메모
+  payment_terms: string | null; // 지불조건 기본값
   is_active: boolean; // 활성 여부
 };
 
 // 폼 입력값 (입력칸은 모두 글자로 다루고 보낼 때 바꾼다)
-const EMPTY = { name: "", lead_time_days: "", contact_name: "", phone: "", email: "", memo: "" };
+const EMPTY = { name: "", lead_time_days: "", contact_name: "", phone: "", email: "", payment_terms: "", memo: "" };
 type Form = typeof EMPTY;
 
 // 오류 details 의 칸 이름 → 화면 이름
-const LABELS = { name: "업체명", lead_time_days: "리드타임", contact_name: "담당자", phone: "연락처", email: "이메일", memo: "메모" };
+const LABELS = { name: "업체명", lead_time_days: "리드타임", contact_name: "담당자", phone: "연락처", email: "이메일", payment_terms: "지불조건", memo: "메모" };
 
 // 폼 값 → 서버로 보낼 본문. 빈 선택 칸은 null(비우기), 리드타임은 숫자로 (검사는 서버가 한다: 음수·소수는 422)
 function toBody(form: Form) {
@@ -37,6 +38,7 @@ function toBody(form: Form) {
     contact_name: form.contact_name || null,
     phone: form.phone || null,
     email: form.email || null,
+    payment_terms: form.payment_terms || null,
     memo: form.memo || null,
   };
 }
@@ -65,7 +67,7 @@ export default function SuppliersPage() {
       setEditingId(s.id); // 수정 모드
       setForm({
         name: s.name, lead_time_days: String(s.lead_time_days), contact_name: s.contact_name ?? "",
-        phone: s.phone ?? "", email: s.email ?? "", memo: s.memo ?? "",
+        phone: s.phone ?? "", email: s.email ?? "", payment_terms: s.payment_terms ?? "", memo: s.memo ?? "",
       }); // 그 업체 값으로 폼 채우기
     }).catch(setError);
   }, []);
@@ -105,6 +107,7 @@ export default function SuppliersPage() {
         <Field label="담당자" className="field-half"><input value={form.contact_name} onChange={(e) => set("contact_name", e.target.value)} /></Field>
         <Field label="연락처" className="field-half"><input value={form.phone} onChange={(e) => set("phone", e.target.value)} /></Field>
         <Field label="이메일"><input value={form.email} onChange={(e) => set("email", e.target.value)} /></Field>
+        <Field label={<>지불조건 <InfoTip label="지불조건 설명" detail="발주서 문서에 기본으로 들어갈 결제 조건 (예: 월말 마감 익월 10일 현금)" /></>} short="지불조건"><input value={form.payment_terms} onChange={(e) => set("payment_terms", e.target.value)} /></Field>
         <Field label="메모"><input value={form.memo} onChange={(e) => set("memo", e.target.value)} /></Field>
         <div className="form-actions" style={S.buttons}>
           <button type="submit">{editingId === null ? "등록" : "수정 저장"}</button>
