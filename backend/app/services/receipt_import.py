@@ -41,6 +41,7 @@ HINTS = {  # 열 미리 선택 힌트 (일반 낱말만)
     "unit_col": ["단위", "unit"],
     "cost_col": ["단가", "매입가", "원가", "cost", "price"],
     "safety_col": ["안전재고", "safety"],
+    "supplier_col": ["공급업체", "거래처", "매입처", "supplier", "vendor"],
 }
 
 PROBLEM_MESSAGES = {
@@ -222,7 +223,7 @@ def summarize(result: dict, total_rows: int) -> dict:
 def _check_columns(headers: list[str], opts: ReceiptImportOptions) -> None:
     """지정한 열이 파일 안에 있는지, 겹치지 않는지, 입고 모드면 날짜 열이 있는지 검사 (어기면 422)."""
     chosen = [c for c in (opts.product_col, opts.quantity_col, opts.date_col, opts.ref_col,
-                          opts.name_col, opts.unit_col, opts.cost_col, opts.safety_col) if c is not None]
+                          opts.name_col, opts.unit_col, opts.cost_col, opts.safety_col, opts.supplier_col) if c is not None]
     if any(c >= len(headers) for c in chosen):
         raise invalid("VALIDATION_ERROR", "지정한 열이 파일에 없습니다.")
     if len(set(chosen)) != len(chosen):
@@ -231,13 +232,31 @@ def _check_columns(headers: list[str], opts: ReceiptImportOptions) -> None:
         raise invalid("VALIDATION_ERROR", "수량 열을 고르면 입고일 열도 골라야 합니다.")
 
 
+def _check_one_supplier(rows: list[list[str]], result: dict, opts: ReceiptImportOptions) -> None:
+    """공급업체 열을 골랐다면 새 품목 행의 업체가 한 곳인지 본다. 섞였으면 422 로 나눠 올리게 한다.
+
+    기본 공급업체는 파일 하나에 하나만 고르므로, 섞인 파일을 그대로 받으면 다른 업체 품목까지 같은 업체로 등록된다.
+    업체 이름으로 공급업체를 찾아 연결하지는 않는다 (열은 섞임 확인용).
+    """
+    if opts.supplier_col is None:
+        return
+    names = sorted({_get(rows[p["row"] - 2], opts.supplier_col) for p in result["new_products"]} - {""})
+    if len(names) > 1:
+        shown = ", ".join(names[:5]) + (" 등" if len(names) > 5 else "")
+        raise AppError(422, "MULTIPLE_SUPPLIERS",
+                       f"새 품목의 공급업체가 {len(names)}곳({shown}) 섞여 있습니다. 공급업체별로 파일을 나눠 올려 주세요.",
+                       {"suppliers": names[:20]})
+
+
 def preview(company_id: int, db: Session, filename: str, content: bytes, opts: ReceiptImportOptions) -> dict:
     """2단계: 미리보기. 아무것도 쓰지 않는다. 고른 공급업체가 다른 회사·비활성이면 여기서 바로 알린다."""
     headers, rows = read_table(filename, content)
     _check_columns(headers, opts)
     if opts.default_supplier_id is not None:
         check_default_supplier(company_id, db, opts.default_supplier_id)
-    return summarize(analyze(company_id, db, rows, opts, seoul_today()), len(rows))
+    result = analyze(company_id, db, rows, opts, seoul_today())
+    _check_one_supplier(rows, result, opts)
+    return summarize(result, len(rows))
 
 
 def commit(company_id: int, db: Session, user_id: int, filename: str, content: bytes, opts: ReceiptImportOptions) -> dict:
@@ -254,6 +273,7 @@ def commit(company_id: int, db: Session, user_id: int, filename: str, content: b
             .order_by(Product.id).with_for_update()
         ).all()
     result = analyze(company_id, db, rows, opts, seoul_today())  # ② 잠근 뒤 다시 계산
+    _check_one_supplier(rows, result, opts)
     if result["problems"] and not opts.exclude_problems:
         raise AppError(409, "IMPORT_HAS_PROBLEMS", f"문제 행이 {len(result['problems'])}건 있어 반영할 수 없습니다.",
                        {"problem_count": len(result["problems"])})

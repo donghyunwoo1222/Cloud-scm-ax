@@ -24,6 +24,7 @@ class ReceiptImportOptions(BaseModel):
     unit_col: int | None = Col  # 새 품목: 단위 열
     cost_col: int | None = Col  # 새 품목: 단가 열
     safety_col: int | None = Col  # 새 품목: (선택) 안전재고 열, 비면 0
+    supplier_col: int | None = Col  # (선택) 공급업체 열: 새 품목의 업체가 섞였는지 확인만 한다 (2곳 이상이면 422)
     default_supplier_id: Id | None = None  # 새 품목의 기본 공급업체 (새 품목이 있을 때 반영에 필수)
     exclude_problems: bool = False  # 문제 행을 빼고 반영할지
 

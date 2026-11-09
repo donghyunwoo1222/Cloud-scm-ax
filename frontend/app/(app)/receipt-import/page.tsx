@@ -8,7 +8,7 @@ import { S } from "../../lib/styles"; // 공통 스타일
 // 품목·입고 가져오기 (#155, 주소 /receipt-import): 판매 가져오기와 같은 흐름(파일 → 열 지정 → 미리보기 → 반영).
 // 입고 목록 파일 하나로 없는 SKU 는 새 품목으로 등록하고 입고까지 한 번에 한다. 수량 열을 안 고르면 품목만 등록한다.
 
-type ColKey = "product" | "quantity" | "date" | "ref" | "name" | "unit" | "cost" | "safety";
+type ColKey = "product" | "quantity" | "date" | "ref" | "name" | "unit" | "cost" | "safety" | "supplier";
 type Inspect = { headers: string[]; row_count: number; suggested: Record<`${ColKey}_col`, number | null> };
 type NewProduct = { row: number; sku: string; name: string; unit: string; unit_cost: number; safety_stock: number };
 type Problem = { row: number; reason: string; message: string; sku: string | null };
@@ -20,7 +20,7 @@ type Preview = {
 type Done = { created_product_count: number; imported_count: number; total_quantity: number; skipped_count: number; problem_count: number };
 
 const NONE = ""; // 선택 안 함
-const KEYS: ColKey[] = ["product", "quantity", "date", "ref", "name", "unit", "cost", "safety"];
+const KEYS: ColKey[] = ["product", "quantity", "date", "ref", "name", "unit", "cost", "safety", "supplier"];
 const EMPTY = Object.fromEntries(KEYS.map((k) => [k, NONE])) as Record<ColKey, string>;
 
 export default function Page() {
@@ -101,7 +101,7 @@ export default function Page() {
       <h1>품목·입고 가져오기</h1>
       <p style={S.hint}>
         공급업체 입고 목록이나 품목 목록 파일(.csv, .xlsx, 5MB·5,000행 이하)을 올리면, 없는 상품 코드는 새 품목으로 등록하고
-        입고(발주 없는 직접 입고)까지 한 번에 기록합니다. 수량 열을 고르지 않으면 품목만 등록합니다. 기존 품목 정보는 바꾸지 않습니다.
+        입고(발주 없는 직접 입고)까지 한 번에 기록합니다. 수량 열을 고르지 않으면 품목만 등록합니다. 기존 품목 정보는 바꾸지 않습니다. 새 품목은 모두 아래에서 고른 공급업체 하나로 등록되니, 공급업체가 여러 곳이면 파일을 나눠 올려 주세요.
       </p>
 
       <div style={S.card}>
@@ -130,6 +130,7 @@ export default function Page() {
             {colSelect("단위", "unit")}
             {colSelect("단가(원)", "cost")}
             {colSelect("안전재고 (비면 0)", "safety")}
+            {colSelect("공급업체 열 (선택, 섞임 확인용)", "supplier")}
             <label className="field">
               <span className="field-label">기본 공급업체</span>
               <select value={supplier} disabled={busy} onChange={(e) => { setSupplier(e.target.value); setPreview(null); }}>

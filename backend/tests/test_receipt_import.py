@@ -158,3 +158,19 @@ def test_quantity_without_date_column_is_rejected(client, world, existing):
     login_as(client)
     response = post(client, "/preview", csv_file(f"{day(1)},OLD-1,,,,1,"), world, date_col=None)
     assert response.status_code == 422
+
+
+def test_multiple_suppliers_in_file_is_rejected(client, world, existing, session):
+    """공급업체 열을 고르면 새 품목의 업체가 2곳 이상 섞인 파일은 422 로 막는다. 기존 품목 줄의 업체는 보지 않는다."""
+    login_as(client)
+    header = "입고일,상품코드,품목명,단위,단가,수량,공급업체\n"
+    opts = {"date_col": 0, "product_col": 1, "name_col": 2, "unit_col": 3, "cost_col": 4, "quantity_col": 5,
+            "safety_col": None, "supplier_col": 6}
+    mixed = csv_file(f"{day(1)},N-1,하나,개,1,1,가업체", f"{day(1)},N-2,둘,개,1,1,나업체", header=header)
+    for path in ("/preview", ""):
+        response = post(client, path, mixed, world, **opts)
+        assert response.status_code == 422 and response.json()["error"]["code"] == "MULTIPLE_SUPPLIERS"
+    assert "N-1" not in products_of(session, world["a_company"])
+    one = csv_file(f"{day(1)},N-1,하나,개,1,1,가업체", f"{day(1)},OLD-1,,,,1,나업체", f"{day(1)},N-2,둘,개,1,1,", header=header)
+    assert post(client, "", one, world, **opts).status_code == 201  # 빈 칸·기존 품목 줄은 섞임으로 보지 않는다
+
