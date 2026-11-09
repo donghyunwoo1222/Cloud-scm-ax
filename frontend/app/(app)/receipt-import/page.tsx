@@ -16,6 +16,7 @@ type Preview = {
   total_rows: number; apply_count: number; new_product_count: number; new_products: NewProduct[];
   skipped_count: number; skipped: { reason: string; message: string; count: number }[];
   date_from: string | null; date_to: string | null; total_quantity: number; problem_count: number; problems: Problem[];
+  warnings: { sku: string; date: string; message: string }[]; // 같은 날·같은 품목 입고가 이미 있음 (막지 않고 알림)
 };
 type Done = { created_product_count: number; imported_count: number; total_quantity: number; skipped_count: number; problem_count: number };
 
@@ -167,6 +168,8 @@ export default function Page() {
               </p>
             );
           })()}
+
+          {preview.warnings.map((w) => <p key={`${w.sku}-${w.date}`} role="alert" style={S.error}>⚠ {w.message}</p>)}
 
           {preview.new_product_count > 0 && (
             <>

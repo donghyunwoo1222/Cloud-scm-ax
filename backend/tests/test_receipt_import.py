@@ -174,3 +174,12 @@ def test_multiple_suppliers_in_file_is_rejected(client, world, existing, session
     one = csv_file(f"{day(1)},N-1,하나,개,1,1,가업체", f"{day(1)},OLD-1,,,,1,나업체", f"{day(1)},N-2,둘,개,1,1,", header=header)
     assert post(client, "", one, world, **opts).status_code == 201  # 빈 칸·기존 품목 줄은 섞임으로 보지 않는다
 
+
+def test_edited_quantity_shows_same_day_warning(client, world, existing, session):
+    """번호 열 없이 반영한 줄의 수량을 고쳐 다시 올리면 새 입고로 보이지만, 같은 날·같은 품목 입고가 있다고 경고한다."""
+    login_as(client)
+    assert post(client, "", csv_file(f"{day(3)},OLD-1,,,,50,"), world).status_code == 201
+    preview = post(client, "/preview", csv_file(f"{day(3)},OLD-1,,,,55,", f"{day(2)},OLD-1,,,,5,"), world).json()["data"]
+    assert preview["apply_count"] == 2  # 막지는 않는다 (같은 날 정말 두 번 들어올 수도 있다)
+    assert [(w["sku"], w["date"], w["existing_quantity"]) for w in preview["warnings"]] == [("OLD-1", day(3), 50)]
+

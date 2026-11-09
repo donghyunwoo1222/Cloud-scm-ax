@@ -10,7 +10,7 @@ from dataclasses import dataclass  # 행 한 줄을 담는 작은 틀
 from datetime import date  # 날짜
 
 from pydantic import ValidationError  # 새 품목 값 검사 실패
-from sqlalchemy import select  # SELECT 문
+from sqlalchemy import func, select  # 합계, SELECT 문
 from sqlalchemy.exc import IntegrityError  # DB 유일 제한 위반
 from sqlalchemy.orm import Session  # DB 세션
 
@@ -192,6 +192,7 @@ def analyze(company_id: int, db: Session, rows: list[list[str]], opts: ReceiptIm
     valid_new = {sku: p for sku, p in new_products.items() if p is not None}  # 입고 모드면 첫 행이 곧 입고 줄이라 입고 없는 새 품목은 없다
     days = [c.day for c in to_apply]
     return {
+        "warnings": _same_day_warnings(company_id, db, to_apply),
         "to_apply": sorted(to_apply, key=lambda c: (c.day, c.row)),
         "new_products": [{"row": new_product_rows[s], **p.model_dump()} for s, p in sorted(valid_new.items(), key=lambda x: new_product_rows[x[0]])],
         "problems": problems,
@@ -200,6 +201,32 @@ def analyze(company_id: int, db: Session, rows: list[list[str]], opts: ReceiptIm
         "date_to": max(days) if days else None,
         "total_quantity": sum(c.quantity for c in to_apply),
     }
+
+
+def _same_day_warnings(company_id: int, db: Session, to_apply: list[Line]) -> list[dict]:
+    """새로 넣을 입고와 같은 날·같은 품목의 입고가 DB 에 이미 있으면 경고 (막지는 않는다).
+
+    번호 열이 없는 파일에서 반영된 줄의 수량을 고쳐 다시 올리면 (50 → 55) 다른 입고로 보여 한 번 더 들어간다.
+    시스템은 "고친 것"과 "같은 날 또 들어온 것"을 구분할 수 없어서 사람에게 묻는다. 수정이라면 정정 이력으로 바로잡아야 한다.
+    """
+    if not to_apply:
+        return []
+    existing = {(sku, day): qty for sku, day, qty in db.execute(
+        select(Product.sku, InventoryMovement.movement_date, func.sum(InventoryMovement.quantity))
+        .join(Product, Product.id == InventoryMovement.product_id)
+        .where(
+            InventoryMovement.company_id == company_id,  # 우리 회사 이력만 (R1)
+            InventoryMovement.movement_type == "RECEIPT",  # 직접·발주 입고 모두 (정정은 보지 않는다)
+            Product.sku.in_({c.sku for c in to_apply}),
+            InventoryMovement.movement_date.in_({c.day for c in to_apply}),
+        )
+        .group_by(Product.sku, InventoryMovement.movement_date)
+    ).all()}
+    keys = sorted({(c.sku, c.day) for c in to_apply if (c.sku, c.day) in existing}, key=lambda k: (k[1], k[0]))
+    return [{"sku": sku, "date": day, "existing_quantity": existing[(sku, day)],
+             "message": f"{sku} {day.isoformat()}: 같은 날 입고 {existing[(sku, day)]:,}개가 이미 있습니다. "
+                        "수량·날짜를 고쳐 다시 올린 거라면 그 줄을 파일에서 지우고, 원래 입고는 재고 현황에서 정정하세요."}
+            for sku, day in keys[:MAX_PROBLEMS_SHOWN]]
 
 
 def summarize(result: dict, total_rows: int) -> dict:
@@ -217,6 +244,7 @@ def summarize(result: dict, total_rows: int) -> dict:
         "total_quantity": result["total_quantity"],
         "problem_count": len(result["problems"]),
         "problems": result["problems"][:MAX_PROBLEMS_SHOWN],
+        "warnings": result["warnings"],
     }
 
 
