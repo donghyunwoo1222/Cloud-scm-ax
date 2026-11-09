@@ -18,6 +18,7 @@ const MENU = [
     { href: "/products", label: "품목" },
     { href: "/receipts", label: "입고 등록" },
     { href: "/shipments", label: "출고 등록" },
+    { href: "/sales-import", label: "판매 가져오기" },
   ] },
   { title: "구매 업무", links: [ // 발주 흐름: 추천 → 발주서 → 거래처
     { href: "/recommendations", label: "발주 추천" },
