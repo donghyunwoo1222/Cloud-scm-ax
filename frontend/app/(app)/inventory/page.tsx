@@ -2,7 +2,7 @@
 
 import Link from "next/link"; // 재고 화면에서 실사 조정으로 이동한다.
 import { useSearchParams } from "next/navigation"; // 주소의 ?status= 읽기 (대시보드 링크에서 걸러진 채로 열기)
-import { FormEvent, Suspense, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 주소 읽는 부품 감싸기, 함수 기억, 처음·변경 시 실행, 즉시 확인용 ref, 상태
+import { FormEvent, ReactNode, Suspense, useCallback, useEffect, useId, useRef, useState } from "react"; // 폼 제출, 배지 타입, 주소 읽는 부품 감싸기, 함수 기억, 처음·변경 시 실행, 말풍선 연결 번호, 즉시 확인용 ref, 상태
 
 import { api, apiList, Meta } from "../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
@@ -41,6 +41,31 @@ function focusInView(target: HTMLElement | null, block: ScrollLogicalPosition) {
 
 // 재고 현황 화면 (주소 /inventory): 품목별 현재고 + 입출고 이력(필터·정정)
 // 주소의 ?status= 는 화면이 열릴 때 알 수 있어 Suspense 로 감싼다 (Next.js 가 빌드 때 미리 그리는 동안 기다릴 자리)
+// 상태 배지 + 이유 말풍선. 마우스를 올리거나 누르거나(터치) Tab 으로 오면 열린다.
+// 표 상자의 가로 스크롤에 잘리지 않게 popover(맨 위 층)로 띄우고 배지 바로 아래에 둔다. 이유가 없으면 배지만 보인다
+function StatusTip({ detail, children }: { detail?: string; children: ReactNode }) {
+  const id = useId();
+  const button = useRef<HTMLButtonElement>(null);
+  const tip = useRef<HTMLSpanElement>(null);
+  if (!detail) return <>{children}</>;
+  const hide = () => { if (tip.current?.matches(":popover-open")) tip.current.hidePopover(); };
+  const show = () => {
+    const t = tip.current, rect = button.current?.getBoundingClientRect();
+    if (!t || !rect) return;
+    t.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 248))}px`; // 말풍선 폭 240px + 여백 8px 이 화면 밖으로 나가지 않게
+    t.style.top = `${rect.bottom + 4}px`;
+    if (!t.matches(":popover-open")) t.showPopover();
+    window.addEventListener("scroll", hide, { capture: true, once: true }); // 위치가 고정이라 스크롤하면 닫는다
+  };
+  return (
+    <>
+      <button ref={button} type="button" className="status-tip" aria-describedby={id}
+        onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide} onClick={show}>{children}</button>
+      <span ref={tip} id={id} role="tooltip" popover="auto" className="status-tip-text">{detail}</span>
+    </>
+  );
+}
+
 export default function Page() {
   return (
     <Suspense fallback={<p>불러오는 중…</p>}>
@@ -208,30 +233,30 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
       <div style={S.tableBox}>
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>품목명</th><th>SKU</th><th style={S.num}>현재고</th><th style={S.num}>발주 진행 중</th><th style={S.num}>안전재고</th><th>상태</th><th></th></tr>
+          <tr style={S.headRow}><th>품목명</th><th>SKU</th><th style={S.num}>현재고</th><th style={S.num}>발주 진행 중</th><th style={S.num}>안전재고</th><th>상태</th></tr>
         </thead>
         <tbody>
           {stockReady && !stock.error && stock.rows.map((s) => { // 현재 검색의 결과만 표에 그린다
             const selected = String(s.product_id) === productId; // 아래 추이와 이력이 열린 품목
             return (
             <tr key={s.product_id} style={selected ? { ...bodyRow(s.is_active), ...S.selectedRow } : bodyRow(s.is_active)}>
-              <td style={selected ? S.selectedMark : undefined}>{s.name}{!s.is_active && " (비활성)"}</td>
+              <td style={selected ? S.selectedMark : undefined}>
+                {/* 품목 이름을 누르면 아래 추이·이력이 열린다(다시 누르면 닫힘). 줄마다 버튼 칸을 두지 않는다 */}
+                <button ref={selected ? selectedHistoryButton : undefined} type="button" className="text-button" aria-expanded={selected}
+                  aria-label={`${s.name} 추이·이력 ${selected ? "닫기" : "보기"}`} onClick={() => toggleHistory(s)}>{s.name}</button>{!s.is_active && " (비활성)"}
+              </td>
               <td style={S.nowrap}>{s.sku}</td>
               <td style={S.num}>{s.current_stock} {s.unit}</td>
               <td style={S.num}>{quantityLabel(s.in_transit, s.unit)}</td>
               <td style={S.num}>{quantityLabel(s.safety_stock, s.unit)}</td>
-              <td title={s.status_reason?.message}>
-                {s.status ? <StatusBadge kind={STOCK_BADGE[s.status].kind}>{STOCK_BADGE[s.status].label}</StatusBadge> : "-"}
-                {s.status === "SHORTAGE" && s.reorder_point != null && <span style={S.sub}>가용 {quantityLabel(s.current_stock + s.in_transit, s.unit)} · 기준 {quantityLabel(s.reorder_point, s.unit)}</span>}
-                {s.status_reason && <span style={S.sub}>{s.status_reason.message}</span>}
-                {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 판단 불가는 이유를 작게 보인다. 비활성은 "-" */}
-              </td>
               <td>
-                <button ref={selected ? selectedHistoryButton : undefined} type="button" aria-expanded={selected} onClick={() => toggleHistory(s)}>
-                  {selected ? "추이·이력 닫기" : "추이·이력 보기"}
-                </button>
+                {/* 부족 = 가용재고(현재고 + 발주 진행 중) ≤ 재주문점. 이유는 표를 두껍게 하지 않게 말풍선으로 보인다. 비활성은 "-" */}
+                {s.status ? <StatusTip detail={s.status === "SHORTAGE" && s.reorder_point != null
+                  ? `가용재고 ${quantityLabel(s.current_stock + s.in_transit, s.unit)} · 재주문점 ${quantityLabel(Math.round(s.reorder_point * 10) / 10, s.unit)}`
+                  : s.status_reason?.message}>
+                  <StatusBadge kind={STOCK_BADGE[s.status].kind}>{STOCK_BADGE[s.status].label}</StatusBadge>
+                </StatusTip> : "-"}
               </td>
-              {/* 아래 이력을 이 품목으로 거른다 */}
             </tr>
             );
           })}
@@ -255,7 +280,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
       {/* tabIndex -1: 키 이동 순서에는 넣지 않고, 코드로만 포커스를 줄 수 있게 */}
       <p style={S.hint}>{historyProduct
         ? historyProduct.name ? `${historyProduct.name} · ${historyProduct.sku}` : "선택한 품목의 이력입니다."
-        : "전체 품목의 이력입니다. 특정 품목은 위 목록에서 추이·이력 보기를 누르세요."}</p>
+        : "전체 품목의 이력입니다. 특정 품목은 위 목록에서 품목 이름을 누르세요."}</p>
       <div style={S.toolbar}>
         {/* 유형과 기간은 선택한 품목의 이력에 적용한다. */}
         <label>유형
@@ -303,7 +328,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
               {/* 정정 행은 어떤 이력을 바로잡았는지 번호로 보인다 (예: 정정 (#2)) */}
               <td style={S.num}>{m.direction === "IN" ? "+" : "−"}{quantityLabel(m.quantity, m.product_unit ?? undefined)}</td>
               <td>{[m.sales_channel && CHANNEL_LABEL[m.sales_channel], m.reason, m.memo].filter(Boolean).join(" · ")}</td>
-              <td>{m.movement_type !== "CORRECTION" && (m.correctable_quantity ?? m.quantity) > 0 && <button type="button" onClick={() => startCorrect(m)}>정정</button>}</td>
+              <td>{m.movement_type !== "CORRECTION" && (m.correctable_quantity ?? m.quantity) > 0 && <button type="button" className="text-button" aria-label={`#${m.id} 정정`} onClick={() => startCorrect(m)}>정정</button>}</td>
               {/* 정정 행에는 버튼을 숨긴다 (정정의 정정 금지) */}
             </tr>
           ))}
