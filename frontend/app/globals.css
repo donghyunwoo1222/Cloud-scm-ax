@@ -360,6 +360,21 @@ tbody tr:hover {
   background: var(--color-hover);
 }
 
+/* 데스크톱 표: 바깥 테두리와 칸 사이 세로선으로 칸을 나눠 숫자를 세로로 비교하기 쉽게 한다.
+   모바일(730px 미만)은 표 대신 압축 행을 쓰거나 가로 스크롤이라 그대로 둔다.
+   기존 구분선 색(--color-border)은 세로선으로 쓰면 거의 안 보여서 한 단계 진한 기존 변수를 쓴다(새 색은 만들지 않는다) */
+@media (min-width: 730px) {
+  table {
+    border: 1px solid var(--color-border-strong);
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    border: 1px solid var(--color-border-strong);
+  }
+}
+
 /* 접었다 펴는 이유 칸 (<details className="reason">): 접힌 상태는 한 줄 요약 + "자세히", 펼치면 전체 문장 + "접기" */
 details.reason > summary {
   cursor: pointer;
