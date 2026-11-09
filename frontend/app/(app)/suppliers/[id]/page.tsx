@@ -24,15 +24,37 @@ function Detail() {
     api<Supplier>(`/suppliers/${id}`).then(setSupplier).catch(setError); // 서버에서 업체 한 건
   }, [id]);
 
+  // 비활성·다시 활성은 목록 표가 아니라 이 상세 화면에서만 한다 (잘못 누르기 어렵게)
+  async function setActive(s: Supplier, active: boolean) {
+    if (!active && !window.confirm(`${s.name}을 비활성화할까요? 새 발주에서는 제외되며 기존 이력은 남습니다.`)) return;
+    try {
+      setSupplier(await api<Supplier>(`/suppliers/${s.id}`, { method: "PATCH", body: { is_active: active } })); // 바뀐 업체로 다시 그린다 (삭제는 없다)
+      setError(null);
+    } catch (e) {
+      setError(e);
+    }
+  }
+
   return (
     <section>
-      <h1>공급업체{supplier && ` · ${supplier.name}`}</h1>
-      <p><Link href="/suppliers">목록</Link></p>
+      <div style={S.detailHeader}>
+        <h1>공급업체{supplier && ` · ${supplier.name}`}</h1>
+        {supplier && <div style={S.buttons}>
+          <Link href={`/suppliers?edit=${supplier.id}`} style={S.linkButtonGhost}>수정</Link>{/* 목록 화면의 수정 폼을 이 업체로 연다 */}
+          <button type="button" onClick={() => setActive(supplier, !supplier.is_active)}>{supplier.is_active ? "비활성" : "다시 활성"}</button>
+        </div>}
+      </div>
+      <p style={S.hint}><Link href="/suppliers">공급업체 목록</Link></p>
       <ErrorText error={error} />
       {supplier && (
-        <p>
-          리드타임 {supplier.lead_time_days}일 · 담당자 {supplier.contact_name ?? "-"} · 연락처 {supplier.phone ?? "-"} · 이메일 {supplier.email ?? "-"} · {supplier.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}
-        </p>
+        <dl className="info-strip">
+          {/* 한 줄 줄글 대신 이름·값 칸. 비어 있는 값은 "-" */}
+          <div><dt>리드타임</dt><dd>{supplier.lead_time_days}일</dd></div>
+          <div><dt>담당자</dt><dd>{supplier.contact_name ?? "-"}</dd></div>
+          <div><dt>연락처</dt><dd>{supplier.phone ?? "-"}</dd></div>
+          <div><dt>이메일</dt><dd>{supplier.email ?? "-"}</dd></div>
+          <div><dt>상태</dt><dd>{supplier.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}</dd></div>
+        </dl>
       )}
 
       <h2 style={S.sectionTitle}>발주 이력</h2>

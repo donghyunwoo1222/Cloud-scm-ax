@@ -97,8 +97,14 @@ export default function ProductsPage() {
   }
 
   function startEdit(p: Product) {
-    if (registration.current) registration.current.open = true;
-    registration.current?.querySelector("input")?.focus();
+    const form = registration.current;
+    if (form) {
+      form.open = true; // 펼침은 CSS 가 부드럽게 움직인다(.smooth-details)
+      const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches; // 움직임 줄이기를 켠 사람에게는 바로 이동
+      form.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "start" }); // 폼이 있는 위쪽으로 부드럽게 올라간다
+      // 펼치는 동안에는 내용이 아직 숨겨져 있어 바로 포커스가 안 먹으므로 다음 화면 갱신 때 준다(스크롤은 다시 튀지 않게 막는다)
+      requestAnimationFrame(() => form.querySelector("input")?.focus({ preventScroll: true }));
+    }
     setEditing(p); // 수정 모드
     setForm(formOf(p)); // 그 품목 값으로 폼 채우기
     setError(null);
@@ -132,6 +138,8 @@ export default function ProductsPage() {
     try {
       await api(`/products/${p.id}`, { method: "PATCH", body: { is_active: active } }); // 비활성·다시 활성 (삭제는 없다)
       setError(null);
+      reset(); // 수정 폼 안에서 바꾸므로 폼을 닫는다
+      if (registration.current) registration.current.open = false;
       await list.reload();
     } catch (e) {
       setError(e);
@@ -147,7 +155,7 @@ export default function ProductsPage() {
       <h1>품목</h1>
 
       {created && <p role="status" style={S.ok}>품목을 등록했습니다. <Link href="/receipts#direct-receipt">입고 등록으로 이동</Link></p>}
-      <details ref={registration} style={S.sectionCard}>
+      <details ref={registration} className="smooth-details" style={S.sectionCard}>
       <summary>{editing ? `${editing.name} 수정` : "품목 등록"}</summary>
       {!editing && activeSuppliers.length === 0 && <p>기본 공급업체가 필요합니다. <Link href="/suppliers">공급업체 등록</Link></p>}
       <form className="form-compact field-form" data-box-open={boxOpen || form.units_per_box !== "" || form.box_unit_cost !== ""} onSubmit={save} style={S.formGrid}>
@@ -177,6 +185,8 @@ export default function ProductsPage() {
         <div className="form-actions" style={S.buttons}>
           <button type="submit" disabled={!editing && activeSuppliers.length === 0}>{editing === null ? "등록" : "수정 저장"}</button>
           {editing !== null && <button type="button" onClick={reset}>취소</button>}
+          {/* 비활성·다시 활성은 목록 표가 아니라 수정 폼 안에서만 한다 (잘못 누르기 어렵게) */}
+          {editing !== null && <button type="button" onClick={() => setActive(editing, !editing.is_active)}>{editing.is_active ? "비활성" : "다시 활성"}</button>}
         </div>
       </form>
       </details>
@@ -197,7 +207,7 @@ export default function ProductsPage() {
       <table style={{ ...S.table, marginTop: 0 }}>
         <thead>
           <tr style={S.headRow}>
-            <th>SKU</th><th>품목명</th><th>단위</th><th style={S.num}>단가</th><th style={S.num}>안전재고</th><th>기본 공급업체</th><th style={S.num}>리드타임</th><th>상태</th><th></th>
+            <th>SKU</th><th>품목명</th><th>단위</th><th style={S.num}>단가</th><th style={S.num}>안전재고</th><th>기본 공급업체</th><th style={S.num}>리드타임</th><th>상태</th>
           </tr>
         </thead>
         <tbody>
@@ -205,7 +215,8 @@ export default function ProductsPage() {
             <tr key={p.id} style={bodyRow(p.is_active)}>
               {/* 비활성 행은 흐리게 */}
               <td style={S.nowrap}>{p.sku}</td>
-              <td>{p.name}</td>
+              <td><button type="button" className="text-button" aria-label={`${p.name} 수정`} onClick={() => startEdit(p)}>{p.name}</button></td>
+              {/* 품목 이름을 누르면 위 수정 폼이 열린다(줄마다 수정·비활성 버튼 칸을 두지 않는다) */}
               <td>{p.unit}</td>
               <td style={S.num}>
                 {p.unit_cost.toLocaleString("ko-KR")}원
@@ -218,12 +229,6 @@ export default function ProductsPage() {
               <td>{p.default_supplier.name}</td>
               <td style={S.num}>{p.default_supplier.lead_time_days}일</td>
               <td style={S.nowrap}>{p.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}</td>
-              <td style={S.nowrap}>
-                <button type="button" onClick={() => startEdit(p)}>수정</button>{" "}
-                {p.is_active
-                  ? <button type="button" onClick={() => setActive(p, false)}>비활성</button>
-                  : <button type="button" onClick={() => setActive(p, true)}>다시 활성</button>}
-              </td>
             </tr>
           ))}
         </tbody>

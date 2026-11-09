@@ -1,6 +1,13 @@
 from datetime import date  # 날짜 칸의 파이썬 타입
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, func  # 제약·외래키·인덱스·DB 함수
+from sqlalchemy import (  # 제약·외래키·인덱스·DB 함수·글자 칸·SQL 조각
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    String,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column  # 칸 정의 도구
 
 from app.models.base import Base, CompanyMixin  # 공통 부모와 회사 칸
@@ -36,6 +43,10 @@ class InventoryMovement(CompanyMixin, Base):
             name="ck_movements_sales_channel",
         ),
         Index("ix_movements_company_product_date", "company_id", "product_id", "movement_date"),  # 품목별 재고·기간 판매 조회용
+        Index(
+            "uq_movements_company_external_ref", "company_id", "external_ref",
+            unique=True, postgresql_where=text("external_ref IS NOT NULL"),  # 값이 있을 때만 회사 안에서 유일 (파일 중복 반영 방지, #154)
+        ),
     )
 
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))  # 수량이 바뀐 품목
@@ -52,4 +63,5 @@ class InventoryMovement(CompanyMixin, Base):
     sales_channel: Mapped[str | None]  # SMARTSTORE·OWN_MALL·OTHER, SALE일 때 필수
     reason: Mapped[str | None]  # 조정·정정 사유
     memo: Mapped[str | None]  # 메모
+    external_ref: Mapped[str | None] = mapped_column(String(100))  # 가져오기 파일의 고유 주문번호 (직접 입력은 비움)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))  # 등록한 사용자

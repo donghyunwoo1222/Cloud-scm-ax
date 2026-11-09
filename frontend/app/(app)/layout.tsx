@@ -18,6 +18,7 @@ const MENU = [
     { href: "/products", label: "품목" },
     { href: "/receipts", label: "입고 등록" },
     { href: "/shipments", label: "출고 등록" },
+    { href: "/sales-import", label: "판매 가져오기" },
   ] },
   { title: "구매 업무", links: [ // 발주 흐름: 추천 → 발주서 → 거래처
     { href: "/recommendations", label: "발주 추천" },
@@ -70,6 +71,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [failed, setFailed] = useState(false); // 로그인 확인이 401 이 아닌 이유(네트워크·서버 오류)로 실패했는지
   const [attempt, setAttempt] = useState(0); // "다시 시도" 를 누를 때마다 올려 확인을 다시 한다
   const [menuOpen, setMenuOpen] = useState(false); // 좁은 화면에서 드로어가 열려 있는지
+  // 넓은 화면에서 사이드 메뉴를 접었는지(접으면 햄버거만 남는 얇은 띠). 다음에 열어도 유지하도록 브라우저에 기억한다.
+  // 메뉴는 로그인 확인 뒤에야 그려져 서버 화면과 어긋나지 않으므로 처음 값을 바로 읽어도 된다. 저장소를 못 쓰면(시크릿 창 등) 그냥 펼친 채로 시작한다
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return typeof window !== "undefined" && window.localStorage.getItem("sidebar-collapsed") === "1"; } catch { return false; }
+  });
   const openButton = useRef<HTMLButtonElement>(null); // 앱바의 햄버거 버튼 (닫을 때 포커스를 돌려준다)
   const closeButton = useRef<HTMLButtonElement>(null); // 드로어의 닫기 버튼 (열 때 포커스를 옮긴다)
   const restoreFocus = useRef(false); // 닫은 뒤 햄버거로 포커스를 돌려줄지 (닫는 순간에는 뒤 화면이 아직 inert 라 포커스가 안 들어간다)
@@ -111,6 +117,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     };
   }, [menuOpen, closeMenu]);
 
+  function toggleSidebar() {
+    const next = !collapsed;
+    setCollapsed(next);
+    try { window.localStorage.setItem("sidebar-collapsed", next ? "1" : "0"); } catch { /* 저장 실패해도 이번 화면에서는 접힌다 */ }
+  }
+
   function retry() {
     setFailed(false); // 안내를 지우고 "불러오는 중…" 으로
     setAttempt((n) => n + 1); // 확인 다시 실행
@@ -134,9 +146,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       {/* 로그인 확인 전 안내 */}
       <div style={S.shell}>
         {me && (
-        <aside id="app-drawer" className="sidebar" style={S.sidebar} data-open={menuOpen} aria-label="메뉴">
+        <aside id="app-drawer" className="sidebar" style={S.sidebar} data-open={menuOpen} data-collapsed={collapsed} aria-label="메뉴">
           {/* 데스크톱: 왼쪽에 항상 보이는 사이드 메뉴. 모바일(730px 미만): 햄버거로 여는 드로어 (화면 위로 덮이고 본문은 밀리지 않는다) */}
           <div className="sidebar-heading">
+            <button className="sidebar-toggle" type="button" aria-label={collapsed ? "메뉴 펼치기" : "메뉴 접기"}
+              aria-expanded={!collapsed} aria-controls="app-nav" onClick={toggleSidebar}>
+              <MenuIcon />
+              {/* 데스크톱 전용 햄버거: 누르면 메뉴를 접고 펼친다. 모바일에서는 숨기고 앱바 햄버거·드로어를 쓴다 */}
+            </button>
             <div className="sidebar-brand">Cloud SCM</div>
             <button className="drawer-close" ref={closeButton} type="button" aria-label="메뉴 닫기" onClick={() => closeMenu(true)}>
               <MenuIcon close />
@@ -197,7 +214,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 function SideNav({ isAdmin, onNavigate }: { isAdmin: boolean; onNavigate: () => void }) {
   const pathname = usePathname(); // 지금 주소 (예: /purchase-orders/3 → "발주" 메뉴를 현재 메뉴로)
   return (
-    <nav className="side-nav" aria-label="주 메뉴" style={S.sideNav}>
+    <nav id="app-nav" className="side-nav" aria-label="주 메뉴" style={S.sideNav}>
       {MENU.filter((group) => !group.adminOnly || isAdmin).map((group) => (
         // 그룹 하나 = (제목) + 링크들. 제목이 있으면 낭독기가 "재고 업무 그룹" 처럼 읽도록 묶는다
         <div key={group.links[0].href} style={S.sideNav} role={group.title ? "group" : undefined} aria-label={group.title}>
