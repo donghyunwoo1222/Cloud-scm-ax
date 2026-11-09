@@ -18,5 +18,6 @@ class Supplier(CompanyMixin, Base):
     phone: Mapped[str | None]  # 연락처
     email: Mapped[str | None]  # 이메일
     memo: Mapped[str | None]  # 메모
+    payment_terms: Mapped[str | None]  # 지불조건 기본값 (예: "월말 마감 익월 10일 현금", 발주서 문서에 쓴다)
     lead_time_days: Mapped[int]  # 발주해서 받을 때까지 걸리는 일수
     is_active: Mapped[bool] = mapped_column(server_default=true())  # 기본 참, 삭제 대신 비활성

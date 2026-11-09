@@ -11,7 +11,7 @@ import { StatusBadge } from "../../../lib/status-badge"; // 색 + 글자 + 아�
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/suppliers/{id} 중 이 화면이 쓰는 칸
-type Supplier = { id: number; name: string; lead_time_days: number; contact_name: string | null; phone: string | null; email: string | null; is_active: boolean };
+type Supplier = { id: number; name: string; lead_time_days: number; contact_name: string | null; phone: string | null; email: string | null; payment_terms: string | null; is_active: boolean };
 
 // 공급업체 상세 화면 (주소 /suppliers/번호): 업체 정보 + 발주 이력(약속 납기·단가·실제 입고일)
 function Detail() {
@@ -53,6 +53,7 @@ function Detail() {
           <div><dt>담당자</dt><dd>{supplier.contact_name ?? "-"}</dd></div>
           <div><dt>연락처</dt><dd>{supplier.phone ?? "-"}</dd></div>
           <div><dt>이메일</dt><dd>{supplier.email ?? "-"}</dd></div>
+          <div><dt>지불조건</dt><dd>{supplier.payment_terms ?? "-"}</dd></div>
           <div><dt>상태</dt><dd>{supplier.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}</dd></div>
         </dl>
       )}

@@ -26,6 +26,7 @@ const MENU = [
     { href: "/purchase-orders", label: "발주" },
     { href: "/suppliers", label: "공급업체" },
   ] },
+  { title: "회사", links: [{ href: "/company", label: "회사 정보" }] }, // 담당자는 읽기만(수정은 서버가 관리자만 허용)
   { title: "관리", adminOnly: true, links: [{ href: "/users", label: "사용자 관리" }] }, // 관리자에게만 보이는 그룹
 ];
 

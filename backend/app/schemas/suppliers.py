@@ -20,6 +20,7 @@ class SupplierCreate(BaseModel):
     phone: OptionalText = None  # 연락처
     email: OptionalText = None  # 이메일 (로그인용이 아니라 형식 검사는 하지 않는다)
     memo: Memo = None  # 메모
+    payment_terms: OptionalText = None  # 지불조건 기본값
 
 
 class SupplierUpdate(PatchModel):
@@ -33,6 +34,7 @@ class SupplierUpdate(PatchModel):
     phone: OptionalText = None  # 연락처
     email: OptionalText = None  # 이메일
     memo: Memo = None  # 메모
+    payment_terms: OptionalText = None  # 지불조건 기본값
     is_active: bool | None = None  # false: 비활성, true: 다시 활성
 
 
@@ -46,6 +48,7 @@ class SupplierOut(BaseModel):
     phone: str | None  # 연락처
     email: str | None  # 이메일
     memo: str | None  # 메모
+    payment_terms: str | None  # 지불조건 기본값
     is_active: bool  # 활성 여부
     created_at: datetime  # 만든 시각
     updated_at: datetime  # 고친 시각

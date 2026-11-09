@@ -37,6 +37,7 @@
 | F1 회사·사용자 | POST /companies | 회사와 처음 관리자 계정 등록 | 누구나(로그인 전) |
 | F1 | POST /auth/login, POST /auth/logout | 로그인·로그아웃 | 누구나 |
 | F1 | GET /me | 내 정보·회사·역할 | 둘 다 |
+| 자동화 회사 정보 | GET /company, PATCH /company | 우리 회사 정보(사업자번호·대표자·주소·연락처) 조회·수정. 경로·본문에 회사 번호가 없고 토큰의 회사만 쓴다 (#156) | 조회 둘 다, 수정 관리자 |
 | F1 | GET /users, POST /users, PATCH /users/{id} | 직원 목록, 이메일·임시 비밀번호로 계정 생성, 역할·비활성 변경 | 관리자 |
 | F2 공급업체 | GET /suppliers, POST /suppliers | 목록(비활성 제외·포함 선택), 등록(리드타임 0 이상 정수) | 둘 다 |
 | F2 | GET /suppliers/{id}, PATCH /suppliers/{id} | 상세, 수정·비활성 | 둘 다 |
@@ -59,7 +60,7 @@
 | F8 발주 추천 | GET /recommendations | 현재 시점 추천 목록 계산·반환 | 둘 다 |
 | F8 | POST /recommendations/drafts | 선택한 품목으로 공급업체별 DRAFT 발주서 생성·품목 추가 | 둘 다 |
 
-합계 엔드포인트는 35개다(점검용 `GET /health` 제외, 2026-11-09 라우터 기준, 판매 가져오기 3개 포함). 발주 상태 변경을 PATCH의 status 칸으로 하지 않고 동사 경로(approve, order, cancel)로 나눴다. 이렇게 하면 "승인은 관리자만", "취소는 입고 없을 때만" 같은 규칙을 경로 하나에 하나씩 붙일 수 있고, 상태를 건너뛰는 요청(승인 생략)이 경로에서부터 존재하지 않는다(R5).
+합계 엔드포인트는 37개다(점검용 `GET /health` 제외, 2026-11-09 라우터 기준, 판매 가져오기 3개 포함). 발주 상태 변경을 PATCH의 status 칸으로 하지 않고 동사 경로(approve, order, cancel)로 나눴다. 이렇게 하면 "승인은 관리자만", "취소는 입고 없을 때만" 같은 규칙을 경로 하나에 하나씩 붙일 수 있고, 상태를 건너뛰는 요청(승인 생략)이 경로에서부터 존재하지 않는다(R5).
 
 ## 핵심 API 상세
 
@@ -149,6 +150,12 @@
 - `POST /sales-imports` (201): 같은 입력 + `sales_channel` 필수. 품목을 번호순으로 잠근 뒤 다시 계산하고 `register_movement`로 SALE을 날짜순으로 쓴다(한 트랜잭션). 문제 행이 있고 `exclude_problems`가 아니면 409 `IMPORT_HAS_PROBLEMS`, 반영할 행이 없으면 409 `NOTHING_TO_IMPORT`, 동시에 같은 주문번호가 들어오면 409 `DUPLICATE_REF`.
 - 문제 행 사유: `MISSING_SKU`, `INVALID_QUANTITY`(1~100만 정수), `INVALID_DATE`, `FUTURE_DATE`, `MISSING_REF`, `DUPLICATE_REF_IN_FILE`(뒤의 행만), `UNKNOWN_SKU`(다른 회사 SKU 포함), `INSUFFICIENT_STOCK`(품목마다 현재고에서 (날짜, 줄) 순으로 빼 음수가 되는 행. 문제 행은 재고를 쓰지 않은 것으로 친다).
 - 파일 오류는 422 `FILE_TOO_LARGE`·`TOO_MANY_ROWS`·`INVALID_FILE`.
+
+### 회사 정보 (#156)
+
+- `GET /company`: `id`·`name`·`business_number`·`representative`·`address`·`phone`(비어 있으면 null). `PATCH /company`: 보낸 칸만 바꾸고, `null`·빈 글자는 비운다(관리자만, 담당자 403). 회사명·`id`·`company_id`는 받지 않는다(무시).
+- `business_number`는 `123-45-67890` 또는 `1234567890`을 받아 숫자 10자리로 저장한다. 그 밖(자리 수·하이픈 위치·글자)은 422 `VALIDATION_ERROR`.
+- 공급업체에 선택 칸 `payment_terms`(200자까지, 지불조건 기본값)가 생겼다. 등록·수정·응답 공통.
 
 ### 품목·입고 가져오기 (#155)
 
@@ -259,6 +266,7 @@
 | 동작 | 관리자 | 담당자 | 상태 |
 | --- | --- | --- | --- |
 | 직원 계정 생성·역할 변경·비활성 | 허용 | 막힘 | 임시 확정 |
+| 회사 정보 수정(조회는 둘 다) | 허용 | 막힘 | 임시 확정 |
 | 공급업체·품목 등록·수정·비활성 | 허용 | 허용 | 임시 확정 |
 | 입고·출고·재고 조정·정정 등록 | 허용 | 허용 | 임시 확정 |
 | 발주 초안 생성·수정, 추천으로 초안 만들기 | 허용 | 허용 | 임시 확정 |
