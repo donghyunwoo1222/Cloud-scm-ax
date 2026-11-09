@@ -25,6 +25,8 @@ export type PurchaseOrder = {
   status: PoStatus; // 상태
   due_date: string | null; // 약속 납기 (YYYY-MM-DD)
   memo: string | null; // 메모
+  delivery_address: string | null; // 납품장소 (비면 문서에 회사 주소)
+  payment_terms: string | null; // 지불조건
   approved_at: string | null; // 승인 시각
   ordered_at: string | null; // 발주함 표시 시각
   has_receipts: boolean; // 발주 취소를 막는 입고 이력 여부
@@ -41,7 +43,7 @@ export const STATUS_LABEL: Record<PoStatus, string> = {
 
 // 오류 details 의 칸 이름 → 화면 이름 (422 문장 뒤에 어느 칸인지 덧붙인다)
 export const PO_LABELS = {
-  supplier_id: "공급업체", due_date: "약속 납기", memo: "메모", items: "품목 줄", product_id: "품목", quantity: "수량", unit_price: "단가", movement_date: "입고일",
+  supplier_id: "공급업체", due_date: "약속 납기", memo: "메모", delivery_address: "납품장소", payment_terms: "지불조건", items: "품목 줄", product_id: "품목", quantity: "수량", unit_price: "단가", movement_date: "입고일",
   box_quantity: "박스 수",
 };
 

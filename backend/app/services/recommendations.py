@@ -196,6 +196,7 @@ def create_drafts(company_id: int, db: Session, user_id: int, today: date, data:
                 company_id=company_id, supplier_id=supplier_id, po_number=next_po_number(company_id, db),
                 due_date=today + timedelta(days=supplier.lead_time_days),  # 예상 납기 = 오늘 + 리드타임 (예: 11-04 + 5일 = 11-09)
                 created_by=user_id,  # 상태는 DB 기본값 DRAFT
+                payment_terms=supplier.payment_terms,  # 공급업체 기본 지불조건 복사 (#157)
             )
             db.add(order)
             db.flush()  # 발주서 id 받기 (확정은 아직)

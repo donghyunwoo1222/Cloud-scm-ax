@@ -2,7 +2,7 @@
 
 from typing import Annotated  # 타입에 부가 정보를 붙이는 도구
 
-from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
+from fastapi import APIRouter, Query, Response  # 라우터, 쿼리 문자열 칸, 파일 응답
 
 from app.auth.deps import AdminUser, CurrentUser  # 관리자만 / 로그인 사용자 (#22·#23)
 from app.db import DB  # 요청마다 DB 세션
@@ -15,6 +15,7 @@ from app.schemas.purchase_orders import (  # 요청 모양
     ReceiptCreate,
     ReceiptDue,
 )
+from app.services import po_document  # 발주서 문서·엑셀 (#157)
 from app.services import purchase_orders as po_service  # 업무 규칙
 
 router = APIRouter(prefix="/purchase-orders")  # 이 파일의 경로는 모두 /purchase-orders 로 시작
@@ -49,6 +50,21 @@ def create_order(data: PurchaseOrderCreate, user: CurrentUser, db: DB) -> dict:
 @router.get("/{order_id}")  # 상세
 def get_order(order_id: PathId, user: CurrentUser, db: DB) -> dict:
     return one(user, db, po_service.get_order(user.company_id, db, order_id))  # 다른 회사 404
+
+
+@router.get("/{order_id}/document")  # 문서 화면용 값 (승인 이후만, 읽기만 하므로 GET)
+def get_document(order_id: PathId, user: CurrentUser, db: DB) -> dict:
+    return {"data": po_document.build_document(user.company_id, db, order_id)}  # 404·409
+
+
+@router.get("/{order_id}/document.xlsx")  # 같은 값의 엑셀 파일
+def get_document_xlsx(order_id: PathId, user: CurrentUser, db: DB) -> Response:
+    doc = po_document.build_document(user.company_id, db, order_id)  # 404·409
+    return Response(
+        po_document.build_xlsx(doc),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{doc["po_number"]}.xlsx"'},  # 발주번호는 영문·숫자·하이픈뿐
+    )
 
 
 @router.patch("/{order_id}")  # 수정 (DRAFT 일 때만)

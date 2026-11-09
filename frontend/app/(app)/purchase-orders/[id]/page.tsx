@@ -20,6 +20,11 @@ const ACTIONS: Record<string, [string, string][]> = {
   ORDERED: [["cancel", "취소"]], // 입고 등록은 아래 폼 여는 버튼이 따로 있다
 };
 
+// 승인 전 경고(#157): 회사 정보 중 비어 있으면 문서 머리말에 빠지는 칸. 지불조건·납품장소·메모는 비어도 정상이라 검사하지 않는다
+const COMPANY_FIELDS = ["business_number", "representative", "address", "phone"] as const;
+type CompanyInfo = Record<(typeof COMPANY_FIELDS)[number], string | null>;
+const COMPANY_WARNING = "회사 정보가 비어 있어 발주서 머리말에 빠집니다. 승인하면 고칠 수 없습니다."; // 경고 줄과 확인창이 같은 문장을 쓴다
+
 const DEFAULT_ITEM_VIEW = { onlyOutstanding: false, sort: "registered" as PoItemSort }; // 전체 품목과 등록 순서가 기본값이다
 
 // 발주서 상세 화면 (주소 /purchase-orders/번호)
@@ -38,6 +43,7 @@ function Detail() {
   const [qty, setQty] = useState<Record<number, { value: string; box: boolean }>>({}); // 줄 번호 → 이번 입고 수량과 단위
   const [date, setDate] = useState(""); // 입고일 (화면이 열린 뒤 서울 오늘로 채운다)
   const [today, setToday] = useState(""); // 입고일 상한 (미래 날짜 선택 불가)
+  const [company, setCompany] = useState<CompanyInfo | null>(null); // 회사 정보 (작성 중일 때만 읽는다. 못 읽으면 경고를 생략)
   const [itemView, setItemView] = useState({ scope: "", ...DEFAULT_ITEM_VIEW }); // 발주서와 상태별로 표의 선택을 기억한다
 
   const load = useCallback(async () => {
@@ -55,6 +61,11 @@ function Detail() {
     setToday(t); setDate(t); // 상한과 기본값
   }, [load]);
 
+  const isDraft = order?.status === "DRAFT"; // 승인 전 경고가 필요한 상태
+  useEffect(() => {
+    if (isDraft) api<CompanyInfo>("/company").then(setCompany).catch(() => setCompany(null)); // 담당자도 읽을 수 있다 (수정만 관리자)
+  }, [isDraft]);
+
   useEffect(() => {
     if (receiving) receiptTitle.current?.focus();
     else if (wasReceiving.current) receiptButton.current?.focus();
@@ -69,6 +80,7 @@ function Detail() {
   // 승인·발주함 표시·취소: 바뀐 발주서를 돌려받아 화면에 반영한다
   async function act(action: string) {
     if (action === "cancel" && !window.confirm("이 발주서를 취소할까요? 되돌릴 수 없습니다.")) return; // 취소는 한 번 더 확인
+    if (action === "approve" && companyEmpty && !window.confirm(`${COMPANY_WARNING} 그대로 승인할까요?`)) return; // 경고와 같은 문장으로 한 번 더 확인 (취소하면 아무 일도 없다)
     try {
       setOrder(await api<PurchaseOrder>(`/purchase-orders/${id}/${action}`, { method: "POST" })); // 서버가 한 단계만 바꾼다
       setError(null); // 이전 오류 지우기
@@ -104,6 +116,8 @@ function Detail() {
       setBusy(false);
     }
   }
+
+  const companyEmpty = isDraft && company !== null && COMPANY_FIELDS.some((f) => !company[f]); // 비어 있는 칸이 하나라도 있는지
 
   if (!order) return <section><h1>발주서</h1><ErrorText error={error} /></section>; // 불러오기 전·실패
 
@@ -164,6 +178,8 @@ function Detail() {
             )}
           </dl>
           <dl style={S.detailMemo}>
+            <dt>납품장소 · 지불조건</dt>
+            <dd style={S.detailHistoryValue}>{order.delivery_address ?? "회사 주소"} · {order.payment_terms ?? "-"}</dd>
             <dt>메모</dt>
             <dd style={S.detailHistoryValue}>{order.memo ?? "-"}</dd>
           </dl>
@@ -172,12 +188,19 @@ function Detail() {
 
       <div className="receipt-controls purchase-order-actions">
         {order.status === "DRAFT" && <Link href={`/purchase-orders/${order.id}/edit`} style={S.linkButtonGhost}>수정</Link>}
+        {["APPROVED", "ORDERED", "RECEIVED"].includes(order.status) && <Link href={`/purchase-orders/${order.id}/document`} style={S.linkButtonGhost}>발주서 문서</Link>}
         {/* 작성 중일 때만 수정 화면으로 간다 */}
         {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving}
           className={action === "cancel" ? undefined : "primary-action"} onClick={() => act(action)}>{label}</button>)}
         {orderedStatus && !receiving && <button ref={receiptButton} className="primary-action" type="button"
           onClick={() => { setError(null); setNotice(""); setReceiving(true); }}>입고 등록</button>}
       </div>
+      {companyEmpty && (
+        <p role="status" style={S.hint}>
+          {COMPANY_WARNING}{" "}
+          {me?.role === "ADMIN" ? <Link href="/company">회사 정보 입력하기</Link> : "관리자에게 회사 정보 입력을 요청하세요."}
+        </p>
+      )}
       {staffDraft && <p>승인은 관리자만 할 수 있습니다. 관리자에게 승인을 요청하세요.</p>}
       {/* 서버도 403 으로 막지만 화면에서도 안내한다 */}
 

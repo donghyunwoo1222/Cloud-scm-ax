@@ -133,6 +133,8 @@ erDiagram
 | status | 선택지 | 필수 | DRAFT, APPROVED, ORDERED, RECEIVED, CANCELLED 중 하나. 기본 DRAFT |
 | due\_date | 날짜 | 선택 | 약속(희망) 납기. 추천에서 만든 초안은 오늘 + 리드타임으로 채운다 |
 | memo | 문자열 | 선택 | 메모 |
+| delivery\_address | 문자열 | 선택 | 납품장소(200자까지). 비우면 발주서 문서에 회사 주소가 나온다(#157) |
+| payment\_terms | 문자열 | 선택 | 지불조건(200자까지). 발주서를 만들 때 공급업체의 payment\_terms를 복사하고 발주서에서 고칠 수 있다. 나중에 공급업체 값을 바꿔도 이미 복사된 값은 그대로(#157) |
 | created\_by | 정수 | 필수 | 작성자(users를 가리킴) |
 | approved\_by | 정수 | 선택 | 승인자. 승인 전에는 비움. ADMIN 역할 사용자만 들어간다(R5) |
 | approved\_at | 시각 | 선택 | 승인 시각 |
