@@ -12,3 +12,4 @@ httpx2==2.16.0              # 테스트에서 가짜 HTTP 요청을 보낼 때 �
 ruff==0.17.3                # 코드 검사(린트) 도구, 개발용 (python -m ruff check .)
 openpyxl==3.1.5              # .xlsx 파일 읽기 (판매 가져오기, 읽기 전용 모드)
 python-multipart==0.0.33     # 파일 업로드(multipart) 요청 받기 (FastAPI 필수)
+fpdf2==2.9.0                 # 발주서 PDF 만들기 (메일 첨부, #158). 순수 파이썬, 한글 폰트는 app/fonts 에 동봉

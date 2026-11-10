@@ -6,16 +6,21 @@ from fastapi import APIRouter, Query, Response  # 라우터, 쿼리 문자열 �
 
 from app.auth.deps import AdminUser, CurrentUser  # 관리자만 / 로그인 사용자 (#22·#23)
 from app.db import DB  # 요청마다 DB 세션
+from app.errors import AppError  # 공통 오류
 from app.pagination import Page  # page·page_size
 from app.schemas.common import PathId, QueryId  # 번호 칸 (DB 범위를 넘으면 422, #71)
 from app.schemas.purchase_orders import (  # 요청 모양
+    OrderEmailSend,
     PoStatus,
     PurchaseOrderCreate,
     PurchaseOrderUpdate,
     ReceiptCreate,
     ReceiptDue,
 )
-from app.services import po_document  # 발주서 문서·엑셀 (#157)
+from app.services import (
+    po_document,  # 발주서 문서·엑셀 (#157)
+    po_mail,  # 발주서 메일 발송 (#158)
+)
 from app.services import purchase_orders as po_service  # 업무 규칙
 
 router = APIRouter(prefix="/purchase-orders")  # 이 파일의 경로는 모두 /purchase-orders 로 시작
@@ -65,6 +70,23 @@ def get_document_xlsx(order_id: PathId, user: CurrentUser, db: DB) -> Response:
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{doc["po_number"]}.xlsx"'},  # 발주번호는 영문·숫자·하이픈뿐
     )
+
+
+@router.get("/{order_id}/email")  # 메일 미리보기 (APPROVED·ORDERED, 읽기만)
+def get_email_preview(order_id: PathId, user: CurrentUser, db: DB) -> dict:
+    return {"data": po_mail.build_preview(user.company_id, db, user, order_id)}  # 404·409
+
+
+@router.post("/{order_id}/email")  # 메일 발송 → 성공하면 ORDERED + 발송 기록 (관리자·담당자 둘 다, 주문 완료 표시와 같은 권한)
+def send_email(order_id: PathId, data: OrderEmailSend, user: CurrentUser, db: DB) -> dict:
+    order = po_mail.send_order(user.company_id, db, user, order_id, data.intro, data.resend)  # 404·409·502·503
+    try:
+        db.commit()  # 확정 (발주서 잠금도 여기서 풀린다)
+    except Exception as exc:  # 메일은 이미 나갔는데 저장만 실패한 드문 경우: 다시 보내지 않게 알린다
+        db.rollback()
+        raise AppError(500, "MAIL_SENT_NOT_SAVED", "메일은 보냈지만 발송 기록을 저장하지 못했습니다. 다시 보내지 말고, "
+                       "공급업체에 도착했는지 확인한 뒤 '주문 완료 표시'를 눌러 주세요.") from exc
+    return one(user, db, order)
 
 
 @router.patch("/{order_id}")  # 수정 (DRAFT 일 때만)

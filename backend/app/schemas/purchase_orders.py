@@ -103,6 +103,9 @@ class PurchaseOrderOut(BaseModel):
     received_at: datetime | None  # 전량 입고 시각 (실제 입고일)
     has_receipts: bool  # 전량 정정된 입고 기록도 포함한다.
     cancelled_at: datetime | None  # 취소 시각
+    emailed_at: datetime | None  # 마지막 메일 발송 시각 (#158, 보낸 적 없으면 비움)
+    emailed_to: str | None  # 마지막 메일 수신 주소 (#158)
+    emailed_by: int | None  # 마지막 메일 보낸 사용자 (#158)
     created_at: datetime  # 만든 시각
     updated_at: datetime  # 고친 시각
     items: list[ItemOut]  # 품목 줄
@@ -119,3 +122,12 @@ class ReceiptCreate(BaseModel):
 
     movement_date: date | None = None  # 입고일. 비우면 서울 오늘, 미래 날짜는 422
     items: Annotated[list[ReceiptLine], Field(min_length=1)]  # 입고 줄 1개 이상
+
+
+class OrderEmailSend(BaseModel):
+    """POST /purchase-orders/{id}/email 본문 (#158). 받는 사람·제목·고정 부분은 서버가 만들고, 사용자는 앞머리만 보낸다."""
+
+    model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422 (받는 주소를 본문으로 바꿔치기할 수 없다)
+
+    intro: Annotated[str, Field(min_length=1, max_length=2000)]  # 앞머리 한 문단 (빈 글자는 422)
+    resend: bool = False  # 이미 발주함(ORDERED)인 발주서를 다시 보낼 때만 true (확인창에서 한 번 더 물은 뒤)

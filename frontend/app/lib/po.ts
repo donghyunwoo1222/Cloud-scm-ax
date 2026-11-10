@@ -32,6 +32,8 @@ export type PurchaseOrder = {
   has_receipts: boolean; // 발주 취소를 막는 입고 이력 여부
   received_at: string | null; // 전량 입고 시각 (실제 입고일)
   cancelled_at: string | null; // 취소 시각
+  emailed_at: string | null; // 마지막 메일 발송 시각 (#158)
+  emailed_to: string | null; // 마지막 메일 수신 주소 (#158)
   items: PoItem[]; // 품목 줄
 };
 

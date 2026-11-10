@@ -47,7 +47,7 @@ docs/ 폴더의 기존 문서(00-proposal-summary, 01-benchmarking, 02-problem-d
 | 발주서 칸 | `purchase_orders.delivery_address`(비면 회사 주소), `payment_terms`(지불조건). `suppliers.payment_terms`를 기본값으로 두고 발주서에서 수정 가능 |
 | 금액 | 단가는 부가세 별도, 부가세 10% 고정, 줄별 세액 없이 공급가액 합계에 한 번 계산 |
 | 발주서 문서 | 인쇄·PDF 저장 화면과 엑셀 내보내기를 먼저. 서버 PDF 생성은 메일 첨부 이슈에서 라이브러리와 함께 확인받는다 |
-| 메일 | 반자동(버튼, 미리보기, 확인창). 고정 템플릿이며 사용자는 앞머리 한 문단만 고친다. SMTP로 시작. 발송 성공 시 ORDERED, 실패 시 APPROVED 유지. `purchase_orders`에 발송 시각과 수신 주소 칸 추가 |
+| 메일 | 반자동(버튼, 미리보기, 확인창). 고정 템플릿이며 사용자는 앞머리 한 문단만 고친다. SMTP로 시작. 발송 성공 시 ORDERED, 실패 시 APPROVED 유지. `purchase_orders`에 발송 시각과 수신 주소 칸 추가. 구현(#158): SMTP 는 표준 `smtplib`, 첨부 PDF 는 `fpdf2` + 나눔고딕 동봉(WeasyPrint·헤드리스 Chrome 은 도커 이미지가 수백 MB 늘어 제외), 보내는 주소는 시스템 주소 하나 + Reply-To 담당자, 발송자(`emailed_by`)도 남긴다 |
 
 ### 구현 순서(이슈 단위)
 1. 판매 가져오기 기반(파일 올리기, 열 선택, 미리보기, 전체 반영, `external_ref`)

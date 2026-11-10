@@ -7,10 +7,11 @@ import { Suspense, useEffect, useState } from "react"; // 처음 한 번 불러�
 import { api } from "../../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText } from "../../../../lib/list"; // 오류 문장
 import { S } from "../../../../lib/styles"; // 화면 공통 스타일
+import { MailPanel } from "./mail-panel"; // 메일 미리보기·발송 (#158)
 
 // GET /api/v1/purchase-orders/{id}/document 응답. 금액·한글 금액·납품장소 대체는 모두 서버가 계산한다(엑셀과 같은 값).
 type Doc = {
-  po_number: string; order_date: string;
+  po_number: string; status: string; order_date: string;
   supplier: { name: string; contact_name: string | null; phone: string | null; email: string | null };
   buyer: { name: string; business_number: string | null; representative: string | null; phone: string | null; address: string | null; author_name: string };
   lines: { no: number; product_name: string; product_sku: string; unit: string; quantity: number; unit_price: number; amount: number; note: string }[];
@@ -26,10 +27,12 @@ function Document() {
   const { id } = useParams<{ id: string }>(); // 주소의 발주서 번호
   const [doc, setDoc] = useState<Doc | null>(null); // 문서 값
   const [error, setError] = useState<unknown>(null); // 불러오기 오류 (승인 전 409, 다른 회사 404)
+  const [mailOpen, setMailOpen] = useState(false); // 메일 미리보기 펼침
+  const [version, setVersion] = useState(0); // 메일을 보낸 뒤 문서(상태)를 다시 불러온다
 
   useEffect(() => {
     api<Doc>(`/purchase-orders/${id}/document`).then(setDoc).catch(setError);
-  }, [id]);
+  }, [id, version]);
 
   if (!doc) return <section><h1>발주서 문서</h1><ErrorText error={error} /><Link href={`/purchase-orders/${id}`}>발주서 상세로</Link></section>;
 
@@ -43,7 +46,12 @@ function Document() {
         <button type="button" className="primary-action" onClick={() => window.print()}>인쇄 · PDF 저장</button>
         {/* 엑셀은 같은 주소의 GET 이라 링크 하나로 내려받는다 (로그인 쿠키가 자동으로 붙는다) */}
         <a href={`/api/v1/purchase-orders/${id}/document.xlsx`} download style={S.linkButtonGhost}>엑셀</a>
+        {/* 메일은 승인됨(첫 발송)·발주함(다시 보내기)만. 입고 완료 뒤에는 보낼 일이 없다 */}
+        {(doc.status === "APPROVED" || doc.status === "ORDERED") && (
+          <button type="button" aria-expanded={mailOpen} onClick={() => setMailOpen((o) => !o)}>{mailOpen ? "메일 닫기" : "메일 보내기"}</button>
+        )}
       </div>
+      {mailOpen && <MailPanel id={id} onSent={() => setVersion((v) => v + 1)} />}
 
       <div className="po-paper">
         <div className="po-scroll">

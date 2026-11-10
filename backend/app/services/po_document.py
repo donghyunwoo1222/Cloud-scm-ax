@@ -1,7 +1,10 @@
 """발주서 문서(#157): 인쇄 화면과 엑셀이 같이 쓰는 값을 서버에서 한 번만 계산한다. 화면·엑셀 숫자가 어긋나지 않게 하려는 것."""
 
 from io import BytesIO  # 엑셀을 메모리에서 만든다 (디스크 저장 없음)
+from pathlib import Path  # 폰트 파일 위치
 
+from fpdf import FPDF  # PDF 만들기 (메일 첨부, #158)
+from fpdf.fonts import FontFace  # 표 머리 칸 글씨 모양
 from openpyxl import Workbook  # .xlsx 쓰기 (#154에서 설치한 라이브러리)
 from openpyxl.styles import Alignment, Font  # 가운데 정렬·굵은 글씨
 from sqlalchemy.orm import Session  # DB 세션 타입
@@ -16,6 +19,7 @@ DOCUMENT_STATUSES = ("APPROVED", "ORDERED", "RECEIVED")  # 승인 이후 상태�
 DIGITS = "영일이삼사오육칠팔구"  # 숫자 → 한글
 SMALL_UNITS = ("", "십", "백", "천")  # 네 자리 묶음 안의 자릿수
 BIG_UNITS = ("", "만", "억", "조", "경")  # 네 자리 묶음 이름
+FONT_DIR = Path(__file__).resolve().parents[1] / "fonts"  # 한글 폰트(나눔고딕, OFL). 도커 이미지에 한글 폰트가 없어 저장소에 넣었다
 
 
 def vat_of(supply_total: int) -> int:
@@ -139,3 +143,85 @@ def build_xlsx(doc: dict) -> bytes:
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
+
+
+def build_pdf(doc: dict) -> bytes:
+    """문서 응답과 같은 값으로 A4 한 장 PDF 를 만든다 (메일 첨부용). 화면(.po-paper)과 같은 칸·같은 숫자, 모양은 비슷하게만."""
+    pdf = FPDF(format="A4")  # 단위 mm, 폭 210
+    pdf.set_margins(15, 15)  # 좌우 15mm → 본문 폭 180mm
+    pdf.add_font("Nanum", "", FONT_DIR / "NanumGothic-Regular.ttf")  # 보통 글씨
+    pdf.add_font("Nanum", "B", FONT_DIR / "NanumGothic-Bold.ttf")  # 굵은 글씨
+    pdf.add_page()
+    pdf.set_font("Nanum", "B", 20)
+    pdf.cell(0, 14, "발 주 서", align="C", new_x="LMARGIN", new_y="NEXT")  # 제목
+    pdf.set_font("Nanum", "", 9.5)
+    head = FontFace(emphasis="BOLD", fill_color=(238, 245, 228))  # 머리 칸: 굵게 + 화면(.po-paper th)과 같은 옅은 초록 #eef5e4
+    s, b = doc["supplier"], doc["buyer"]
+    blank = lambda v: v or ""
+
+    # 1) 수신처 | 발주번호·일자 | 발주처 (화면 표와 같은 5칸)
+    with pdf.table(col_widths=(18, 46, 32, 22, 62), text_align="LEFT", line_height=7, first_row_as_headings=False) as t:
+        row = t.row()
+        row.cell("수신처", colspan=2, style=head, align="C")
+        row.cell(f"발주번호\n{doc['po_number']}\n\n발주일자\n{doc['order_date']}", rowspan=4, align="C")
+        row.cell("발주처", colspan=2, style=head, align="C")
+        for left, right in (
+            (("상 호", s["name"]), ("상 호", b["name"])),
+            (("담당자", s["contact_name"]), ("사업자번호", fmt_business_number(b["business_number"]))),
+            (("연락처", s["phone"]), ("대표자", b["representative"])),
+        ):
+            row = t.row()
+            row.cell(left[0], style=head)
+            row.cell(blank(left[1]))
+            row.cell(right[0], style=head)
+            row.cell(blank(right[1]))
+        row = t.row()
+        row.cell("이메일", style=head)
+        row.cell(blank(s["email"]))
+        row.cell("공급업체 정보", align="C")
+        row.cell("담당자", style=head)
+        row.cell(f"{b['author_name']} (작성자)")
+        row = t.row()  # 발주처 연락처 (왼쪽 세 칸은 비운다, 화면과 같음)
+        row.cell("", colspan=3)
+        row.cell("연락처", style=head)
+        row.cell(blank(b["phone"]))
+        row = t.row()
+        row.cell("주 소", colspan=2, style=head, align="C")
+        row.cell(blank(b["address"]), colspan=3)
+
+    pdf.ln(3)
+    pdf.set_font("Nanum", "B", 11)
+    pdf.multi_cell(0, 9, f"합계금액 : 일금 {doc['total_korean']} 원정 (₩{doc['total']:,}), 부가세 포함", border=1, align="C",
+                   new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(3)
+    pdf.set_font("Nanum", "", 9.5)
+
+    # 2) 품목 표: 숫자 칸은 오른쪽 정렬
+    widths = (10, 62, 14, 18, 22, 28, 26)
+    aligns = ("C", "L", "C", "R", "R", "R", "L")
+    with pdf.table(col_widths=widths, line_height=7, headings_style=head, text_align="CENTER") as t:
+        t.row(["No.", "품목명 (SKU)", "단위", "수량", "단가", "공급가액", "비고"])
+        for line in doc["lines"]:
+            values = (str(line["no"]), f"{line['product_name']} ({line['product_sku']})", line["unit"],
+                      f"{line['quantity']:,}", f"{line['unit_price']:,}", f"{line['amount']:,}", line["note"])
+            row = t.row()
+            for value, align in zip(values, aligns, strict=True):
+                row.cell(value, align=align)
+        for label, value in (("공급가액 합계", doc["supply_total"]), ("부가세 (10%)", doc["vat"]), ("합계", doc["total"])):
+            row = t.row()
+            row.cell(label, colspan=5, style=head, align="C")
+            row.cell(f"{value:,}", colspan=2, align="R")
+
+    pdf.ln(3)
+    # 3) 발주 조건
+    with pdf.table(col_widths=(18, 162), line_height=7, text_align="LEFT", first_row_as_headings=False) as t:
+        conditions = (("1) 납기일자", doc["due_date"]), ("2) 납품장소", doc["delivery_address"]),
+                      ("3) 지불조건", doc["payment_terms"]), ("4) 기타", doc["memo"]))
+        for index, (label, value) in enumerate(conditions):
+            row = t.row()
+            if index == 0:
+                row.cell("발주\n조건", rowspan=4, style=head, align="C")
+            row.cell(f"{label} : {blank(value)}")
+    pdf.ln(6)
+    pdf.cell(0, 8, "위와 같이 발주합니다.", align="C")
+    return bytes(pdf.output())
