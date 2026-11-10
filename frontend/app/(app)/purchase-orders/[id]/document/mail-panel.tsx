@@ -6,6 +6,7 @@ import { useEffect, useState } from "react"; // 미리보기 불러오기, 상�
 import { api, ApiError } from "../../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText } from "../../../../lib/list"; // 오류 문장
 import { fmtTime } from "../../../../lib/po"; // 시각 표시 (서울 기준)
+import { StatusBadge } from "../../../../lib/status-badge"; // "이미 보냄" 배지
 import { S } from "../../../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/purchase-orders/{id}/email 응답 (#158). 받는 사람·제목·고정 부분은 서버가 만들고, 앞머리만 고친다.
@@ -58,25 +59,42 @@ export function MailPanel({ id, onSent }: { id: string; onSent: () => void }) {
   return (
     <div className="no-print" style={{ ...S.card, marginBottom: "var(--space-md)", display: "grid", gap: "var(--space-sm)" }}>
       <h2 style={{ margin: 0 }}>메일 미리보기</h2>
-      <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "auto 1fr", gap: "var(--space-xs) var(--space-md)" }}>
-        <dt style={S.hint}>받는 사람</dt>
-        <dd style={{ margin: 0 }}>
-          {preview.to ?? (
-            <span role="alert" style={S.error}>
-              공급업체 이메일이 없습니다. <Link href={`/suppliers?edit=${preview.supplier_id}`}>공급업체 정보에서 이메일을 넣어 주세요.</Link>
-            </span>
-          )}
-        </dd>
-        <dt style={S.hint}>답장 받는 주소</dt><dd style={{ margin: 0 }}>{preview.reply_to} (나)</dd>
-        <dt style={S.hint}>제목</dt><dd style={{ margin: 0 }}>{preview.subject}</dd>
-        <dt style={S.hint}>첨부</dt><dd style={{ margin: 0 }}>{preview.attachments.join(", ")}</dd>
-        {preview.emailed_at && (<><dt style={S.hint}>마지막 발송</dt><dd style={{ margin: 0 }}>{fmtTime(preview.emailed_at)} → {preview.emailed_to}</dd></>)}
+      {/* 이미 보낸 발주서: 머리 정보와 섞지 않고 위에 따로 알린다 */}
+      {preview.emailed_at && (
+        <p style={{ margin: 0, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-sm)" }}>
+          <StatusBadge kind="info">이미 보냄</StatusBadge>
+          <span>{fmtTime(preview.emailed_at)} · {preview.emailed_to} <span style={S.hint}>(다시 보내면 이 기록이 바뀝니다)</span></span>
+        </p>
+      )}
+      {/* 메일 쓰기 창처럼 한 줄에 항목 하나, 왼쪽 이름 칸 폭을 고정해 값이 한 줄로 맞춰 보이게 */}
+      <dl className="mail-head">
+        <div>
+          <dt>받는 사람</dt>
+          <dd>
+            {preview.to ? <b>{preview.to}</b> : (
+              <span role="alert" style={S.error}>
+                공급업체 이메일이 없습니다. <Link href={`/suppliers?edit=${preview.supplier_id}`}>공급업체 정보에서 이메일 넣기</Link>
+              </span>
+            )}
+          </dd>
+        </div>
+        <div><dt>답장 주소</dt><dd>{preview.reply_to} <span style={S.hint}>(나에게 답장이 옵니다)</span></dd></div>
+        <div><dt>제목</dt><dd><b>{preview.subject}</b></dd></div>
+        <div>
+          <dt>첨부</dt>
+          <dd style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
+            {preview.attachments.map((name) => (
+              <span key={name} className="file-chip"><b>{name.endsWith(".pdf") ? "PDF" : "엑셀"}</b>{name}</span>
+            ))}
+          </dd>
+        </div>
       </dl>
       <label style={{ maxWidth: "none" }}>{/* 공통 라벨은 폭 320px 상한: 문단 칸은 카드 폭 전체를 쓴다 */}
-        앞머리 문단 (이 부분만 고칠 수 있습니다)
-        <textarea value={intro} onChange={(e) => setIntro(e.target.value)} rows={4} maxLength={INTRO_MAX} style={{ width: "100%" }} />
+        <span>본문 첫 문단 <span style={S.hint}>· 이 문단만 고칠 수 있습니다</span></span>
+        {/* 회사·업체 이름에 빨간 맞춤법 밑줄이 깔려 읽기 어려워 끈다 */}
+        <textarea value={intro} onChange={(e) => setIntro(e.target.value)} rows={3} maxLength={INTRO_MAX} spellCheck={false} style={{ width: "100%" }} />
       </label>
-      <p style={{ ...S.hint, margin: 0 }}>아래 품목표·합계·발주 조건은 발주서와 같은 값으로 고정됩니다.</p>
+      <p style={{ ...S.hint, margin: 0 }}>본문 나머지 (품목표·합계·발주 조건은 발주서와 같은 값으로 고정)</p>
       {/* 서버가 만든 고정 부분을 그대로 보여 준다. sandbox 에 allow-scripts 가 없어 안의 글자는 스크립트로 실행되지 않는다
           (값은 서버가 이미 escape 했다. 완전히 빈 sandbox 는 일부 브라우저에서 내용을 그리지 않아 allow-same-origin 만 연다) */}
       <iframe title="메일 고정 부분 미리보기" sandbox="allow-same-origin" srcDoc={`<div style="font-family:sans-serif">${preview.fixed_html}</div>`}
