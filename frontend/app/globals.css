@@ -1202,3 +1202,35 @@ details.reason > p {
 /* 첨부 파일 한 개: 종류 글자(PDF·엑셀) + 파일 이름 */
 .file-chip { display: inline-flex; align-items: center; gap: var(--space-xs); padding: 2px var(--space-sm); border: 1px solid var(--color-border-strong); border-radius: var(--radius-full); font-size: var(--text-sm); }
 .file-chip b { font-size: var(--text-xs); color: var(--color-link); }
+
+/* 로그인 화면 틀(#166): 넓은 화면은 왼쪽 파란 소개 + 오른쪽 카드, 900px 미만은 소개를 숨기고 카드만 가운데 */
+.login-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.login-intro-pane {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  padding: var(--space-lg);
+  background: var(--color-primary-hover);
+}
+
+.login-card-pane {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  padding: var(--space-lg) var(--space-md);
+}
+
+@media (max-width: 899px) {
+  .login-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .login-intro-pane {
+    display: none;
+  }
+}
