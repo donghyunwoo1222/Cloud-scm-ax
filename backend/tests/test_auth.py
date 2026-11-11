@@ -43,7 +43,7 @@ def test_signup_login_me(client):
     assert data["email"] == "admin@gana.com"  # 소문자로 정리돼 있다
     assert data["role"] == "ADMIN"  # 첫 계정은 관리자
     assert data["company"]["name"] == "가나상사"  # 소속 회사
-    assert "password" not in response.text  # password_hash 칸이 응답에 없다
+    assert "password_hash" not in response.text  # password_hash 칸이 응답에 없다 (must_change_password 표시는 있다)
 
 
 def test_login_cookie_flags(client):

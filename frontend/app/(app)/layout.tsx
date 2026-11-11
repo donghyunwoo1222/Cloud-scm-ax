@@ -84,10 +84,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // 화면이 열릴 때(그리고 다시 시도할 때): 로그인 상태 확인. 로그인 안 했으면 api 함수가 401 을 받아 로그인 화면으로 보낸다
-    api<Me>("/me").then(setMe).catch((e) => {
+    api<Me>("/me").then((m) => {
+      setMe(m);
+      if (m.must_change_password) router.replace("/change-password"); // 임시 비밀번호면 변경 화면으로 (서버도 다른 API 를 403 으로 막는다)
+    }).catch((e) => {
       if (!(e instanceof ApiError && e.status === 401)) setFailed(true); // 401 은 api 함수가 이동시키니 그 밖의 실패만 안내한다
     });
-  }, [attempt]);
+  }, [attempt, router]);
 
   // 드로어를 닫는다. 버튼·Esc·배경으로 닫을 때는 햄버거로 포커스를 돌려주고, 메뉴 링크로 이동할 때는 돌려주지 않는다
   const closeMenu = useCallback((returnFocus: boolean) => {
@@ -203,7 +206,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </button>
           </header>
           )}
-          <main hidden={!me} style={S.main}>{children}</main>
+          <main hidden={!me} style={S.main}>{!me?.must_change_password && children}</main>
           {/* 각 화면 내용. 로그인 확인 전에도 그려 두되(Next.js 가 화면 구조를 미리 검사할 수 있게) 확인 전까지는 숨긴다.
               데이터는 화면이 아니라 서버가 지킨다: 로그인 안 한 상태의 API 호출은 401 → 로그인 화면 */}
         </div>

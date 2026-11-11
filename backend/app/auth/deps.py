@@ -17,8 +17,8 @@ def unauthenticated(message: str = "로그인이 필요합니다.") -> AppError:
     return AppError(401, "UNAUTHENTICATED", message)  # 401은 이유를 최소한만 알려준다
 
 
-def get_current_user(request: Request, db: DB) -> User:
-    """쿠키의 토큰을 확인해 로그인한 사용자를 돌려준다. 문제가 있으면 401."""
+def get_user_any(request: Request, db: DB) -> User:
+    """쿠키의 토큰을 확인해 로그인한 사용자를 돌려준다(비밀번호 변경 전이어도 통과). 문제가 있으면 401."""
     token = request.cookies.get(COOKIE_NAME)  # 브라우저가 자동으로 보낸 쿠키
     if not token:  # 쿠키가 없으면
         raise unauthenticated()
@@ -34,6 +34,14 @@ def get_current_user(request: Request, db: DB) -> User:
     return user  # 경로 함수에 넘긴다. 회사 분리는 user.company_id(= 토큰의 company_id)로 한다
 
 
+def get_current_user(user: Annotated[User, Depends(get_user_any)]) -> User:
+    """대부분의 경로가 쓰는 로그인 확인. 임시 비밀번호를 아직 안 바꿨으면 403 (#169)."""
+    if user.must_change_password:  # 변경 전에는 /me·비밀번호 변경·로그아웃 외에는 서버가 막는다 (화면 이동은 편의일 뿐)
+        raise AppError(403, "PASSWORD_CHANGE_REQUIRED", "비밀번호를 먼저 변경해 주세요.")
+    return user
+
+
+AnyUser = Annotated[User, Depends(get_user_any)]  # /me, 비밀번호 변경 경로만 쓴다
 CurrentUser = Annotated[User, Depends(get_current_user)]  # 경로 함수에서 `user: CurrentUser` 로 로그인 사용자를 받는다
 
 

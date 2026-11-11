@@ -4,13 +4,19 @@ from fastapi import APIRouter, Response  # 라우터, 응답 객체
 from sqlalchemy.orm import Session  # DB 세션 타입
 
 from app.auth import lockout  # 로그인 시도 제한
-from app.auth.deps import COOKIE_NAME, CurrentUser  # 쿠키 이름, 로그인 사용자
+from app.auth.deps import COOKIE_NAME, AnyUser  # 쿠키 이름, 로그인 사용자
 from app.auth.security import TOKEN_HOURS, create_token  # 토큰 유효 시간, 토큰 만들기
 from app.config import settings  # COOKIE_SECURE
 from app.db import DB  # 요청마다 DB 세션
 from app.errors import AppError  # 공통 오류
 from app.models import Company, User  # 회사, 사용자 표
-from app.schemas.auth import CompanyOut, CompanySignup, LoginRequest, MeOut  # 요청·응답 모양
+from app.schemas.auth import (  # 요청·응답 모양
+    CompanyOut,
+    CompanySignup,
+    LoginRequest,
+    MeOut,
+    PasswordChange,
+)
 from app.services import auth as auth_service  # 업무 규칙
 
 router = APIRouter()  # 이 파일의 경로 묶음
@@ -31,6 +37,7 @@ def me_out(db: Session, user: User) -> dict:
         email=user.email,
         role=user.role,
         company=CompanyOut(id=company.id, name=company.name),
+        must_change_password=user.must_change_password,  # 변경 전이면 참
     )  # 필요한 칸만 골라 담는다 (password_hash 는 없음)
     return {"data": me.model_dump()}  # 성공 응답 모양
 
@@ -61,6 +68,20 @@ def logout(response: Response) -> None:
     response.delete_cookie(COOKIE_NAME, **COOKIE_OPTIONS)  # 브라우저에 쿠키 삭제를 지시한다
 
 
+@router.post("/auth/password")  # 비밀번호 변경 (임시 비밀번호 변경 전에도 쓸 수 있어야 하므로 AnyUser)
+def change_password(data: PasswordChange, user: AnyUser, db: DB) -> dict:
+    at = lockout.now()  # 이번 요청의 시각
+    lockout.check_not_locked(user.email, at)  # 현재 비밀번호 추측도 로그인과 같은 잠금을 쓴다
+    try:
+        auth_service.change_password(db, user, data.current_password, data.new_password)  # 틀리면 401, 규칙 위반 422
+    except AppError as e:
+        if e.code == "WRONG_CURRENT_PASSWORD":  # 현재 비밀번호가 틀린 경우만 실패로 센다
+            lockout.record_failure(user.email, at)
+        raise
+    lockout.record_success(user.email)  # 맞게 입력했으면 실패 횟수를 0으로
+    return me_out(db, user)  # 표시가 꺼진 내 정보
+
+
 @router.get("/me")  # 내 정보 (읽기만 하므로 GET)
-def me(user: CurrentUser, db: DB) -> dict:
+def me(user: AnyUser, db: DB) -> dict:
     return me_out(db, user)  # 토큰으로 확인한 사용자 정보

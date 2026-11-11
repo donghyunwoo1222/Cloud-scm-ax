@@ -144,3 +144,47 @@ def test_staff_forbidden_and_anonymous_unauthenticated(client, world, method, pa
     response = getattr(client, method)(path, **kwargs)
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "FORBIDDEN_ROLE"
+
+
+# ---- #169 임시 비밀번호 최초 변경 ----
+
+def make_temp_staff(client, world):
+    """관리자가 직원을 만들고, 그 직원이 임시 비밀번호로 로그인한 상태(새 클라이언트가 아니라 같은 클라이언트를 갈아탄다)."""
+    login_as(client, "admin@a.test")  # 관리자 로그인
+    created = client.post(URL, json={"name": "신입", "email": "new@a.test", "password": "temp-pass-1", "role": "STAFF"})
+    assert created.status_code == 201
+    client.post("/api/v1/auth/logout")  # 관리자 쿠키 삭제
+    return client.post("/api/v1/auth/login", json={"email": "new@a.test", "password": "temp-pass-1"})  # 임시 비밀번호 로그인
+
+
+def test_temp_password_blocks_other_apis_until_changed(client, world):
+    """임시 비밀번호로 로그인하면 /me 만 되고 다른 API 는 403, 변경하면 풀린다."""
+    assert make_temp_staff(client, world).status_code == 200  # 로그인 자체는 된다
+    assert client.get("/api/v1/me").json()["data"]["must_change_password"] is True  # 화면이 보는 표시
+    blocked = client.get("/api/v1/products")  # 다른 기능
+    assert blocked.status_code == 403
+    assert blocked.json()["error"]["code"] == "PASSWORD_CHANGE_REQUIRED"
+    changed = client.post("/api/v1/auth/password", json={"current_password": "temp-pass-1", "new_password": "my-new-pass-2"})
+    assert changed.status_code == 200
+    assert changed.json()["data"]["must_change_password"] is False  # 표시 해제
+    assert client.get("/api/v1/products").status_code == 200  # 이제 쓸 수 있다
+    client.post("/api/v1/auth/logout")
+    assert client.post("/api/v1/auth/login", json={"email": "new@a.test", "password": "temp-pass-1"}).status_code == 401  # 옛 비밀번호는 끝
+    assert client.post("/api/v1/auth/login", json={"email": "new@a.test", "password": "my-new-pass-2"}).status_code == 200
+
+
+def test_change_password_rules(client, world):
+    """현재 비밀번호 틀림 401, 8자 미만 422, 현재와 같음 422 이고 표시는 그대로 켜져 있다."""
+    make_temp_staff(client, world)
+    url = "/api/v1/auth/password"
+    wrong = client.post(url, json={"current_password": "nope-nope", "new_password": "my-new-pass-2"})
+    assert (wrong.status_code, wrong.json()["error"]["code"]) == (401, "WRONG_CURRENT_PASSWORD")
+    assert client.post(url, json={"current_password": "temp-pass-1", "new_password": "short"}).status_code == 422
+    assert client.post(url, json={"current_password": "temp-pass-1", "new_password": "temp-pass-1"}).status_code == 422
+    assert client.get("/api/v1/me").json()["data"]["must_change_password"] is True  # 실패했으니 그대로
+
+
+def test_signup_admin_and_seeded_users_not_forced(client, world):
+    """회사 가입 관리자와 기존(world) 계정은 변경을 강제하지 않는다."""
+    login_as(client, "staff@a.test")
+    assert client.get("/api/v1/me").json()["data"]["must_change_password"] is False
