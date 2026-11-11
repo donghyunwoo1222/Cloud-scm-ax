@@ -23,7 +23,13 @@ export const S = {
   topbar: { display: "flex", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", gap: "var(--space-md)", padding: "12px var(--space-lg)", background: "var(--color-card)", borderBottom: "1px solid var(--color-border)", fontSize: "var(--text-sm)", color: "var(--color-muted-foreground)" }, // 상단 바: 내 정보·로그아웃
   main: { padding: "var(--page-pad)", maxWidth: 1360, width: "100%" }, // 본문 여백 (display 를 주지 않는다: hidden 속성이 먹어야 한다)
   pad2: { padding: "var(--space-xl)" }, // 안내 문구 여백
-  loginPage: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-xl)", width: "calc(100% - 2 * var(--space-md))", maxWidth: 380, margin: "10vh auto 0" }, // 로그인 화면 틀: 가운데 흰 카드
+  loginCard: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--space-xl)", width: "100%", maxWidth: 400 }, // 로그인 카드: 흰 카드 (놓는 자리는 globals.css 의 .login-shell)
+  loginIntro: { color: "#ffffff", display: "grid", gap: "var(--space-lg)", maxWidth: 440 }, // 로그인 왼쪽 소개 글 묶음 (파란 바탕 위 흰 글자)
+  loginIntroList: { display: "grid", gap: "var(--space-sm)", listStyle: "none" }, // 소개 항목 세로 나열 (점 모양 없음)
+  passwordWrap: { position: "relative", display: "block" }, // 비밀번호 입력칸 오른쪽 안쪽에 버튼을 겹쳐 놓는 상자
+  passwordToggle: { position: "absolute", top: 0, right: 0, bottom: 0, display: "grid", placeItems: "center", width: 40, minHeight: 0, padding: 0, border: 0, background: "none", color: "var(--color-muted-foreground)" }, // 표시/숨김 아이콘 버튼 (입력칸 높이 전체를 차지해 누르기 쉽다)
+  loginAlert: { display: "flex", gap: "var(--space-sm)", alignItems: "flex-start", color: "var(--color-destructive)", background: "var(--color-destructive-bg)", border: "1px solid var(--color-destructive)", borderRadius: "var(--radius-sm)", padding: "var(--space-sm)", fontSize: "var(--text-sm)" }, // 오류 상자: 아이콘 + 글자 (색만으로 구분하지 않는다)
+  loginSubmit: { width: "100%" }, // 로그인 버튼은 폭을 꽉 채운다
 
   // 카드·제목·안내
   card: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--card-pad)" }, // 흰 카드 상자
