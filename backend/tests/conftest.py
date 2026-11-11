@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient  # 서버를 띄우지 않고 앱에 �
 from sqlalchemy import create_engine, make_url, text  # DB 연결, 주소 해석, SQL 문장
 from sqlalchemy.orm import Session  # ORM 세션
 
+from app.auth import lockout  # 로그인 실패 기록 비우기
 from app.auth.security import hash_password  # 테스트 사용자 비밀번호 해시
 from app.db import get_db, get_read_db  # 앱이 쓰는 DB 세션 의존성 (쓰기용, 한 시점 읽기용)
 from app.main import app  # 테스트할 앱
@@ -73,6 +74,12 @@ def session(engine):
     sess.close()  # 세션 닫기
     trans.rollback()  # 테스트가 넣은 행을 모두 되돌린다
     conn.close()  # 연결 반납
+
+
+@pytest.fixture(autouse=True)
+def clear_lockout():
+    lockout.reset()  # 테스트끼리 로그인 실패 횟수가 섞이지 않게 매번 비운다
+    yield
 
 
 @pytest.fixture
