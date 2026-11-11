@@ -5,7 +5,7 @@ from typing import Annotated  # 타입에 부가 정보(의존성)를 붙이는 
 import jwt  # 토큰 오류 종류
 from fastapi import Depends, Request  # 의존성 주입, 요청 객체
 
-from app.auth.security import decode_token  # 토큰 풀기
+from app.auth.security import decode_token, password_fingerprint  # 토큰 풀기
 from app.db import DB  # 요청마다 DB 세션
 from app.errors import AppError  # 공통 오류
 from app.models import User  # 사용자 표
@@ -28,6 +28,8 @@ def get_user_any(request: Request, db: DB) -> User:
         raise unauthenticated() from None
     user = db.get(User, payload["user_id"])  # 토큰 속 사용자를 DB에서 다시 확인
     if user is None or not user.is_active:  # 그사이 비활성이 됐으면 토큰이 남아 있어도 막는다
+        raise unauthenticated()
+    if payload["pv"] != password_fingerprint(user.password_hash):  # 토큰 발급 뒤 비밀번호가 바뀌었으면(변경·재설정) 옛 토큰은 쓸 수 없다 (#170)
         raise unauthenticated()
     if user.company_id != payload["company_id"]:  # 토큰의 회사와 실제 소속이 다르면 (정상이라면 일어날 수 없음) 믿지 않는다
         raise unauthenticated()

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     smtp_user: str = ""  # SMTP_USER: 로그인 아이디 (비면 로그인 생략, 로컬 mailpit)
     smtp_password: str = ""  # SMTP_PASSWORD: 로그인 비밀번호 (앱 비밀번호)
     smtp_from: str = ""  # SMTP_FROM: 보내는 주소 하나 (시스템 주소). 답장은 Reply-To 로 담당자에게 간다
+    app_base_url: str = ""  # APP_BASE_URL: 재설정 메일 링크의 앞부분 (예: https://scm.example.com). 비면 재설정 요청은 503 (#170)
     smtp_security: str = "starttls"  # SMTP_SECURITY: starttls / ssl / none (none 은 로컬 전용)
 
 

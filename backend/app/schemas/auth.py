@@ -47,3 +47,12 @@ class MeOut(BaseModel):
 class PasswordChange(BaseModel):
     current_password: str  # 지금 쓰는(임시) 비밀번호
     new_password: str  # 새 비밀번호 (길이 규칙은 validate_password 한 곳에서 검사)
+
+
+class ResetRequest(BaseModel):
+    email: Email  # 재설정 메일을 받을 이메일
+
+
+class ResetConfirm(BaseModel):
+    token: str = Field(min_length=1, max_length=200)  # 메일 링크의 토큰
+    new_password: str  # 새 비밀번호 (길이 규칙은 validate_password 한 곳에서 검사)
