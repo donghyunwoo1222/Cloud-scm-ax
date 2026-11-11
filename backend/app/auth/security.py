@@ -1,5 +1,6 @@
 """비밀번호 해시·검사와 로그인 토큰 만들기·풀기. 인증에 쓰는 계산은 모두 여기 한 곳에 둔다."""
 
+import hashlib  # 비밀번호 지문·재설정 토큰 해시
 from datetime import UTC, datetime, timedelta  # 만료 시각 계산
 
 import jwt  # PyJWT: 토큰 서명·확인
@@ -40,12 +41,22 @@ def verify_password(password: str, password_hash: str | None) -> bool:
         return False
 
 
-def create_token(user_id: int, company_id: int, role: str) -> str:
+def password_fingerprint(password_hash: str) -> str:
+    """비밀번호 해시의 짧은 지문. 토큰에 넣어 두면 비밀번호가 바뀌는 순간 옛 토큰이 맞지 않게 된다 (#170)."""
+    return hashlib.sha256(password_hash.encode()).hexdigest()[:16]  # 해시의 해시라 토큰을 읽어도 비밀번호 정보는 알 수 없다
+
+
+def hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()  # 링크 토큰은 무작위 32바이트라 빠른 해시로 충분하다 (DB에는 이것만 저장)
+
+
+def create_token(user_id: int, company_id: int, role: str, password_hash: str) -> str:
     """사용자·회사·역할과 만료 시각을 담아 서명한 토큰을 만든다."""
     payload = {
         "user_id": user_id,  # 누구인지
         "company_id": company_id,  # 어느 회사인지 (회사 분리의 근거, R1)
         "role": role,  # ADMIN / STAFF
+        "pv": password_fingerprint(password_hash),  # 이 토큰을 발급할 때의 비밀번호 지문 (#170)
         "exp": datetime.now(UTC) + timedelta(hours=TOKEN_HOURS),  # 만료 시각 (지금 + 8시간)
     }
     return jwt.encode(payload, settings.secret_key, algorithm=TOKEN_ALGORITHM)  # 비밀키로 서명한 문자열
@@ -57,5 +68,5 @@ def decode_token(token: str) -> dict:
         token,
         settings.secret_key,  # 같은 비밀키로 서명을 확인
         algorithms=[TOKEN_ALGORITHM],  # 이 방식만 허용 (다른 방식으로 바꿔치기한 토큰 거절)
-        options={"require": ["exp", "user_id", "company_id", "role"]},  # 빠진 칸이 있으면 거절
+        options={"require": ["exp", "user_id", "company_id", "role", "pv"]},  # 빠진 칸이 있으면 거절
     )

@@ -28,6 +28,7 @@ services:
       DATABASE_URL: postgresql+psycopg://scm:scm_local_pw@db:5432/scm
       WATCHFILES_FORCE_POLLING: "true"   # Windows 폴더 변경을 컨테이너가 놓치지 않게 주기적으로 확인
       # 발주서 메일(#158): 로컬은 가짜 메일함 mailpit 으로 보낸다 (밖으로 나가지 않는다, 받은 메일은 http://localhost:8025)
+      APP_BASE_URL: http://localhost:3000  # 재설정 메일 링크 앞부분(#170). 로컬 화면 주소에 맞춘다
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
       SMTP_FROM: noreply@scm.local

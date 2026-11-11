@@ -1,4 +1,6 @@
-from sqlalchemy import CheckConstraint, false, true  # CHECK 제약, DB의 참(true) 값
+from datetime import datetime  # 만료 시각 칸의 파이썬 타입
+
+from sqlalchemy import CheckConstraint, DateTime, false, true  # CHECK 제약, DB의 참(true) 값
 from sqlalchemy.orm import Mapped, mapped_column  # 칸 정의 도구
 
 from app.models.base import Base, CompanyMixin  # 공통 부모와 회사 칸
@@ -17,4 +19,6 @@ class User(CompanyMixin, Base):
     password_hash: Mapped[str]  # 비밀번호 해시 (원문은 저장하지 않는다)
     role: Mapped[str]  # ADMIN(관리자) 또는 STAFF(담당자)
     must_change_password: Mapped[bool] = mapped_column(server_default=false())  # 참이면 비밀번호를 바꾸기 전에는 다른 기능을 못 쓴다 (관리자가 만든 임시 비밀번호, #169)
+    reset_token_hash: Mapped[str | None] = mapped_column(index=True)  # 재설정 링크 토큰의 해시 (원본은 저장하지 않는다, #170). 사용하면 비우고 새로 요청하면 덮어쓴다
+    reset_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 링크 만료 시각
     is_active: Mapped[bool] = mapped_column(server_default=true())  # 기본 참, 거짓이면 로그인 불가

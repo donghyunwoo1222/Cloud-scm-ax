@@ -1,6 +1,6 @@
 """회사 가입, 로그인, 로그아웃, 내 정보 경로."""
 
-from fastapi import APIRouter, Response  # 라우터, 응답 객체
+from fastapi import APIRouter, BackgroundTasks, Response  # 라우터, 응답 객체
 from sqlalchemy.orm import Session  # DB 세션 타입
 
 from app.auth import lockout  # 로그인 시도 제한
@@ -16,8 +16,11 @@ from app.schemas.auth import (  # 요청·응답 모양
     LoginRequest,
     MeOut,
     PasswordChange,
+    ResetConfirm,
+    ResetRequest,
 )
 from app.services import auth as auth_service  # 업무 규칙
+from app.services import password_reset  # 재설정 링크 (#170)
 
 router = APIRouter()  # 이 파일의 경로 묶음
 
@@ -58,7 +61,7 @@ def login(data: LoginRequest, response: Response, db: DB) -> dict:
         lockout.record_failure(data.email, at)  # 실패 횟수를 올린다 (이메일이 있든 없든 똑같이)
         raise
     lockout.record_success(data.email)  # 성공: 횟수를 0으로
-    token = create_token(user.id, user.company_id, user.role)  # 8시간짜리 토큰
+    token = create_token(user.id, user.company_id, user.role, user.password_hash)  # 8시간짜리 토큰
     response.set_cookie(COOKIE_NAME, token, max_age=TOKEN_HOURS * 3600, **COOKIE_OPTIONS)  # 쿠키 수명 = 토큰 수명 (8시간 = 28800초)
     return me_out(db, user)  # 로그인한 사용자 정보
 
@@ -69,7 +72,7 @@ def logout(response: Response) -> None:
 
 
 @router.post("/auth/password")  # 비밀번호 변경 (임시 비밀번호 변경 전에도 쓸 수 있어야 하므로 AnyUser)
-def change_password(data: PasswordChange, user: AnyUser, db: DB) -> dict:
+def change_password(data: PasswordChange, user: AnyUser, response: Response, db: DB) -> dict:
     at = lockout.now()  # 이번 요청의 시각
     lockout.check_not_locked(user.email, at)  # 현재 비밀번호 추측도 로그인과 같은 잠금을 쓴다
     try:
@@ -79,7 +82,25 @@ def change_password(data: PasswordChange, user: AnyUser, db: DB) -> dict:
             lockout.record_failure(user.email, at)
         raise
     lockout.record_success(user.email)  # 맞게 입력했으면 실패 횟수를 0으로
+    token = create_token(user.id, user.company_id, user.role, user.password_hash)  # 비밀번호가 바뀌어 옛 토큰은 무효이므로 새 토큰으로 로그인 상태를 이어 준다
+    response.set_cookie(COOKIE_NAME, token, max_age=TOKEN_HOURS * 3600, **COOKIE_OPTIONS)  # 쿠키도 새 토큰으로
     return me_out(db, user)  # 표시가 꺼진 내 정보
+
+
+@router.post("/auth/password-reset/request")  # 재설정 메일 요청 (로그인 전, 누구나)
+def request_password_reset(data: ResetRequest, background: BackgroundTasks, db: DB) -> dict:
+    password_reset.ensure_ready()  # 서버 설정이 없으면 503
+    lockout.allow_reset_request(data.email, lockout.now())  # 같은 이메일 15분 3번 (없는 이메일도 똑같이 센다)
+    issued = password_reset.issue_token(db, data.email)  # 없는 이메일이면 None
+    if issued:  # 메일은 응답을 보낸 뒤에 발송해 걸리는 시간으로 존재 여부가 드러나지 않게 한다
+        background.add_task(password_reset.send_reset_mail, *issued)
+    return {"data": {"message": password_reset.SENT_MESSAGE}}  # 있든 없든 같은 응답
+
+
+@router.post("/auth/password-reset/confirm")  # 새 비밀번호 정하기 (링크의 토큰이 인증 수단)
+def confirm_password_reset(data: ResetConfirm, db: DB) -> dict:
+    password_reset.confirm_reset(db, data.token, data.new_password, lockout.now())  # 틀린·만료 400, 짧은 비밀번호 422
+    return {"data": {"message": "비밀번호를 바꿨습니다. 새 비밀번호로 로그인해 주세요."}}
 
 
 @router.get("/me")  # 내 정보 (읽기만 하므로 GET)

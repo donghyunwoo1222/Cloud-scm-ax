@@ -1,5 +1,6 @@
 "use client"; // 입력·클릭을 다루는 화면이라 브라우저에서 실행
 
+import Link from "next/link"; // 화면 이동 링크
 import { useRouter } from "next/navigation"; // 화면 이동 도구
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react"; // 폼 제출 이벤트, 키 이벤트, 처음 한 번 실행, 참조, 화면 상태
 
@@ -125,6 +126,8 @@ export default function LoginPage() {
               {busy ? "로그인 중…" : "로그인"}
             </button>
           </form>
+          <p style={{ ...S.hint, fontSize: "var(--text-xs)", marginTop: "var(--space-md)" }}><Link href="/forgot-password">비밀번호를 잊으셨나요?</Link></p>
+          {/* 비밀번호 재설정 메일 요청 화면으로 */}
           <p style={{ ...S.hint, fontSize: "var(--text-xs)", marginTop: "var(--space-md)" }}>계정은 회사 관리자가 만들어 줍니다.</p>
         </div>
       </section>

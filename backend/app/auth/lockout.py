@@ -25,6 +25,7 @@ def now() -> datetime:
 def reset() -> None:
     with _lock:
         _records.clear()  # 모든 기록 삭제 (테스트용)
+        _reset_requests.clear()  # 재설정 요청 기록도 삭제
 
 
 def check_not_locked(email: str, at: datetime) -> None:
@@ -52,3 +53,19 @@ def record_failure(email: str, at: datetime) -> None:
 def record_success(email: str) -> None:
     with _lock:
         _records.pop(email, None)  # 성공하면 연속 실패 횟수를 0으로 되돌린다
+
+
+RESET_MAX_REQUESTS = 3  # 재설정 메일 요청 허용 횟수 (임시 확정, #170)
+_reset_requests: dict[str, list[datetime]] = {}  # 이메일 → 최근 요청 시각들 (로그인 실패 기록과 따로 센다)
+
+
+def allow_reset_request(email: str, at: datetime) -> None:
+    """같은 이메일로 15분에 3번까지만 재설정 메일을 요청할 수 있다. 없는 이메일도 똑같이 센다(존재 여부 노출 금지)."""
+    with _lock:
+        recent = [t for t in _reset_requests.get(email, []) if at - t < timedelta(minutes=LOCK_MINUTES)]  # 15분 안의 요청만
+        if len(recent) >= RESET_MAX_REQUESTS:  # 이미 3번 했으면
+            raise AppError(429, "TOO_MANY_ATTEMPTS", LOCKED_MESSAGE)
+        _reset_requests[email] = [*recent, at]  # 이번 요청을 기록한다
+        if len(_reset_requests) > MAX_KEYS:  # 메모리 보호: 가장 최근 요청이 오래된 절반을 지운다
+            for key in sorted(_reset_requests, key=lambda k: _reset_requests[k][-1])[: MAX_KEYS // 2]:
+                del _reset_requests[key]
