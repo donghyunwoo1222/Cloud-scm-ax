@@ -3,10 +3,12 @@
 from fastapi import APIRouter, Response  # 라우터, 응답 객체
 from sqlalchemy.orm import Session  # DB 세션 타입
 
+from app.auth import lockout  # 로그인 시도 제한
 from app.auth.deps import COOKIE_NAME, CurrentUser  # 쿠키 이름, 로그인 사용자
 from app.auth.security import TOKEN_HOURS, create_token  # 토큰 유효 시간, 토큰 만들기
 from app.config import settings  # COOKIE_SECURE
 from app.db import DB  # 요청마다 DB 세션
+from app.errors import AppError  # 공통 오류
 from app.models import Company, User  # 회사, 사용자 표
 from app.schemas.auth import CompanyOut, CompanySignup, LoginRequest, MeOut  # 요청·응답 모양
 from app.services import auth as auth_service  # 업무 규칙
@@ -41,7 +43,14 @@ def sign_up(data: CompanySignup, db: DB) -> dict:
 
 @router.post("/auth/login")  # 로그인
 def login(data: LoginRequest, response: Response, db: DB) -> dict:
-    user = auth_service.authenticate(db, data.email, data.password)  # 틀리면 여기서 401
+    at = lockout.now()  # 이번 요청의 시각 (한 요청 안에서 같은 값을 쓴다)
+    lockout.check_not_locked(data.email, at)  # 잠금 중이면 비밀번호를 검사하기 전에 429
+    try:
+        user = auth_service.authenticate(db, data.email, data.password)  # 틀리면 401
+    except AppError:  # 없는 이메일·틀린 비밀번호·비활성 모두
+        lockout.record_failure(data.email, at)  # 실패 횟수를 올린다 (이메일이 있든 없든 똑같이)
+        raise
+    lockout.record_success(data.email)  # 성공: 횟수를 0으로
     token = create_token(user.id, user.company_id, user.role)  # 8시간짜리 토큰
     response.set_cookie(COOKIE_NAME, token, max_age=TOKEN_HOURS * 3600, **COOKIE_OPTIONS)  # 쿠키 수명 = 토큰 수명 (8시간 = 28800초)
     return me_out(db, user)  # 로그인한 사용자 정보

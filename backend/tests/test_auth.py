@@ -142,3 +142,61 @@ def test_short_password_rejected(client):
         "details": [{"field": "password", "reason": "too_short"}],
     }
     assert login(client, password="1234567").status_code == 401  # 계정이 생기지 않았다
+
+
+def fix_time(monkeypatch, moment):
+    """로그인 제한이 쓰는 현재 시각을 고정한다."""
+    monkeypatch.setattr("app.auth.lockout.now", lambda: moment)
+
+
+T0 = datetime(2026, 11, 11, 12, 0, tzinfo=UTC)  # 테스트용 고정 시각 (12:00)
+
+
+def test_lockout_after_5_failures_then_unlocks(client, monkeypatch):
+    """5번 틀리면 15분 잠금: 맞는 비밀번호도 429, 15분 뒤 성공."""
+    sign_up(client)
+    fix_time(monkeypatch, T0)
+    for _ in range(4):  # 1~4번째 실패는 그냥 401
+        assert_401(login(client, password="wrong-password"), LOGIN_FAILED)
+    assert_401(login(client, password="wrong-password"), LOGIN_FAILED)  # 5번째 실패: 이 응답은 401, 이후부터 잠김
+    fix_time(monkeypatch, T0 + timedelta(minutes=10))
+    locked = login(client)  # 맞는 비밀번호여도
+    assert locked.status_code == 429
+    assert locked.json()["error"]["code"] == "TOO_MANY_ATTEMPTS"
+    fix_time(monkeypatch, T0 + timedelta(minutes=15))  # 잠금 해제 시각
+    assert login(client).status_code == 200  # 풀렸다
+
+
+def test_lockout_message_same_for_unknown_email(client, monkeypatch):
+    """없는 이메일도 똑같이 5번째 뒤 잠기고 응답 본문이 같다 (잠김 여부로 가입 여부를 알 수 없다)."""
+    sign_up(client)
+    fix_time(monkeypatch, T0)
+    for _ in range(5):
+        login(client, password="wrong-password")  # 있는 이메일
+        login(client, email="nobody@gana.com")  # 없는 이메일
+    real = login(client, password="wrong-password")
+    fake = login(client, email="nobody@gana.com")
+    assert real.status_code == fake.status_code == 429
+    assert real.json() == fake.json()
+
+
+def test_success_resets_failure_count(client, monkeypatch):
+    """4번 실패 후 성공하면 횟수가 0이 되어, 다시 4번 틀려도 잠기지 않는다."""
+    sign_up(client)
+    fix_time(monkeypatch, T0)
+    for _ in range(4):
+        login(client, password="wrong-password")
+    assert login(client).status_code == 200  # 성공 → 0으로
+    for _ in range(4):
+        assert_401(login(client, password="wrong-password"), LOGIN_FAILED)  # 여전히 401 (잠기지 않음)
+
+
+def test_old_failures_are_forgotten(client, monkeypatch):
+    """4번 실패 뒤 15분이 지나면 새로 센다: 1번 더 틀려도 잠기지 않는다."""
+    sign_up(client)
+    fix_time(monkeypatch, T0)
+    for _ in range(4):
+        login(client, password="wrong-password")
+    fix_time(monkeypatch, T0 + timedelta(minutes=16))
+    assert_401(login(client, password="wrong-password"), LOGIN_FAILED)  # 5번째지만 새로 1번째
+    assert login(client).status_code == 200
