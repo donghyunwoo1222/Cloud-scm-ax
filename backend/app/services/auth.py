@@ -48,3 +48,15 @@ def authenticate(db: Session, email: str, password: str) -> User:
     if user is None or not password_ok or not user.is_active:  # 없음 / 틀림 / 비활성
         raise AppError(401, "UNAUTHENTICATED", LOGIN_FAILED)  # 세 경우 모두 같은 응답
     return user
+
+
+def change_password(db: Session, user: User, current_password: str, new_password: str) -> None:
+    """현재 비밀번호가 맞고 새 비밀번호가 규칙을 지키며 현재와 다르면 바꾸고 "변경 필요" 표시를 끈다."""
+    if not verify_password(current_password, user.password_hash):  # 현재 비밀번호 확인
+        raise AppError(401, "WRONG_CURRENT_PASSWORD", "현재 비밀번호가 올바르지 않습니다.")
+    validate_password(new_password)  # 8자 미만이면 422
+    if new_password == current_password:  # 같으면 바꾼 것이 아니다
+        raise AppError(422, "VALIDATION_ERROR", "새 비밀번호는 현재 비밀번호와 달라야 합니다.", [{"field": "new_password", "reason": "same_as_current"}])
+    user.password_hash = hash_password(new_password)  # 해시만 저장
+    user.must_change_password = False  # 표시 해제
+    db.commit()  # 확정

@@ -41,3 +41,9 @@ class MeOut(BaseModel):
     email: str  # 이메일
     role: str  # ADMIN / STAFF
     company: CompanyOut  # 소속 회사
+    must_change_password: bool  # 참이면 화면이 비밀번호 변경 화면으로 보낸다
+
+
+class PasswordChange(BaseModel):
+    current_password: str  # 지금 쓰는(임시) 비밀번호
+    new_password: str  # 새 비밀번호 (길이 규칙은 validate_password 한 곳에서 검사)

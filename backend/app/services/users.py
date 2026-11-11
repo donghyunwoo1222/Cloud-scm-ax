@@ -30,6 +30,7 @@ def create_user(company_id: int, db: Session, data: UserCreate) -> User:
         email=data.email,  # 소문자로 정리된 이메일
         password_hash=hash_password(data.password),  # 원문 대신 해시만 저장
         role=data.role,  # 역할
+        must_change_password=True,  # 관리자가 정한 임시 비밀번호이므로 첫 로그인 뒤 바꾸게 한다 (#169)
     )
     db.add(user)  # 세션에 올림
     commit_new_user(db)  # 확정, 이메일 중복이면 409 EMAIL_TAKEN

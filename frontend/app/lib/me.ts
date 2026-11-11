@@ -8,6 +8,7 @@ export type Me = {
   email: string; // 내 이메일
   role: "ADMIN" | "STAFF"; // 역할
   company: { id: number; name: string }; // 소속 회사
+  must_change_password: boolean; // 참이면 비밀번호를 바꾸기 전에는 다른 화면을 못 쓴다
 };
 
 export const ROLE_LABEL: Record<Me["role"], string> = { ADMIN: "관리자", STAFF: "담당자" }; // 화면에 보일 역할 이름
