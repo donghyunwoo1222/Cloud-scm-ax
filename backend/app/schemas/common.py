@@ -2,7 +2,7 @@
 
 from typing import Annotated, ClassVar  # 타입에 검사를 덧붙이는 도구, 클래스 공통 값
 
-from fastapi import Path, Query  # 경로·쿼리 칸 검사
+from fastapi import Header, Path, Query  # 헤더·경로·쿼리 칸 검사
 from pydantic import BaseModel, Field, StringConstraints, model_validator  # 모양 정의·검사 도구
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]  # 이름류: 앞뒤 공백 제거 후 1~100자
@@ -11,6 +11,7 @@ DB_INT_MAX = 2_147_483_647  # PostgreSQL integer 최댓값
 Id = Annotated[int, Field(strict=True, le=DB_INT_MAX)]  # 본문의 번호 칸 (없는 번호면 404, 범위 밖이면 422)
 PathId = Annotated[int, Path(le=DB_INT_MAX)]  # 주소 경로의 번호 (예: /products/{product_id})
 QueryId = Annotated[int | None, Query(le=DB_INT_MAX)]  # 목록 필터의 번호 (예: ?supplier_id=)
+IdempotencyKeyHeader = Annotated[str | None, Header(alias="Idempotency-Key", min_length=1, max_length=100)]  # 멱등 키 (#190). 없으면 지금처럼, 비었거나 100자 넘으면 422
 MAX_QUANTITY = 1_000_000  # 박스 환산 후에도 적용하는 재고 단위 수량 상한
 Quantity = Annotated[int, Field(strict=True, ge=1, le=MAX_QUANTITY)]  # 입출고·정정·발주·입고 수량
 SafetyStock = Annotated[int, Field(strict=True, ge=0, le=1_000_000)]  # 안전재고: 0~100만 개

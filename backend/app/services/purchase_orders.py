@@ -32,7 +32,12 @@ from app.schemas.purchase_orders import (  # 요청·응답 모양
     ReceiptDue,
 )
 from app.schemas.recommendations import DraftItemIn  # 추천 초안의 요청 줄
-from app.services.stock import register_movement  # 이력을 쓰는 유일한 함수 (품목 잠금·flush)
+from app.services.stock import (  # 이력을 쓰는 유일한 함수 (품목 잠금·flush)와 입력 검사 (#190)
+    check_movement_date,
+    movement_warnings,
+    register_movement,
+    require_confirmed,
+)
 from app.services.tenant import (  # 회사 분리 도우미 (#23), 404 문장
     NOT_FOUND_MESSAGE,
     check_ref,
@@ -295,8 +300,7 @@ def receive_order(company_id: int, db: Session, user_id: int, order_id: int, dat
                        {"status": order.status})
     today = seoul_today()  # 서울 기준 오늘
     movement_date = data.movement_date or today  # 비우면 오늘 (#29 와 같은 규칙)
-    if movement_date > today:  # 아직 일어나지 않은 입고가 재고에 섞이지 않게
-        raise AppError(422, "VALIDATION_ERROR", "입고일은 오늘 이후로 할 수 없습니다.", [{"field": "movement_date", "reason": "invalid"}])
+    check_movement_date(movement_date, today, "입고일")  # 미래·5년보다 이른 날짜는 422 (직접 입출고·가져오기와 같은 규칙)
     ids = [line.purchase_order_item_id for line in data.items]  # 요청한 발주 줄 번호들
     if len(set(ids)) != len(ids):  # 같은 줄을 두 번 보내면 수량을 합칠지 애매하므로 받지 않는다
         raise AppError(422, "VALIDATION_ERROR", "같은 발주 품목을 두 번 넣을 수 없습니다. 수량을 한 줄로 합쳐 주세요.",
@@ -322,6 +326,11 @@ def receive_order(company_id: int, db: Session, user_id: int, order_id: int, dat
                 {"purchase_order_item_id": item.id, "ordered": item.quantity, "received": done,
                  "remaining": remaining, "requested": quantity},
             )
+    products = {p.id: p for p in db.scalars(scoped(company_id, Product).where(
+        Product.id.in_({items[i].product_id for i in ids})))}  # 경고용 품목 (잠금은 아래 register_movement 에서)
+    require_confirmed(movement_warnings(
+        company_id, db, [(products[items[i].product_id], quantities[i]) for i in ids], today, check_inactive=False,
+    ), data.confirm_warnings)  # 큰 수량이면 확인 전 409 (비활성은 ORDERED 발주라 경고하지 않는다). 아직 아무것도 쓰지 않았다
     for line in sorted(data.items, key=lambda line: items[line.purchase_order_item_id].product_id):  # ③ 품목 번호 오름차순으로 잠근다 (교착 방지)
         item = items[line.purchase_order_item_id]
         quantity = quantities[item.id]

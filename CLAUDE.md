@@ -42,7 +42,7 @@ MVP 완료 기준: F1~F8 이슈 충족, 대표 시나리오 통과, 데이터 �
 
 `sku_id`는 `products.id`이고 재고·입출고·발주·추천은 이 번호로만 연결한다. `sku_code`는 `products.sku`로 사람이 읽는 코드이며 검색·표시에만 쓴다. 색·사이즈·규격(color·size·spec)과 group_code는 구분용 속성이다.
 
-표 7개: companies, users, suppliers, products, purchase_orders, purchase_order_items, inventory_movements. 재고 표, 추천 결과 표, 상태 이력 표는 두지 않는다. 자세한 구조는 `docs/06-system-design/erd.md`를 따른다.
+표 8개: companies, users, suppliers, products, purchase_orders, purchase_order_items, inventory_movements, idempotency_keys(멱등 키, 업무 데이터가 아닌 기술용 기록, #190). 재고 표, 추천 결과 표, 상태 이력 표는 두지 않는다. 자세한 구조는 `docs/06-system-design/erd.md`를 따른다.
 
 ## 5. 발주 추천 공식 (AX 1차 버전)
 

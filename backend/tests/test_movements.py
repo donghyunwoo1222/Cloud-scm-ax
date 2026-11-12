@@ -73,14 +73,14 @@ def test_past_date_allowed_future_rejected(client, world, products):
 
 
 def test_inactive_product_still_allowed(client, world, products):
-    """비활성 품목도 직접 입고·출고·조정은 된다 (남은 재고 처리, 반품)."""
+    """비활성 품목도 직접 입고·출고·조정은 된다 (남은 재고 처리, 반품). 확인 경고(#190)를 확인한 요청으로 보낸다."""
     login_as(client)
     p = products["a"]
     client.patch(f"/api/v1/products/{p.id}", json={"is_active": False})  # 품목 비활성
-    assert receive(client, p, 5).status_code == 201
-    assert post(client, p, quantity=2).status_code == 201
+    assert post(client, p, movement_type="RECEIPT", quantity=5, sales_channel=None, confirm_warnings=True).status_code == 201
+    assert post(client, p, quantity=2, confirm_warnings=True).status_code == 201
     assert post(client, p, movement_type="ADJUSTMENT", direction="OUT", quantity=1, reason="파손 확인",
-                sales_channel=None).status_code == 201
+                sales_channel=None, confirm_warnings=True).status_code == 201
 
 
 # ----- 완료 기준 2: 재고보다 큰 출고·감소 조정은 INSUFFICIENT_STOCK -----

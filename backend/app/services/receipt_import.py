@@ -14,7 +14,7 @@ from sqlalchemy import func, select  # 합계, SELECT 문
 from sqlalchemy.exc import IntegrityError  # DB 유일 제한 위반
 from sqlalchemy.orm import Session  # DB 세션
 
-from app.clock import seoul_today  # 서울 기준 오늘
+from app.clock import date_problem, seoul_today  # 입출고일 공통 검사(미래·5년 하한), 서울 기준 오늘
 from app.errors import AppError  # 공통 오류
 from app.models import InventoryMovement, Product  # 이력, 품목
 from app.schemas.receipt_import import NewProduct, ReceiptImportOptions  # 열 지정, 새 품목 값 규칙
@@ -49,6 +49,7 @@ PROBLEM_MESSAGES = {
     "INVALID_QUANTITY": "수량이 1 이상의 정수가 아닙니다.",
     "INVALID_DATE": "날짜를 읽을 수 없습니다.",
     "FUTURE_DATE": "오늘 이후 날짜입니다.",
+    "TOO_OLD_DATE": "5년보다 이전 날짜입니다. 연도를 확인해 주세요.",
     "MISSING_REF": "고유 번호가 비어 있거나 너무 깁니다.",
     "DUPLICATE_REF_IN_FILE": "파일 안에서 고유 번호가 앞의 행과 겹칩니다.",
     "INVALID_PRODUCT_INFO": "새 품목인데 품목명·단위·단가(0 이상 정수)·안전재고 값이 비었거나 올바르지 않습니다.",
@@ -127,8 +128,8 @@ def analyze(company_id: int, db: Session, rows: list[list[str]], opts: ReceiptIm
             if line.day is None:
                 problem(line.row, "INVALID_DATE", line.sku)
                 continue
-            if line.day > today:
-                problem(line.row, "FUTURE_DATE", line.sku)  # 수동 입고와 같은 규칙
+            if bad_date := date_problem(line.day, today):
+                problem(line.row, bad_date, line.sku)  # 수동 입고와 같은 규칙 (미래·5년보다 이른 날짜)
                 continue
             if opts.ref_col is not None:
                 line.ref = _get(row, opts.ref_col)

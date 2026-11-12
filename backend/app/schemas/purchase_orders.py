@@ -129,6 +129,7 @@ class ReceiptCreate(BaseModel):
 
     movement_date: date | None = None  # 입고일. 비우면 서울 오늘, 미래 날짜는 422
     items: Annotated[list[ReceiptLine], Field(min_length=1)]  # 입고 줄 1개 이상
+    confirm_warnings: bool = False  # 409 CONFIRM_REQUIRED 경고(큰 수량)를 사용자가 확인했으면 true 로 다시 보낸다 (#190)
 
 
 class OrderEmailSend(BaseModel):
