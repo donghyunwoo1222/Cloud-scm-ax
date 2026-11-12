@@ -17,7 +17,7 @@ from sqlalchemy import select  # SELECT 문
 from sqlalchemy.exc import IntegrityError  # DB 유일 제한 위반
 from sqlalchemy.orm import Session  # DB 세션
 
-from app.clock import seoul_today  # 서울 기준 오늘
+from app.clock import date_problem, seoul_today  # 입출고일 공통 검사(미래·5년 하한), 서울 기준 오늘
 from app.errors import AppError  # 공통 오류
 from app.models import InventoryMovement, Product  # 이력, 품목
 from app.schemas.sales_import import SalesImportOptions  # 열 지정·옵션
@@ -44,6 +44,7 @@ PROBLEM_MESSAGES = {  # 문제 행 사유 → 화면에 보일 문장
     "INVALID_QUANTITY": "수량이 1 이상의 정수가 아닙니다.",
     "INVALID_DATE": "날짜를 읽을 수 없습니다.",
     "FUTURE_DATE": "오늘 이후 날짜입니다.",
+    "TOO_OLD_DATE": "5년보다 이전 날짜입니다. 연도를 확인해 주세요.",
     "MISSING_REF": "고유 주문번호가 비어 있거나 너무 깁니다.",
     "DUPLICATE_REF_IN_FILE": "파일 안에서 주문번호가 앞의 행과 겹칩니다.",
     "UNKNOWN_SKU": "등록되지 않은 상품 코드(SKU)입니다.",
@@ -213,8 +214,8 @@ def analyze(company_id: int, db: Session, rows: list[list[str]], opts: SalesImpo
             problem(row_no, "INVALID_QUANTITY", sku)
         elif day is None:
             problem(row_no, "INVALID_DATE", sku)
-        elif day > today:
-            problem(row_no, "FUTURE_DATE", sku)  # 수동 등록과 같은 규칙: 아직 안 일어난 판매는 안 받는다
+        elif bad_date := date_problem(day, today):
+            problem(row_no, bad_date, sku)  # 수동 등록과 같은 규칙: 미래·5년보다 이른 날짜는 안 받는다
         elif not ref or len(ref) > 100:
             problem(row_no, "MISSING_REF", sku)
         elif ref in seen_refs:
