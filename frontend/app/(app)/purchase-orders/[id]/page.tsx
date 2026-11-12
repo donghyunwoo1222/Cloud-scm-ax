@@ -9,7 +9,7 @@ import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
 import { useMe } from "../../../lib/me"; // 내 역할 (승인 버튼은 관리자에게만)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { boxLimit, fmtDate, fmtTime, formatOrderUnitPrice, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, PoItemSort, PurchaseOrder, quantityLabel, remainingQuantity, totalAmount, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
+import { boxLimit, fmtDate, fmtTime, formatOrderUnitPrice, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, PoItemSort, PurchaseOrder, quantityLabel, remainingQuantity, totalAmount, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 import styles from "./receipt.module.css";
@@ -230,7 +230,8 @@ function Detail() {
               const maxBoxes = units != null ? boxLimit(units, remaining) : 0;
               const entry = qty[item.id];
               const byBox = entry?.box ?? (maxBoxes > 0);
-              const inputUnit = byBox ? "박스" : item.unit;
+              const orderUnit = item.order_unit ?? "박스"; // 발주 당시 발주단위 이름
+              const inputUnit = byBox ? orderUnit : item.unit;
               return (
                 <li key={item.id} className={styles.receiptRow} data-entered={Boolean(entry?.value)}>
                   <div className={styles.receiptProduct}>
@@ -248,15 +249,13 @@ function Detail() {
                       {maxBoxes > 0 ? (
                         <select value={byBox ? "box" : "stock"} disabled={busy} aria-label={`${item.product_name} 입고 단위`}
                           onChange={(e) => setQty({ ...qty, [item.id]: { value: "", box: e.target.value === "box" } })}>
-                          <option value="box">박스</option>
+                          <option value="box">{orderUnit}</option>
                           <option value="stock">{item.unit}</option>
                         </select>
                       ) : <span>{item.unit}</span>}
                     </div>
                     {byBox && units != null && <span style={S.sub}>
-                      {entry?.value
-                        ? `${quantityLabel(Number(entry.value), "박스")} = ${quantityLabel(Number(entry.value) * units, item.unit)}`
-                        : `1박스 = ${quantityLabel(units, item.unit)}`}
+                      {unitConversion(entry?.value ? Number(entry.value) : 1, orderUnit, units, item.unit, "=")}
                     </span>}
                   </div>
                 </li>
@@ -340,9 +339,8 @@ function Detail() {
                 {/* 발주서에 저장된 단가로 이 줄의 발주 금액을 표시한다. */}
                 <td style={S.num}>{formatOrderUnitPrice(i)}</td>
                 <td style={S.num}>
-                  {i.box_quantity == null ? `${ordered}${i.unit}` : (
-                    <>{quantityLabel(i.box_quantity, "박스")}<span style={S.sub}>재고 {ordered}{i.unit}</span></>
-                  )}
+                  {i.box_quantity == null ? `${ordered}${i.unit}` : unitConversion(i.box_quantity, i.order_unit ?? "박스", i.units_per_box ?? 1, i.unit, "()")}
+                  {/* 발주단위 줄은 "3BOX (300EA)" */}
                 </td>
                 <td style={S.num}>{lineAmount(i).toLocaleString("ko-KR")}</td>
                 <td style={S.num}>
@@ -378,7 +376,7 @@ function Detail() {
               <li key={i.id} className="compact-row">
                 <div className="compact-main">
                   <strong>{i.product_name}</strong>
-                  <span className="compact-value">{i.box_quantity == null ? `${ordered}${i.unit}` : `${quantityLabel(i.box_quantity, "박스")} (${ordered}${i.unit})`}</span>
+                  <span className="compact-value">{i.box_quantity == null ? `${ordered}${i.unit}` : unitConversion(i.box_quantity, i.order_unit ?? "박스", i.units_per_box ?? 1, i.unit, "()")}</span>
                   {/* 1줄: 품목과 발주 수량 (박스 발주는 박스 수와 재고 수량) */}
                 </div>
                 <div className="compact-sub">

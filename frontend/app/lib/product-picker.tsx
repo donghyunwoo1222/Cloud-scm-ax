@@ -10,6 +10,7 @@ export type ProductOption = {
   id: number; sku: string; name: string; unit: string; unit_cost: number;
   color?: string | null; size?: string | null; spec?: string | null; // 품목 옵션
   is_active: boolean; units_per_box?: number | null; box_unit_cost?: number | null;
+  order_unit?: string; // 발주단위 이름 (박스 설정이 없으면 재고 단위)
 };
 
 export function ProductPicker({ label, value, onSelect, includeInactive = false, disabled = false }: {

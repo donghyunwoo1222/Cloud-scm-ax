@@ -7,7 +7,7 @@ import { Fragment, Suspense, useCallback, useEffect, useRef, useState } from "re
 import { ApiError, api, apiList } from "../../lib/api"; // 공통 API 호출 함수·오류 종류
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
 import { Options, skuWithOptions } from "../../lib/options"; // 품목 옵션 요약
-import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PoItem, PurchaseOrder, quantityLabel } from "../../lib/po"; // 발주서와 박스 환산 표시
+import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PoItem, PurchaseOrder, quantityLabel, unitConversion } from "../../lib/po"; // 발주서와 발주단위 환산 표시
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S } from "../../lib/styles"; // 화면 공통 스타일
 import styles from "./page.module.css"; // 추천 화면 근거 버튼 스타일
@@ -21,9 +21,10 @@ type Item = {
   avg_daily_sales: number; lead_time_days: number; safety_stock: number; // 일평균(소수), 리드타임, 안전재고
   reorder_point: number; recommended_quantity: number; reason: string; // 재주문점(소수), 추천 수량, 이유 문구
   units_per_box: number | null; recommended_box_quantity: number | null; // 현재 입수와 서버가 올림한 기본 박스 수
+  order_unit: string; // 발주단위 이름 (박스 설정이 없으면 재고 단위, #185)
 };
 type Excluded = Options & { product_id: number; product_sku: string; product_name: string; message: string }; // 서버가 제외 사유 문장까지 내려준다
-type Draft = { id: number; po_number: string } & Pick<PoItem, "quantity" | "box_quantity" | "unit">;
+type Draft = { id: number; po_number: string } & Pick<PoItem, "quantity" | "box_quantity" | "unit" | "order_unit" | "units_per_box">;
 type Created = PurchaseOrder & { created: boolean }; // 초안 만들기 응답 한 장 (created: 새로 만들었는지)
 
 const REASON_TEXT: Record<string, string> = {
@@ -70,7 +71,7 @@ function Recommendations({ productId }: { productId: number | null }) {
       const map: Record<number, Draft> = {}; // 품목 id → 작성 중 발주서
       for (const o of draftList.data) { // 조회한 초안에서 품목별로 표시할 값을 찾는다
         for (const i of o.items) map[i.product_id] = {
-          id: o.id, po_number: o.po_number, quantity: i.quantity, box_quantity: i.box_quantity, unit: i.unit,
+          id: o.id, po_number: o.po_number, quantity: i.quantity, box_quantity: i.box_quantity, unit: i.unit, order_unit: i.order_unit, units_per_box: i.units_per_box,
         }; // 저장된 수량과 단위를 그대로 쓴다
       }
       setItems(productId === null ? rec.items : rec.items.filter((i) => i.product_id === productId));
@@ -105,7 +106,7 @@ function Recommendations({ productId }: { productId: number | null }) {
     });
     if (invalid) {
       setResult([]);
-      setError(`${invalid.product_sku} 발주 수량은 1~${maxFor(invalid).toLocaleString("ko-KR")}${invalid.units_per_box != null ? "박스" : " (재고 단위)"}로 입력하세요.`);
+      setError(`${invalid.product_sku} 발주 수량은 1~${maxFor(invalid).toLocaleString("ko-KR")}${invalid.units_per_box != null ? invalid.order_unit : " (재고 단위)"}로 입력하세요.`);
       return;
     }
     sending.current = true; // 즉시 잠금
@@ -188,7 +189,7 @@ function Recommendations({ productId }: { productId: number | null }) {
                 const cell = picked ? S.selectedRow : undefined; // 선택한 품목은 본문과 펼친 근거의 배경을 강조한다
                 const open = expandedId === i.product_id; // 이 품목의 근거가 펼쳐졌는지 확인한다
                 const evidenceId = "recommendation-evidence-" + i.product_id; // 버튼과 펼쳐진 근거를 연결한다
-                const boxCount = Number(quantityOf(i)); // 보조 문구에는 입력한 박스를 재고 단위로 환산한다
+                const boxCount = Number(quantityOf(i)); // 보조 문구에는 입력한 발주단위 수를 재고 단위로 환산한다
                 return (
                   <Fragment key={i.product_id}>
                     <tr style={S.row}>
@@ -231,20 +232,19 @@ function Recommendations({ productId }: { productId: number | null }) {
                           <>{/* 편집 칸 없이 서버에 저장된 초안 수량을 보여 준다 */}
                             <span className={styles.draftQuantity}>{/* 상태와 저장된 수량을 한 줄에서 읽는다 */}
                               <StatusBadge kind="unknown" icon="draft">초안</StatusBadge>{/* 연필 아이콘으로 작성 중인 수량임을 나타낸다 */}
-                              <strong>{draft.box_quantity != null ? quantityLabel(draft.box_quantity, "박스") : draft.quantity}</strong>
-                            </span>
-                            {draft.box_quantity != null && <span style={S.sub}>재고 {quantityLabel(draft.quantity, draft.unit)}</span>}
+                              <strong>{draft.box_quantity != null ? unitConversion(draft.box_quantity, draft.order_unit ?? "박스", draft.units_per_box ?? 1, draft.unit, "()") : draft.quantity}</strong>
+                            </span>{/* 발주단위 초안은 "3BOX (300EA)" */}
                             {draft.quantity !== i.recommended_quantity && <span style={S.sub}>추천 <strong>{quantityLabel(i.recommended_quantity, i.unit)}</strong></span>}
                           </>
                         ) : (
                           <>{/* 선택 가능한 품목만 수량을 고칠 수 있고 추천 수량은 서버 값이다 */}
                             <input type="number" inputMode="numeric" min={1} max={maxFor(i)} step={1}
-                              aria-label={i.product_sku + (i.units_per_box != null ? " 발주 박스 수" : " 발주 수량")}
+                              aria-label={i.product_sku + (i.units_per_box != null ? ` 발주 ${i.order_unit} 수` : " 발주 수량")}
                               style={S.numInput} value={quantityOf(i)}
                               onChange={(e) => setQty({ ...qty, [i.product_id]: { value: e.target.value, units: i.units_per_box } })} />
-                            {i.units_per_box != null && <span style={S.sub}>
-                              {boxCount > 0 ? `${quantityLabel(boxCount, "박스")} · ${quantityLabel(boxCount * i.units_per_box, i.unit)}` : `1박스 · ${quantityLabel(i.units_per_box, i.unit)}`}
-                            </span>}
+                            {i.units_per_box != null && <> {i.order_unit}<span style={S.sub}>
+                              {unitConversion(boxCount > 0 ? boxCount : 1, i.order_unit, i.units_per_box, i.unit, "=")}
+                            </span></>}{/* 단위 이름은 표시만, 입력 즉시 "3BOX = 300EA" */}
                             <span style={S.sub}>{i.units_per_box != null ? "필요 수량" : "추천"} {quantityLabel(i.recommended_quantity, i.unit)}</span>
                           </>
                         )}

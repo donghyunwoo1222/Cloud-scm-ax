@@ -139,7 +139,7 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
             <option value="IN">증가 (실제가 더 많음)</option>
           </select></Field>
       )}
-      <Field label={`수량${product ? ` (${product.unit})` : ""}*`} className="field-half"><input type="number" inputMode="numeric" min={1} step={1} value={quantity} aria-describedby={product ? stockStatusId : undefined} onChange={(e) => setQuantity(e.target.value)} /></Field>
+      <Field label={`수량${product ? ` (재고 단위 ${product.unit})` : ""}*`} className="field-half"><input type="number" inputMode="numeric" min={1} step={1} value={quantity} aria-describedby={product ? stockStatusId : undefined} onChange={(e) => setQuantity(e.target.value)} /></Field>
       <Field label={dateLabel} className="field-half">
         <input type="date" max={today || undefined} value={date} onChange={(e) => setDate(e.target.value)} />
         {/* 오늘 이후는 고를 수 없다 (서버도 막는다) */}

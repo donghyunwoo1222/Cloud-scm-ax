@@ -7,6 +7,7 @@ import { api, apiList } from "../../lib/api"; // 공통 API 호출 함수
 import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸치는 입력 항목
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { optionSummary } from "../../lib/options"; // 옵션 요약 ("검정 / M")
+import { unitConversion } from "../../lib/po"; // 발주단위 환산 미리보기
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
@@ -21,6 +22,7 @@ type Product = {
   unit_cost: number; // 단가(원)
   units_per_box: number | null; // 박스 한 개의 재고 단위 수량
   box_unit_cost: number | null; // 박스당 구매 단가
+  order_unit: string; // 발주단위 이름 (박스 설정이 없으면 재고 단위)
   safety_stock: number; // 안전재고
   is_active: boolean; // 활성 여부
   default_supplier: { id: number; name: string; lead_time_days: number }; // 기본 공급업체 요약
@@ -28,11 +30,11 @@ type Product = {
 type SupplierOption = { id: number; name: string; lead_time_days: number; is_active: boolean }; // 활성·비활성 공급업체 선택지
 
 // 폼 입력값 (모두 글자로 다루고 보낼 때 바꾼다)
-const EMPTY = { sku: "", name: "", unit: "", color: "", size: "", spec: "", group_code: "", unit_cost: "", safety_stock: "0", default_supplier_id: "", units_per_box: "", box_unit_cost: "" };
+const EMPTY = { sku: "", name: "", unit: "", color: "", size: "", spec: "", group_code: "", unit_cost: "", safety_stock: "0", default_supplier_id: "", units_per_box: "", box_unit_cost: "", order_unit: "" };
 type Form = typeof EMPTY;
 
 // 오류 details 의 칸 이름 → 화면 이름
-const LABELS = { sku: "SKU", name: "품목명", unit: "재고 단위", color: "색상", size: "사이즈", spec: "규격", group_code: "그룹 코드", unit_cost: "재고 단위 단가", safety_stock: "안전재고", default_supplier_id: "기본 공급업체", units_per_box: "박스 입수", box_unit_cost: "박스당 구매 단가" };
+const LABELS = { sku: "SKU", name: "품목명", unit: "재고 단위", color: "색상", size: "사이즈", spec: "규격", group_code: "그룹 코드", unit_cost: "재고 단위 단가", safety_stock: "안전재고", default_supplier_id: "기본 공급업체", units_per_box: "환산계수", box_unit_cost: "발주단위 단가", order_unit: "발주단위" };
 
 // 폼 값 → 서버로 보낼 본문 (숫자 칸은 숫자로, 비우면 null → 서버가 422. 0 이상 정수 검사는 서버가 한다)
 function toBody(form: Form) {
@@ -50,6 +52,7 @@ function toBody(form: Form) {
     default_supplier_id: num(form.default_supplier_id),
     units_per_box: num(form.units_per_box),
     box_unit_cost: num(form.box_unit_cost),
+    order_unit: form.units_per_box === "" ? null : form.order_unit.trim() || null, // 발주단위 설정이 없으면 보내지 않는다(서버 422). 비우면 서버가 "박스"
   };
 }
 
@@ -101,6 +104,7 @@ export default function ProductsPage() {
       safety_stock: String(p.safety_stock), default_supplier_id: String(p.default_supplier.id),
       units_per_box: p.units_per_box == null ? "" : String(p.units_per_box),
       box_unit_cost: p.box_unit_cost == null ? "" : String(p.box_unit_cost),
+      order_unit: p.units_per_box == null ? "" : p.order_unit, // 설정이 없으면 서버가 재고 단위를 주므로 빈 칸으로
     }; // 품목 → 폼 값
   }
 
@@ -158,6 +162,8 @@ export default function ProductsPage() {
   const activeSuppliers = suppliers.filter((s) => s.is_active); // 등록·수정 폼에서 새로 고를 수 있는 업체만 남긴다
   const currentMissing = editing && !activeSuppliers.some((s) => s.id === editing.default_supplier.id) ? editing.default_supplier : null; // 기존 연결은 수정 폼에 보여준다
 
+  const boxShown = boxOpen || form.units_per_box !== "" || form.box_unit_cost !== "" || form.order_unit !== ""; // 값이 하나라도 있으면 펼친다
+  const factor = Number(form.units_per_box); // 미리보기용 환산계수
   return (
     <section>
       <h1>품목</h1>
@@ -166,7 +172,7 @@ export default function ProductsPage() {
       <details ref={registration} className="smooth-details" style={S.sectionCard}>
       <summary>{editing ? `${editing.name} 수정` : "품목 등록"}</summary>
       {!editing && activeSuppliers.length === 0 && <p>기본 공급업체가 필요합니다. <Link href="/suppliers">공급업체 등록</Link></p>}
-      <form className="form-compact field-form" data-box-open={boxOpen || form.units_per_box !== "" || form.box_unit_cost !== ""} onSubmit={save} style={S.formGrid}>
+      <form className="form-compact field-form" data-box-open={boxShown} onSubmit={save} style={S.formGrid}>
         {/* 등록·수정 폼. 모바일에서는 짧은 항목을 두 칸씩 묶고 박스 설정은 접는다(값이 하나라도 있으면 펼친다) */}
         <Field label="SKU*" className="field-half fld-sku"><input value={form.sku} onChange={(e) => set("sku", e.target.value)} /></Field>
         <Field label="품목명*" className="fld-name"><input value={form.name} onChange={(e) => set("name", e.target.value)} /></Field>
@@ -187,14 +193,19 @@ export default function ProductsPage() {
               </option>
             ))}
           </select></Field>
-        <button type="button" className="box-toggle" aria-expanded={boxOpen || form.units_per_box !== "" || form.box_unit_cost !== ""}
-          onClick={() => setBoxOpen(!boxOpen)}>박스 발주 설정 (선택)<span aria-hidden="true">{boxOpen || form.units_per_box !== "" || form.box_unit_cost !== "" ? "접기" : "펼치기"}</span></button>
+        <button type="button" className="box-toggle" aria-expanded={boxShown}
+          onClick={() => setBoxOpen(!boxOpen)}>발주단위 설정 (선택)<span aria-hidden="true">{boxShown ? "접기" : "펼치기"}</span></button>
         {/* 모바일 전용 접기 버튼: 데스크톱에서는 CSS 로 숨긴다 */}
-        <Field label="박스 입수" className="field-half box-field"><input type="number" inputMode="numeric" min={1} max={1_000_000} step={1} required={form.box_unit_cost !== ""}
+        <Field label="발주단위" className="field-half box-field"><input value={form.order_unit} onChange={(e) => set("order_unit", e.target.value)} maxLength={20} placeholder="박스, BOX, PACK"
+            aria-describedby="product-box-hint" /></Field>
+        <Field label="환산계수 (1발주단위당 재고 수량)" short="환산계수" className="field-half box-field"><input type="number" inputMode="numeric" min={1} max={1_000_000} step={1} required={form.box_unit_cost !== ""}
             value={form.units_per_box} onChange={(e) => set("units_per_box", e.target.value)} aria-describedby="product-box-hint" /></Field>
-        <Field label="박스당 구매 단가(원)" short="박스 단가(원)" className="field-half box-field"><input type="number" inputMode="numeric" min={0} max={100_000_000} step={1} required={form.units_per_box !== ""}
+        <Field label="발주단위 단가(원)" short="발주단위 단가(원)" className="field-half box-field"><input type="number" inputMode="numeric" min={0} max={100_000_000} step={1} required={form.units_per_box !== ""}
             value={form.box_unit_cost} onChange={(e) => set("box_unit_cost", e.target.value)} aria-describedby="product-box-hint" /></Field>
-        <p id="product-box-hint" className="box-hint" style={{ ...S.hint, flexBasis: "100%", margin: 0 }}>박스로 구매할 때 두 칸을 채우세요. 둘 다 비워 저장하면 박스 설정을 해제합니다.</p>
+        <p id="product-box-hint" className="box-hint" style={{ ...S.hint, flexBasis: "100%", margin: 0 }}>
+          {Number.isInteger(factor) && factor >= 1 && form.unit.trim() !== "" && <strong>{unitConversion(1, form.order_unit.trim() || "박스", factor, form.unit.trim(), "=")} · </strong>}
+          {/* 미리보기 예: "1BOX = 100EA" (발주단위를 비우면 서버가 "박스"로 저장한다) */}
+          박스·팩 등으로 구매할 때 환산계수와 단가를 채우세요. 둘 다 비워 저장하면 발주단위 설정을 해제합니다.</p>
         <div className="form-actions" style={S.buttons}>
           <button type="submit" disabled={!editing && activeSuppliers.length === 0}>{editing === null ? "등록" : "수정 저장"}</button>
           {editing !== null && <button type="button" onClick={reset}>취소</button>}
@@ -236,7 +247,7 @@ export default function ProductsPage() {
               <td style={S.num}>
                 {p.unit_cost.toLocaleString("ko-KR")}원
                 {p.units_per_box != null && p.box_unit_cost != null && (
-                  <span style={S.sub}>{p.units_per_box.toLocaleString("ko-KR")}{p.unit}/박스 · {p.box_unit_cost.toLocaleString("ko-KR")}원/박스</span>
+                  <span style={S.sub}>{p.units_per_box.toLocaleString("ko-KR")}{p.unit}/{p.order_unit} · {p.box_unit_cost.toLocaleString("ko-KR")}원/{p.order_unit}</span>
                 )}
               </td>
               {/* 5000 → 5,000원 */}

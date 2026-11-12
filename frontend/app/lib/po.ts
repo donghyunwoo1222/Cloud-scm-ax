@@ -13,6 +13,8 @@ export type PoItem = {
   box_unit_price?: number | null; // 박스 단가(원), 박스 발주 줄에서만 값이 있다
   units_per_box?: number | null; // 발주 줄에 저장한 당시 입수
   box_quantity?: number | null; // 발주 당시 박스 수
+  order_unit?: string; // 발주 당시 발주단위 이름 (박스 줄이 아니면 재고 단위, 예: BOX)
+  unit_factor?: number; // 발주 당시 환산계수 (박스 줄이 아니면 1)
   line_total?: number; // 서버가 계산한 줄 금액(원), 이전 API 응답에는 없을 수 있다
   received_quantity: number; // 누적 입고량 (입고 − 입고 정정)
 };
@@ -47,12 +49,21 @@ export const STATUS_LABEL: Record<PoStatus, string> = {
 // 오류 details 의 칸 이름 → 화면 이름 (422 문장 뒤에 어느 칸인지 덧붙인다)
 export const PO_LABELS = {
   supplier_id: "공급업체", due_date: "약속 납기", memo: "메모", delivery_address: "납품장소", payment_terms: "지불조건", items: "품목 줄", product_id: "품목", quantity: "수량", unit_price: "단가", movement_date: "입고일",
-  box_quantity: "박스 수",
+  box_quantity: "발주단위 수",
 };
 
 export const MAX_ORDER_QUANTITY = 1_000_000; // 박스를 환산해도 서버의 재고 단위 상한을 지킨다
 export const quantityLabel = (quantity: number, unit?: string) =>
   unit ? `${quantity.toLocaleString("ko-KR")}${unit}` : `재고 단위 ${quantity.toLocaleString("ko-KR")}`;
+
+// 발주단위 수를 재고 단위로 환산한 글자. 화면의 환산 표시는 모두 이 함수로 만든다 (#192)
+// 예) (3, "BOX", 100, "EA", "=") → "3BOX = 300EA", "()" 이면 "3BOX (300EA)". 환산할 게 없으면 (3, "EA", 1, "EA") → "3EA"
+export function unitConversion(count: number, orderUnit: string, factor: number, baseUnit: string, style: "=" | "()") {
+  const ordered = quantityLabel(count, orderUnit); // 발주단위 수 (예: 3BOX)
+  if (factor === 1 && orderUnit === baseUnit) return ordered; // 재고 단위로 발주하는 품목은 이전 표시 그대로
+  const base = quantityLabel(count * factor, baseUnit); // 재고 단위 수량 (예: 300EA)
+  return style === "=" ? `${ordered} = ${base}` : `${ordered} (${base})`;
+}
 
 export function boxLimit(unitsPerBox: number, stockLimit = MAX_ORDER_QUANTITY) {
   return Math.floor(Math.min(stockLimit, MAX_ORDER_QUANTITY) / unitsPerBox); // 남은 13개가 10개입이면 최대 1박스
@@ -60,7 +71,7 @@ export function boxLimit(unitsPerBox: number, stockLimit = MAX_ORDER_QUANTITY) {
 
 export function formatOrderUnitPrice(item: PoItem) {
   if (item.box_unit_price == null) return item.unit_price.toLocaleString("ko-KR");
-  return `${item.box_unit_price.toLocaleString("ko-KR")} / 박스`;
+  return `${item.box_unit_price.toLocaleString("ko-KR")} / ${item.order_unit ?? "박스"}`; // 이전 응답에는 이름이 없을 수 있다
 }
 
 export function lineAmount(item: PoItem) {
