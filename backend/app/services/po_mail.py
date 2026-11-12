@@ -17,6 +17,7 @@ from app.config import settings  # SMTP 설정 (환경 변수)
 from app.errors import AppError  # 공통 오류
 from app.models import PurchaseOrder, User  # 표들
 from app.services import po_document  # 문서 값·PDF·엑셀
+from app.services.po_change_log import log_change  # 변경 이력 (#181)
 from app.services.tenant import get_owned  # 회사 조건이 붙은 조회 (다른 회사 404)
 
 MAIL_STATUSES = ("APPROVED", "ORDERED")  # 보낼 수 있는 상태: 승인됨(첫 발송) · 발주함(다시 보내기)
@@ -168,6 +169,7 @@ def send_order(company_id: int, db: Session, user: User, order_id: int, intro: s
     except (smtplib.SMTPException, OSError) as exc:  # 메일 서버 거부·연결 실패·시간 초과
         raise failure(exc) from exc
     if order.status == "APPROVED":
+        log_change(db, company_id, order.id, user.id, [("status", "APPROVED", "ORDERED")])  # 변경 이력 (#181)
         order.status, order.ordered_at = "ORDERED", func.now()  # 첫 발송: 발주함으로 (주문 완료 표시와 같은 효과)
     order.emailed_at, order.emailed_to, order.emailed_by = func.now(), to, user.id  # 마지막 1건만 남긴다 (다시 보내면 덮어씀)
     db.flush()

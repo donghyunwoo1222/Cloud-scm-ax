@@ -19,6 +19,8 @@ from app.schemas.common import (  # 멱등 키 헤더, 번호 칸 (DB 범위를 
     QueryId,
 )
 from app.schemas.purchase_orders import (  # 요청 모양
+    ChangeLogOut,
+    OrderCancel,
     OrderEmailSend,
     PoStatus,
     PurchaseOrderCreate,
@@ -28,6 +30,7 @@ from app.schemas.purchase_orders import (  # 요청 모양
 )
 from app.services import (
     idempotency,  # 같은 요청 키는 한 번만 처리 (#190)
+    po_change_log,  # 발주서 변경 이력 (#181)
     po_document,  # 발주서 문서·엑셀 (#157)
     po_mail,  # 발주서 메일 발송 (#158)
 )
@@ -67,6 +70,12 @@ def get_order(order_id: PathId, user: CurrentUser, db: DB) -> dict:
     return one(user, db, po_service.get_order(user.company_id, db, order_id))  # 다른 회사 404
 
 
+@router.get("/{order_id}/change-log")  # 변경 이력 (최신순, 읽기만)
+def get_change_log(order_id: PathId, user: CurrentUser, db: DB, page: Page) -> dict:
+    rows, meta = po_change_log.list_changes(user.company_id, db, order_id, page)  # 다른 회사 404
+    return {"data": [ChangeLogOut(**r).model_dump(mode="json") for r in rows], "meta": meta}
+
+
 @router.get("/{order_id}/document")  # 문서 화면용 값 (승인 이후만, 읽기만 하므로 GET)
 def get_document(order_id: PathId, user: CurrentUser, db: DB) -> dict:
     return {"data": po_document.build_document(user.company_id, db, order_id)}  # 404·409
@@ -101,14 +110,14 @@ def send_email(order_id: PathId, data: OrderEmailSend, user: CurrentUser, db: DB
 
 @router.patch("/{order_id}")  # 수정 (DRAFT 일 때만)
 def update_order(order_id: PathId, data: PurchaseOrderUpdate, user: CurrentUser, db: DB) -> dict:
-    order = po_service.update_order(user.company_id, db, order_id, data)  # 404·409·422
+    order = po_service.update_order(user.company_id, db, user.id, order_id, data)  # 404·409·422
     db.commit()  # 요청 끝에 한 번만 확정
     return one(user, db, order)
 
 
-def transition(order_id: int, user, db, action: str) -> dict:
+def transition(order_id: int, user, db, action: str, reason: str | None = None) -> dict:
     """상태 변경 세 경로의 공통 부분: 바꾸고, 요청 끝에 한 번 확정하고, 바뀐 발주서를 돌려준다."""
-    order = po_service.change_status(user.company_id, db, user.id, order_id, action)  # 404·409
+    order = po_service.change_status(user.company_id, db, user.id, order_id, action, reason)  # 404·409
     db.commit()  # 확정 (발주서 잠금도 여기서 풀린다)
     return one(user, db, order)
 
@@ -124,8 +133,8 @@ def mark_ordered(order_id: PathId, user: CurrentUser, db: DB) -> dict:
 
 
 @router.post("/{order_id}/cancel")  # DRAFT·APPROVED·ORDERED → CANCELLED (입고 기록이 없을 때만, 둘 다)
-def cancel_order(order_id: PathId, user: CurrentUser, db: DB) -> dict:
-    return transition(order_id, user, db, "cancel")
+def cancel_order(order_id: PathId, user: CurrentUser, db: DB, data: OrderCancel | None = None) -> dict:
+    return transition(order_id, user, db, "cancel", data.reason if data else None)  # 본문은 선택. 발주함 취소는 사유 필수(422)
 
 
 @router.post("/{order_id}/receipts", status_code=201)  # 발주 입고 (ORDERED 일 때만, 부분 가능, 다 차면 RECEIVED)

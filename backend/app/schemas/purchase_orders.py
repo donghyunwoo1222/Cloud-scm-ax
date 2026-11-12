@@ -119,6 +119,24 @@ class PurchaseOrderOut(BaseModel):
     items: list[ItemOut]  # 품목 줄
 
 
+class OrderCancel(BaseModel):
+    """POST /purchase-orders/{id}/cancel 선택 본문 (#181). 본문이 없어도 된다. 발주함(ORDERED) 취소는 reason 필수(서비스에서 검사)."""
+
+    model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422
+
+    reason: Annotated[str, Field(max_length=500)] | None = None  # 취소 사유 (최대 500자)
+
+
+class ChangeLogOut(BaseModel):
+    id: int  # 이력 번호
+    field: str  # 바뀐 항목 (예: status, due_date, items[SKU].quantity)
+    old_value: str | None  # 변경 전 값
+    new_value: str | None  # 변경 후 값
+    changed_by_name: str  # 바꾼 사용자 이름 (이메일·번호는 내보내지 않는다)
+    reason: str | None  # 사유 (취소 때)
+    created_at: datetime  # 바뀐 시각
+
+
 class ReceiptLine(OrderQuantity):
     purchase_order_item_id: Id  # 입고할 발주 줄 (이 발주서의 줄만)
 
