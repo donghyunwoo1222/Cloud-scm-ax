@@ -5,6 +5,7 @@ import { useParams } from "next/navigation"; // 주소의 [id]
 import { Suspense, FormEvent, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 연결용 ID, 상태
 
 import { api } from "../../../lib/api"; // 공통 API 호출 함수
+import { useConfirmedPost } from "../../../lib/confirmed-post"; // 멱등 키 + 확인 경고 재전송 (#190)
 import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
 import { useMe } from "../../../lib/me"; // 내 역할 (승인 버튼은 관리자에게만)
@@ -37,6 +38,7 @@ function Detail() {
   const [notice, setNotice] = useState(""); // 성공 안내 문장
   const [receiving, setReceiving] = useState(false); // 입고 등록 폼을 열었는지
   const [busy, setBusy] = useState(false); // 입고 등록 중이면 버튼을 잠근다
+  const post = useConfirmedPost(); // 같은 입고 재전송은 같은 키, 큰 수량이면 확인창
   const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
   const receiptTitle = useRef<HTMLHeadingElement>(null);
   const receiptButton = useRef<HTMLButtonElement>(null);
@@ -105,7 +107,10 @@ function Detail() {
       ...(entry.box ? { box_quantity: Number(entry.value) } : { quantity: Number(entry.value) }),
     })); // 비운 줄은 보내지 않는다
     try {
-      setOrder(await api<PurchaseOrder>(`/purchase-orders/${id}/receipts`, { method: "POST", body: { movement_date: date || null, items } })); // 서버가 입고 이력을 쌓고 상태도 바꾼다
+      const names = Object.fromEntries((order?.items ?? []).map((i) => [i.product_id, i.product_name])); // 확인창에 쓸 품목 이름
+      const saved = await post<PurchaseOrder>(`/purchase-orders/${id}/receipts`, { movement_date: date || null, items }, names); // 서버가 입고 이력을 쌓고 상태도 바꾼다
+      if (saved === null) return; // 확인창에서 취소: 입력 유지
+      setOrder(saved);
       setError(null);
       setQty({}); // 성공했을 때만 입력값을 비운다
       setReceiving(false);

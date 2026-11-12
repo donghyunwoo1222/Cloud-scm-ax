@@ -2,10 +2,11 @@
 
 작업을 시작하기 전에 이 파일을 먼저 읽는다. PR을 만들 때 "지금 위치"와 "정해진 공통 규칙"을 갱신하고, 보고한 "꼭 알기"를 "꼭 알기 모음"에 추가한다(CLAUDE.md §7).
 
-마지막 갱신: 2026-11-12 (#190 입력 검증 공통 규칙, 백엔드)
+마지막 갱신: 2026-11-12 (#190 입력 검증 공통 규칙, 프런트)
 
 ## 지금 위치
 
+- #190 입력 검증 프런트 PR: 직접 입출고(`movement-form`)·정정(재고 현황)·발주 입고(발주 상세)는 `app/lib/confirmed-post.ts`의 `useConfirmedPost`로 보낸다. `Idempotency-Key`를 붙이고(본문이 직전과 같으면 같은 키, 바뀌면 새 키, 성공하면 버림), 409 `CONFIRM_REQUIRED`면 경고를 `window.confirm` 문장으로 보여 확인 시 같은 키 + `confirm_warnings: true`로 다시 보낸다(취소하면 입력 유지). `api.ts`는 `headers` 옵션 하나만 더했다. 발주서 작성·수정(`po-form`)에 `sending` ref + "저장 중…" 버튼 잠금(MOQ 확인창 통과 뒤 잠그고, 성공하면 화면을 떠나므로 풀지 않는다). 발주서 작성 POST에는 멱등 키가 없다.
 - #190 입력 검증 공통 규칙(백엔드 PR, 프런트는 별도 PR): ① 입출고일 하한 5년(`app/clock.py`의 `date_problem`·`oldest_allowed` 하나로 직접 입출고·발주 입고 422, 판매·입고 가져오기 `TOO_OLD_DATE` 문제 행). ② 확인 경고 409 `CONFIRM_REQUIRED`(`details.warnings`): `LARGE_QUANTITY`(재고 단위 수량 > 최근 30일 순판매 × 3, 판매 0·정정은 검사 안 함, 직접 입고·출고·조정·발주 입고)와 `INACTIVE_PRODUCT`(직접 입출고만). 본문에 `confirm_warnings: true`로 다시 보내면 처리, 확인 전에는 저장 안 함. ③ 멱등 키: 새 표 `idempotency_keys`(표 8개, 마이그레이션 `f9c3e7a2b5d8`, 로컬은 `alembic upgrade head` 필요), 직접 입출고·정정·발주 입고 POST의 선택 헤더 `Idempotency-Key`(같은 키 재요청은 첫 응답 그대로, 다른 내용 422 `IDEMPOTENCY_KEY_REUSED`, 24시간 만료는 요청 때 정리). `net_sales`를 `recommendations.py`에서 `stock.py`로 옮겨 경고와 추천이 같은 30일 판매를 쓴다. 프런트 PR 전까지 경고가 걸리는 요청은 화면에 일반 오류 문장으로 보인다(화면 확인창·키 생성·발주서 작성 중복 클릭 가드는 프런트 PR).
 - #194 최소 주문량(백엔드+프런트 한 PR): `products.min_order_units`(발주단위 수, 선택 1~100만, 비면 제한 없음)와 발주 줄 스냅샷 `purchase_order_items.min_order_units`(마이그레이션 `e8b2d4f6a1c3`, 로컬은 `alembic upgrade head` 필요, 기존 행은 비어 있어 추천 그대로). 순수 함수가 발주단위 올림 뒤 `max(올림, MOQ)`로 한 번 더 올리고(`Recommendation.packed_units`·`order_units`·`moq_applied`), 늘어나면 이유 문구에 "최소 주문량 5BOX를 적용해 5BOX(500개)를 추천합니다. 부족분보다 486개 많습니다." 추천 응답에 `min_order_units`·`moq_applied`. 서버는 MOQ 미만 발주를 막지 않고, 화면(발주서 작성·수정, 추천 초안 만들기)이 `window.confirm`으로 확인을 받는다. 품목 폼에 "최소 주문량" 칸과 "최소 5BOX = 500EA" 미리보기, 추천 화면에 "최소 주문량 적용" 표시, 추천 화면 수량 기본값을 `recommended_order_units`로 바꿨다(재고 단위 품목도 MOQ 반영). 시나리오 S20~S23. 공급업체별 MOQ는 후순위.
 - #192 발주단위 화면(프런트 PR): 환산 표시 글자는 `app/lib/po.ts`의 `unitConversion` 하나로 만든다(입력 미리보기 "3BOX = 300EA", 표·상세 "3BOX (300EA)", 환산할 게 없으면 "3EA"로 이전과 같음). 품목 폼은 "발주단위 설정"(발주단위 이름·환산계수·발주단위 단가)과 미리보기 "1BOX = 100EA". 발주서 작성은 단위 선택 상자를 없애고 품목 설정을 따른다(단위는 표시만, 기존 재고 단위 줄은 그대로). 발주 입고의 발주단위/재고 단위 선택은 낱개 도착 때문에 유지하고 이름만 바꿨다. 직접 입고·출고·조정 라벨은 "수량 (재고 단위 EA)". 서버 오류 문장의 "박스"는 그대로(백엔드 후속).

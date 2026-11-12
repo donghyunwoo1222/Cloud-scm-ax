@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation"; // 주소의 ?status= 읽기 
 import { FormEvent, Suspense, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 배지 타입, 주소 읽는 부품 감싸기, 함수 기억, 처음·변경 시 실행, 말풍선 연결 번호, 즉시 확인용 ref, 상태
 
 import { api, apiList, Meta } from "../../lib/api"; // 공통 API 호출 함수
+import { useConfirmedPost } from "../../lib/confirmed-post"; // 멱등 키 (#190, 정정은 서버 경고가 없다)
 import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
@@ -99,6 +100,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
   const [cError, setCError] = useState<unknown>(null); // 정정 오류
   const [notice, setNotice] = useState(""); // 정정 성공 안내
   const [busy, setBusy] = useState(false); // 정정 등록 중이면 버튼을 잠근다
+  const post = useConfirmedPost(); // 같은 내용 재전송은 같은 키
   const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
   const historyRequest = useRef(0); // 품목 전환 뒤에 도착한 이전 이력 응답은 버린다
   const inventoryTitle = useRef<HTMLHeadingElement>(null); // 선택한 행이 현재 쪽에 없을 때 돌아갈 위치
@@ -182,9 +184,9 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
     sending.current = true; // 즉시 잠금
     setBusy(true); // 버튼 잠금·글자 변경
     try {
-      const r = await api<{ stock_after: number }>(`/inventory-movements/${correcting.id}/corrections`, {
-        method: "POST", body: { quantity: cQty === "" ? null : Number(cQty), reason: cReason }, // 1 이상 정수·사유 필수 검사는 서버가
-      });
+      const r = await post<{ stock_after: number }>(`/inventory-movements/${correcting.id}/corrections`,
+        { quantity: cQty === "" ? null : Number(cQty), reason: cReason }); // 1 이상 정수·사유 필수 검사는 서버가
+      if (r === null) return; // 확인창에서 취소 (정정은 서버가 경고하지 않아 실제로는 오지 않는다)
       setNotice(`정정했습니다. 현재고는 ${quantityLabel(r.stock_after, correcting.product_unit ?? undefined)}입니다.`);
       setCorrecting(null); // 폼 닫기
       setTrendRevision((revision) => revision + 1);

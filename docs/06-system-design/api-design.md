@@ -210,7 +210,7 @@
   "details": {"warnings": [{"code": "LARGE_QUANTITY", "product_id": 3, "sku": "SOLD", "quantity": 301, "sales_30d": 100, "limit": 300}]}}}
 ```
 
-직접 입출고·정정·발주 입고 POST는 선택 헤더 `Idempotency-Key`(1~100자, 화면이 요청마다 새로 만든다)를 받는다. 같은 회사·경로·키로 다시 오면 새로 저장하지 않고 첫 응답을 상태 코드까지 그대로 돌려준다(24시간 유지). 같은 키에 다른 내용은 422 `IDEMPOTENCY_KEY_REUSED`. 지문에서 `confirm_warnings`는 빼므로 "409 → 확인 후 같은 키로 재전송"은 같은 요청이다. 실패한 요청(4xx·5xx)은 키를 남기지 않는다. 헤더가 없으면 이전과 같다. 동시에 같은 키가 오면 두 번째는 첫 요청이 끝날 때까지 기다린 뒤 첫 응답을 받는다(잠금 순서: 키 → 회사 → 발주서 → 품목, 키 테이블은 erd.md). 발주서 작성(`POST /purchase-orders`)은 대상이 아니다.
+직접 입출고·정정·발주 입고 POST는 선택 헤더 `Idempotency-Key`(1~100자, 화면이 요청마다 새로 만든다)를 받는다. 같은 회사·경로·키로 다시 오면 새로 저장하지 않고 첫 응답을 상태 코드까지 그대로 돌려준다(24시간 유지). 같은 키에 다른 내용은 422 `IDEMPOTENCY_KEY_REUSED`. 지문에서 `confirm_warnings`는 빼므로 "409 → 확인 후 같은 키로 재전송"은 같은 요청이다. 실패한 요청(4xx·5xx)은 키를 남기지 않는다. 헤더가 없으면 이전과 같다. 동시에 같은 키가 오면 두 번째는 첫 요청이 끝날 때까지 기다린 뒤 첫 응답을 받는다(잠금 순서: 키 → 회사 → 발주서 → 품목, 키 테이블은 erd.md). 발주서 작성(`POST /purchase-orders`)은 대상이 아니다. 화면(`app/lib/confirmed-post.ts`)은 보낼 본문(키 순서 고정, `confirm_warnings` 제외)이 직전과 같으면 같은 키, 다르면 새 `crypto.randomUUID()`, 성공하면 키를 버리고, 409면 경고를 `window.confirm` 문장으로 보여 확인 시 같은 키로 다시 보낸다(취소하면 보내지 않고 입력 유지).
 
 ### 3) 발주 입고: POST /purchase-orders/{id}/receipts
 
