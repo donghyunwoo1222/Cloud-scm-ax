@@ -50,7 +50,18 @@ export const STATUS_LABEL: Record<PoStatus, string> = {
 // 오류 details 의 칸 이름 → 화면 이름 (422 문장 뒤에 어느 칸인지 덧붙인다)
 export const PO_LABELS = {
   supplier_id: "공급업체", due_date: "약속 납기", memo: "메모", delivery_address: "납품장소", payment_terms: "지불조건", items: "품목 줄", product_id: "품목", quantity: "수량", unit_price: "단가", movement_date: "입고일",
-  box_quantity: "발주단위 수",
+  box_quantity: "발주단위 수", reason: "취소 사유",
+};
+
+// 변경 이력 한 행 (GET /purchase-orders/{id}/change-log, #181). 서버 ChangeLogOut 과 칸 이름이 같다
+export type ChangeLog = {
+  id: number; // 이력 번호
+  field: string; // 바뀐 항목 (status, due_date, items[SKU], items[SKU].quantity …)
+  old_value: string | null; // 변경 전 값
+  new_value: string | null; // 변경 후 값
+  changed_by_name: string; // 바꾼 사람 이름 (이메일 없음)
+  reason: string | null; // 사유 (취소 때만)
+  created_at: string; // 바뀐 시각 (ISO)
 };
 
 export const MAX_ORDER_QUANTITY = 1_000_000; // 박스를 환산해도 서버의 재고 단위 상한을 지킨다
