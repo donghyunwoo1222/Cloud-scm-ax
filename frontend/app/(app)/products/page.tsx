@@ -23,6 +23,7 @@ type Product = {
   units_per_box: number | null; // 박스 한 개의 재고 단위 수량
   box_unit_cost: number | null; // 박스당 구매 단가
   order_unit: string; // 발주단위 이름 (박스 설정이 없으면 재고 단위)
+  min_order_units: number | null; // 최소 주문량(발주단위 수), 없으면 제한 없음 (#194)
   safety_stock: number; // 안전재고
   is_active: boolean; // 활성 여부
   default_supplier: { id: number; name: string; lead_time_days: number }; // 기본 공급업체 요약
@@ -30,11 +31,11 @@ type Product = {
 type SupplierOption = { id: number; name: string; lead_time_days: number; is_active: boolean }; // 활성·비활성 공급업체 선택지
 
 // 폼 입력값 (모두 글자로 다루고 보낼 때 바꾼다)
-const EMPTY = { sku: "", name: "", unit: "", color: "", size: "", spec: "", group_code: "", unit_cost: "", safety_stock: "0", default_supplier_id: "", units_per_box: "", box_unit_cost: "", order_unit: "" };
+const EMPTY = { sku: "", name: "", unit: "", color: "", size: "", spec: "", group_code: "", unit_cost: "", safety_stock: "0", default_supplier_id: "", units_per_box: "", box_unit_cost: "", order_unit: "", min_order_units: "" };
 type Form = typeof EMPTY;
 
 // 오류 details 의 칸 이름 → 화면 이름
-const LABELS = { sku: "SKU", name: "품목명", unit: "재고 단위", color: "색상", size: "사이즈", spec: "규격", group_code: "그룹 코드", unit_cost: "재고 단위 단가", safety_stock: "안전재고", default_supplier_id: "기본 공급업체", units_per_box: "환산계수", box_unit_cost: "발주단위 단가", order_unit: "발주단위" };
+const LABELS = { sku: "SKU", name: "품목명", unit: "재고 단위", color: "색상", size: "사이즈", spec: "규격", group_code: "그룹 코드", unit_cost: "재고 단위 단가", safety_stock: "안전재고", default_supplier_id: "기본 공급업체", units_per_box: "환산계수", box_unit_cost: "발주단위 단가", order_unit: "발주단위", min_order_units: "최소 주문량" };
 
 // 폼 값 → 서버로 보낼 본문 (숫자 칸은 숫자로, 비우면 null → 서버가 422. 0 이상 정수 검사는 서버가 한다)
 function toBody(form: Form) {
@@ -53,6 +54,7 @@ function toBody(form: Form) {
     units_per_box: num(form.units_per_box),
     box_unit_cost: num(form.box_unit_cost),
     order_unit: form.units_per_box === "" ? null : form.order_unit.trim() || null, // 발주단위 설정이 없으면 보내지 않는다(서버 422). 비우면 서버가 "박스"
+    min_order_units: num(form.min_order_units), // 비우면 null = 제한 없음
   };
 }
 
@@ -105,6 +107,7 @@ export default function ProductsPage() {
       units_per_box: p.units_per_box == null ? "" : String(p.units_per_box),
       box_unit_cost: p.box_unit_cost == null ? "" : String(p.box_unit_cost),
       order_unit: p.units_per_box == null ? "" : p.order_unit, // 설정이 없으면 서버가 재고 단위를 주므로 빈 칸으로
+      min_order_units: p.min_order_units == null ? "" : String(p.min_order_units),
     }; // 품목 → 폼 값
   }
 
@@ -162,8 +165,10 @@ export default function ProductsPage() {
   const activeSuppliers = suppliers.filter((s) => s.is_active); // 등록·수정 폼에서 새로 고를 수 있는 업체만 남긴다
   const currentMissing = editing && !activeSuppliers.some((s) => s.id === editing.default_supplier.id) ? editing.default_supplier : null; // 기존 연결은 수정 폼에 보여준다
 
-  const boxShown = boxOpen || form.units_per_box !== "" || form.box_unit_cost !== "" || form.order_unit !== ""; // 값이 하나라도 있으면 펼친다
+  const boxShown = boxOpen || form.units_per_box !== "" || form.box_unit_cost !== "" || form.order_unit !== "" || form.min_order_units !== ""; // 값이 하나라도 있으면 펼친다
   const factor = Number(form.units_per_box); // 미리보기용 환산계수
+  const moq = Number(form.min_order_units); // 미리보기용 최소 주문량
+  const boxed = Number.isInteger(factor) && factor >= 1; // 발주단위 설정이 있으면 발주단위, 없으면 재고 단위로 센다
   return (
     <section>
       <h1>품목</h1>
@@ -202,9 +207,13 @@ export default function ProductsPage() {
             value={form.units_per_box} onChange={(e) => set("units_per_box", e.target.value)} aria-describedby="product-box-hint" /></Field>
         <Field label="발주단위 단가(원)" short="발주단위 단가(원)" className="field-half box-field"><input type="number" inputMode="numeric" min={0} max={100_000_000} step={1} required={form.units_per_box !== ""}
             value={form.box_unit_cost} onChange={(e) => set("box_unit_cost", e.target.value)} aria-describedby="product-box-hint" /></Field>
+        <Field label={`최소 주문량 (${boxed ? "발주단위" : "재고 단위"} 수)`} short="최소 주문량" className="field-half box-field"><input type="number" inputMode="numeric" min={1} max={1_000_000} step={1}
+            value={form.min_order_units} onChange={(e) => set("min_order_units", e.target.value)} placeholder="비우면 제한 없음" aria-describedby="product-box-hint" /></Field>
         <p id="product-box-hint" className="box-hint" style={{ ...S.hint, flexBasis: "100%", margin: 0 }}>
           {Number.isInteger(factor) && factor >= 1 && form.unit.trim() !== "" && <strong>{unitConversion(1, form.order_unit.trim() || "박스", factor, form.unit.trim(), "=")} · </strong>}
           {/* 미리보기 예: "1BOX = 100EA" (발주단위를 비우면 서버가 "박스"로 저장한다) */}
+          {Number.isInteger(moq) && moq >= 1 && form.unit.trim() !== "" && <strong>최소 {unitConversion(moq, boxed ? form.order_unit.trim() || "박스" : form.unit.trim(), boxed ? factor : 1, form.unit.trim(), "=")} · </strong>}
+          {/* 최소 주문량 미리보기 예: "최소 5BOX = 500EA", 발주단위 설정이 없으면 "최소 20EA" */}
           박스·팩 등으로 구매할 때 환산계수와 단가를 채우세요. 둘 다 비워 저장하면 발주단위 설정을 해제합니다.</p>
         <div className="form-actions" style={S.buttons}>
           <button type="submit" disabled={!editing && activeSuppliers.length === 0}>{editing === null ? "등록" : "수정 저장"}</button>

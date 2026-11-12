@@ -11,6 +11,7 @@ export type ProductOption = {
   color?: string | null; size?: string | null; spec?: string | null; // 품목 옵션
   is_active: boolean; units_per_box?: number | null; box_unit_cost?: number | null;
   order_unit?: string; // 발주단위 이름 (박스 설정이 없으면 재고 단위)
+  min_order_units?: number | null; // 최소 주문량(발주단위 수, #194)
 };
 
 export function ProductPicker({ label, value, onSelect, includeInactive = false, disabled = false }: {

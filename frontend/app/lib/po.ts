@@ -15,6 +15,7 @@ export type PoItem = {
   box_quantity?: number | null; // 발주 당시 박스 수
   order_unit?: string; // 발주 당시 발주단위 이름 (박스 줄이 아니면 재고 단위, 예: BOX)
   unit_factor?: number; // 발주 당시 환산계수 (박스 줄이 아니면 1)
+  min_order_units?: number | null; // 발주 당시 최소 주문량(발주단위 수) 스냅샷 (#194)
   line_total?: number; // 서버가 계산한 줄 금액(원), 이전 API 응답에는 없을 수 있다
   received_quantity: number; // 누적 입고량 (입고 − 입고 정정)
 };

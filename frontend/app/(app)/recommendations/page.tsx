@@ -22,6 +22,8 @@ type Item = {
   reorder_point: number; recommended_quantity: number; reason: string; // 재주문점(소수), 추천 수량, 이유 문구
   units_per_box: number | null; recommended_box_quantity: number | null; // 현재 입수와 서버가 올림한 기본 박스 수
   order_unit: string; // 발주단위 이름 (박스 설정이 없으면 재고 단위, #185)
+  recommended_order_units: number; // 서버가 발주단위·최소 주문량까지 올린 발주단위 수 (#187, #194)
+  min_order_units: number | null; moq_applied: boolean; // 최소 주문량과 그 때문에 늘어났는지 (#194)
 };
 type Excluded = Options & { product_id: number; product_sku: string; product_name: string; message: string }; // 서버가 제외 사유 문장까지 내려준다
 type Draft = { id: number; po_number: string } & Pick<PoItem, "quantity" | "box_quantity" | "unit" | "order_unit" | "units_per_box">;
@@ -95,7 +97,7 @@ function Recommendations({ productId }: { productId: number | null }) {
     const edit = qty[i.product_id];
     return edit && edit.units === i.units_per_box ? edit.value : undefined;
   };
-  const quantityOf = (i: Item) => editOf(i) ?? String(i.recommended_box_quantity ?? i.recommended_quantity);
+  const quantityOf = (i: Item) => editOf(i) ?? String(i.recommended_order_units); // 기본값은 최소 주문량까지 반영한 서버 값 (#194)
   const maxFor = (i: Item) => i.units_per_box != null ? boxLimit(i.units_per_box) : MAX_ORDER_QUANTITY;
 
   async function createDrafts() {
@@ -109,6 +111,9 @@ function Recommendations({ productId }: { productId: number | null }) {
       setError(`${invalid.product_sku} 발주 수량은 1~${maxFor(invalid).toLocaleString("ko-KR")}${invalid.units_per_box != null ? invalid.order_unit : " (재고 단위)"}로 입력하세요.`);
       return;
     }
+    const belowMoq = selected.filter((i) => i.min_order_units != null && Number(quantityOf(i)) < i.min_order_units)
+      .map((i) => `- ${i.product_name}: 최소 ${i.min_order_units}${i.order_unit}, 입력 ${quantityOf(i)}${i.order_unit}`);
+    if (belowMoq.length && !window.confirm(`최소 주문량보다 적은 품목이 있습니다.\n${belowMoq.join("\n")}\n그대로 초안을 만들까요?`)) return; // 막지 않고 확인만 (#194)
     sending.current = true; // 즉시 잠금
     setBusy(true); // 버튼 잠금·"만드는 중…"
     const body = {
@@ -245,7 +250,9 @@ function Recommendations({ productId }: { productId: number | null }) {
                             {i.units_per_box != null && <> {i.order_unit}<span style={S.sub}>
                               {unitConversion(boxCount > 0 ? boxCount : 1, i.order_unit, i.units_per_box, i.unit, "=")}
                             </span></>}{/* 단위 이름은 표시만, 입력 즉시 "3BOX = 300EA" */}
-                            <span style={S.sub}>{i.units_per_box != null ? "필요 수량" : "추천"} {quantityLabel(i.recommended_quantity, i.unit)}</span>
+                            <span style={S.sub}>{i.units_per_box != null || i.moq_applied ? "필요 수량" : "추천"} {quantityLabel(i.recommended_quantity, i.unit)}</span>
+                            {i.moq_applied && <span style={S.sub}><strong>최소 주문량 적용</strong> ({i.min_order_units}{i.order_unit})</span>}
+                            {/* 부족분보다 많이 주문하게 된 이유. 늘어난 양은 근거 문구에 숫자로 있다 */}
                           </>
                         )}
                       </td>
