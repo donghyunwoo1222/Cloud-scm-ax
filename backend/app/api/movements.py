@@ -3,7 +3,7 @@
 from datetime import date  # 기간 칸
 from typing import Annotated, Literal  # 타입에 부가 정보를 붙이는 도구, 정해진 값 중 하나
 
-from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
+from fastapi import APIRouter, Query, Request  # 라우터, 쿼리 문자열 칸, 요청 경로(멱등 키)
 from sqlalchemy import func, select  # 이력에 연결된 발주 품목 조회
 
 from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
@@ -11,13 +11,18 @@ from app.db import DB  # 요청마다 DB 세션
 from app.errors import AppError  # 공통 오류
 from app.models import InventoryMovement, PurchaseOrderItem  # 발주 품목에 발주서 번호가 있다.
 from app.pagination import Page  # page·page_size
-from app.schemas.common import PathId, QueryId  # 번호 칸 (DB 범위를 넘으면 422, #71)
+from app.schemas.common import (  # 멱등 키 헤더, 번호 칸 (DB 범위를 넘으면 422, #71)
+    IdempotencyKeyHeader,
+    PathId,
+    QueryId,
+)
 from app.schemas.movements import (  # 요청·응답 모양
     CorrectionCreate,
     MovementCreate,
     MovementOut,
     MovementTypeFilter,
 )
+from app.services import idempotency  # 같은 요청 키는 한 번만 처리 (#190)
 from app.services import products as products_service  # 품목 조회
 from app.services import stock as stock_service  # 재고 업무 규칙
 
@@ -68,16 +73,19 @@ def list_movements(
 
 
 @router.post("", status_code=201)  # 직접 입고·출고·조정 등록
-def create_movement(data: MovementCreate, user: CurrentUser, db: DB) -> dict:
-    movement, stock_after = stock_service.create_movement(user.company_id, db, user.id, data)  # 재고 부족이면 409
-    db.commit()  # 요청 끝에 한 번만 확정 (잠금도 여기서 풀린다)
-    body = MovementOut.model_validate(movement).model_dump(mode="json")  # 등록된 이력
-    return {"data": {**body, "stock_after": stock_after}}  # 등록 직후 재고도 함께 (화면이 바로 숫자를 바꾸게)
+def create_movement(data: MovementCreate, user: CurrentUser, db: DB, request: Request, key: IdempotencyKeyHeader = None):
+    def work() -> dict:
+        movement, stock_after = stock_service.create_movement(user.company_id, db, user.id, data)  # 재고 부족 409, 확인 필요 409
+        body = MovementOut.model_validate(movement).model_dump(mode="json")  # 등록된 이력
+        return {"data": {**body, "stock_after": stock_after}}  # 등록 직후 재고도 함께 (화면이 바로 숫자를 바꾸게)
+    return idempotency.run(db, user.company_id, request.url.path, key, data, work)  # 요청 끝에 한 번만 확정 (잠금도 여기서 풀린다)
 
 
 @router.post("/{movement_id}/corrections", status_code=201)  # 잘못 넣은 이력 정정 (원래 이력은 고치지 않는다)
-def create_correction(movement_id: PathId, data: CorrectionCreate, user: CurrentUser, db: DB) -> dict:
-    movement, stock_after = stock_service.create_correction(user.company_id, db, user.id, movement_id, data)  # 404·409·422
-    db.commit()  # 요청 끝에 한 번만 확정 (잠금도 여기서 풀린다)
-    body = MovementOut.model_validate(movement).model_dump(mode="json")  # 등록된 정정 이력
-    return {"data": {**body, "stock_after": stock_after}}  # 응답 모양은 출고 등록과 같다
+def create_correction(movement_id: PathId, data: CorrectionCreate, user: CurrentUser, db: DB, request: Request,
+                      key: IdempotencyKeyHeader = None):
+    def work() -> dict:
+        movement, stock_after = stock_service.create_correction(user.company_id, db, user.id, movement_id, data)  # 404·409·422
+        body = MovementOut.model_validate(movement).model_dump(mode="json")  # 등록된 정정 이력
+        return {"data": {**body, "stock_after": stock_after}}  # 응답 모양은 출고 등록과 같다
+    return idempotency.run(db, user.company_id, request.url.path, key, data, work)  # 요청 끝에 한 번만 확정

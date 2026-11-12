@@ -2,13 +2,22 @@
 
 from typing import Annotated  # 타입에 부가 정보를 붙이는 도구
 
-from fastapi import APIRouter, Query, Response  # 라우터, 쿼리 문자열 칸, 파일 응답
+from fastapi import (  # 라우터, 쿼리 문자열 칸, 요청 경로(멱등 키), 파일 응답
+    APIRouter,
+    Query,
+    Request,
+    Response,
+)
 
 from app.auth.deps import AdminUser, CurrentUser  # 관리자만 / 로그인 사용자 (#22·#23)
 from app.db import DB  # 요청마다 DB 세션
 from app.errors import AppError  # 공통 오류
 from app.pagination import Page  # page·page_size
-from app.schemas.common import PathId, QueryId  # 번호 칸 (DB 범위를 넘으면 422, #71)
+from app.schemas.common import (  # 멱등 키 헤더, 번호 칸 (DB 범위를 넘으면 422, #71)
+    IdempotencyKeyHeader,
+    PathId,
+    QueryId,
+)
 from app.schemas.purchase_orders import (  # 요청 모양
     OrderEmailSend,
     PoStatus,
@@ -18,6 +27,7 @@ from app.schemas.purchase_orders import (  # 요청 모양
     ReceiptDue,
 )
 from app.services import (
+    idempotency,  # 같은 요청 키는 한 번만 처리 (#190)
     po_document,  # 발주서 문서·엑셀 (#157)
     po_mail,  # 발주서 메일 발송 (#158)
 )
@@ -119,7 +129,10 @@ def cancel_order(order_id: PathId, user: CurrentUser, db: DB) -> dict:
 
 
 @router.post("/{order_id}/receipts", status_code=201)  # 발주 입고 (ORDERED 일 때만, 부분 가능, 다 차면 RECEIVED)
-def receive_order(order_id: PathId, data: ReceiptCreate, user: CurrentUser, db: DB) -> dict:
-    order = po_service.receive_order(user.company_id, db, user.id, order_id, data)  # 404·409·422
-    db.commit()  # 요청 끝에 한 번만 확정: 여러 줄이 함께 저장된다 (발주서·품목 잠금도 여기서 풀린다)
-    return one(user, db, order)  # 갱신된 상태와 줄별 누적 입고량
+def receive_order(order_id: PathId, data: ReceiptCreate, user: CurrentUser, db: DB, request: Request,
+                  key: IdempotencyKeyHeader = None):
+    def work() -> dict:
+        order = po_service.receive_order(user.company_id, db, user.id, order_id, data)  # 404·409·422
+        db.refresh(order)  # DB 값으로 다시 읽어 시각(received_at)이 커밋 뒤 응답과 같은 모양(UTC)이 되게
+        return one(user, db, order)  # 갱신된 상태와 줄별 누적 입고량 (커밋 전에 만들어 멱등 키에 함께 저장)
+    return idempotency.run(db, user.company_id, request.url.path, key, data, work)  # 요청 끝에 한 번만 확정: 여러 줄이 함께 저장된다
