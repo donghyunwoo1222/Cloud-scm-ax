@@ -130,7 +130,10 @@ export default function Page() {
         <h2 style={{ marginTop: 0 }}>1. 파일 올리기</h2>
         <input key={inputKey} type="file" accept=".csv,.xlsx" disabled={busy} aria-label="주문 파일"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void inspect(f); else reset(null); }} />
-        {info && <p style={{ ...S.hint, marginBottom: 0 }}>{file?.name} · 데이터 {info.row_count.toLocaleString()}행</p>}
+        <p style={{ ...S.hint, marginBottom: 0 }}>
+          {info ? `${file?.name} · 데이터 ${info.row_count.toLocaleString()}행 · ` : ""}템플릿 내려받기:{" "}
+          <a href="/api/v1/import-templates/sales.xlsx" download>엑셀</a> · <a href="/api/v1/import-templates/sales.csv" download>CSV</a>
+        </p>
       </div>
 
       {info && !done && (
