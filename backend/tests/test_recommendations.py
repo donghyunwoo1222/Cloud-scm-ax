@@ -40,14 +40,14 @@ def add_move(session, world, product, mtype, direction, qty, day, key="a", rever
     return m
 
 
-def add_po(session, world, number, status, product, qty, key="a"):
+def add_po(session, world, number, status, product, qty, key="a", **fields):
     """발주서 한 장에 줄 하나 → 발주 줄 반환."""
     order = PurchaseOrder(company_id=world[f"{key}_company"].id, supplier_id=world[f"{key}_supplier"].id,
                           po_number=number, status=status, created_by=world[f"{key}_staff"].id)
     session.add(order)
     session.flush()
     line = PurchaseOrderItem(company_id=order.company_id, purchase_order_id=order.id, product_id=product.id,
-                             quantity=qty, unit_price=1000)
+                             quantity=qty, unit_price=1000, **fields)
     session.add(line)
     session.flush()
     return line
@@ -91,7 +91,7 @@ def test_s1_shortage_recommends_160(client, world, session):
         "supplier_id": world["a_supplier"].id, "supplier_name": "A업체", "unit": "개",
         "current_stock": 50, "in_transit": 0, "available": 50,
         "avg_daily_sales": 10.0, "lead_time_days": 5, "safety_stock": 20, "reorder_point": 70.0,
-        "recommended_quantity": 160,
+        "recommended_quantity": 160, "recommended_order_units": 160, "recommended_arrival_quantity": 160,  # 환산계수 1 (#187)
         "units_per_box": None, "box_unit_cost": None, "recommended_box_quantity": None,
         "order_unit": "개", "unit_factor": 1,  # 박스 설정이 없으면 재고 단위·1 (#185)
         "reason": "최근 30일 하루 평균 10개가 팔렸고 리드타임은 5일입니다. 리드타임 동안 50개가 필요하고 "
@@ -124,6 +124,21 @@ def test_s4_cancelled_order_not_counted(client, world, session):
     session.commit()
     row = item(get(client), "S4")
     assert row["in_transit"] == 0 and row["recommended_quantity"] == 160
+
+
+def test_s18_ordered_box_line_counts_in_base_units(client, world, session):
+    """S18: ORDERED 3BOX(1BOX = 100개, 줄 수량은 기본단위 300) 중 1BOX 입고 → 미입고 200개가 가용재고에 들어간다 (#187).
+
+    현재고 50 + 입고 100 = 150, 가용 150 + 200 = 350 ≤ 재주문점 10 × 5 + 300 = 350 → 부족 10 × 19 + 300 − 350 = 140개 → 2BOX(200개).
+    """
+    p = stock_50_sold_300(session, world, "S18", safety_stock=300, units_per_box=100, box_unit_cost=90_000, order_unit="BOX")
+    line = add_po(session, world, "PO-1", "ORDERED", p, 300, units_per_box=100, box_unit_price=90_000, order_unit="BOX")
+    add_move(session, world, p, "RECEIPT", "IN", 100, 2, po_item=line.id)  # 1BOX 입고
+    session.commit()
+    row = item(get(client), "S18")
+    assert (row["current_stock"], row["in_transit"], row["available"]) == (150, 200, 350)
+    assert (row["recommended_quantity"], row["recommended_order_units"], row["recommended_arrival_quantity"]) == (140, 2, 200)
+    assert (row["recommended_box_quantity"], row["order_unit"], row["unit_factor"]) == (2, "BOX", 100)
 
 
 def test_s5_no_sales_excluded(client, world, session):
