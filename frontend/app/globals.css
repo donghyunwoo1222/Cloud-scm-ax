@@ -834,10 +834,11 @@ details.reason > p {
   .fld-cost { order: 4; }
   .fld-safety { order: 5; }
   .fld-supplier { order: 6; }
-  .box-toggle { order: 7; }
-  .box-field { order: 8; }
-  .box-hint { order: 9; }
-  .form-actions { order: 10; }
+  .fld-opt { order: 7; } /* 옵션 4칸(색상·사이즈·규격·그룹 코드)은 필수 칸 뒤, 박스 설정 앞 */
+  .box-toggle { order: 8; }
+  .box-field { order: 9; }
+  .box-hint { order: 10; }
+  .form-actions { order: 11; }
 
   /* 선택 항목(박스 설정)은 접어 둔다. 한 칸이라도 값이 있으면 폼이 data-box-open="true" 로 펼쳐 둔다 */
   .form-compact:not([data-box-open="true"]) .box-field,

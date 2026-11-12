@@ -170,10 +170,10 @@ export default function ProductsPage() {
         {/* 등록·수정 폼. 모바일에서는 짧은 항목을 두 칸씩 묶고 박스 설정은 접는다(값이 하나라도 있으면 펼친다) */}
         <Field label="SKU*" className="field-half fld-sku"><input value={form.sku} onChange={(e) => set("sku", e.target.value)} /></Field>
         <Field label="품목명*" className="fld-name"><input value={form.name} onChange={(e) => set("name", e.target.value)} /></Field>
-        <Field label="색상" className="field-half"><input value={form.color} onChange={(e) => set("color", e.target.value)} maxLength={50} placeholder="검정" /></Field>
-        <Field label="사이즈" className="field-half"><input value={form.size} onChange={(e) => set("size", e.target.value)} maxLength={50} placeholder="M" /></Field>
-        <Field label="규격" className="field-half"><input value={form.spec} onChange={(e) => set("spec", e.target.value)} maxLength={50} placeholder="2L, 30롤" /></Field>
-        <Field label="그룹 코드" className="field-half"><input value={form.group_code} onChange={(e) => set("group_code", e.target.value)} maxLength={50} placeholder="같은 상품끼리 묶는 코드" /></Field>
+        <Field label="색상" className="field-half fld-opt"><input value={form.color} onChange={(e) => set("color", e.target.value)} maxLength={50} placeholder="검정" /></Field>
+        <Field label="사이즈" className="field-half fld-opt"><input value={form.size} onChange={(e) => set("size", e.target.value)} maxLength={50} placeholder="M" /></Field>
+        <Field label="규격" className="field-half fld-opt"><input value={form.spec} onChange={(e) => set("spec", e.target.value)} maxLength={50} placeholder="2L, 30롤" /></Field>
+        <Field label="그룹 코드" className="field-half fld-opt"><input value={form.group_code} onChange={(e) => set("group_code", e.target.value)} maxLength={50} placeholder="TS-BASIC" /></Field>
         {/* 옵션 4칸은 모두 선택. 같은 상품의 색·사이즈·규격마다 SKU 를 따로 만들고 그룹 코드로 묶는다 */}
         <Field label="재고 단위*" className="field-half fld-unit"><input value={form.unit} onChange={(e) => set("unit", e.target.value)} placeholder="개, 병" /></Field>
         <Field label="재고 단위 단가(원)*" short="단가(원)*" className="field-half fld-cost"><input type="number" inputMode="numeric" value={form.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} /></Field>
