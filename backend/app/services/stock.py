@@ -1,4 +1,4 @@
-"""재고 (R2·R3). 현재고 = 입출고 이력 합계. 이력을 쓰는 곳은 register_movement 하나뿐이다.
+"""재고 (R2·R3). 현재고 = 입출고 이력 합계. 이력을 쓰는 곳은 register_movement(한 줄)·register_movements(여러 줄, #211) 뿐이다.
 
 발주 입고(#35)·정정(#30)도 이 함수를 다시 써서, 음수 재고 차단과 행 잠금을 한 곳에서만 지킨다.
 저장 확정(commit)은 이 파일이 하지 않고 호출한 쪽(API 계층)이 요청 끝에 한 번만 한다.
@@ -7,7 +7,7 @@
 
 from datetime import date, timedelta  # 날짜와 기간 경계
 
-from sqlalchemy import case, func, select  # 조건 합계, 합계, SELECT 문
+from sqlalchemy import case, func, insert, select  # 조건 합계, 합계, 여러 줄 INSERT, SELECT 문
 from sqlalchemy.orm import Session, aliased  # DB 세션과 정정의 원본 이력 별칭
 
 from app.clock import (  # 입출고일 공통 검사(미래·5년 하한), 서울 기준 오늘
@@ -26,7 +26,12 @@ from app.pagination import PageParams, paginate  # 목록 쪽 나누기
 from app.schemas.movements import CorrectionCreate, MovementCreate  # 등록·정정 요청 모양
 from app.schemas.stock import StockTrendDay, StockTrendOut  # 일별 마감 재고 응답
 from app.services.recommend import SALES_WINDOW_DAYS  # 최근 30일 (추천 순수 함수와 같은 기간)
-from app.services.tenant import check_ref, get_owned, scoped  # 회사 분리 도우미 (#23)
+from app.services.tenant import (  # 회사 분리 도우미 (#23)
+    NOT_FOUND_MESSAGE,
+    check_ref,
+    get_owned,
+    scoped,
+)
 
 OUT_TYPES = {"SALE", "DISPOSAL", "OTHER_OUT"}  # 항상 줄이는 유형
 LARGE_QUANTITY_MULTIPLE = 3  # 큰 수량 경고: 최근 30일 판매의 3배 초과 (#190 임시값, 사용자 테스트 후 재검토)
@@ -223,6 +228,61 @@ def register_movement(
     db.add(movement)  # ④ 저장
     db.flush()  # DB 에 보내 id 를 받는다 (확정은 아직). 호출한 쪽의 commit 때 확정되고 잠금이 풀린다
     return movement, after
+
+
+BULK_TYPES = OUT_TYPES | {"RECEIPT"}  # 한 번에 쓸 수 있는 유형: 방향이 하나로 정해지는 것만 (조정·정정은 각자 규칙이 있어 register_movement 로)
+
+
+def register_movements(
+    company_id: int,
+    db: Session,
+    user_id: int,
+    *,
+    movement_type: str,
+    rows: list[dict],
+    sales_channel: str | None = None,
+) -> None:
+    """같은 유형의 이력 여러 줄을 한 번에 쓴다 (#211). register_movement 를 줄마다 부른 것과 결과가 같다.
+
+    rows: [{"product_id", "quantity", "movement_date", "external_ref"(선택)}, ...], 이 순서대로 저장한다(id 순서).
+    ① 품목들을 번호순으로 잠근다(이미 잡았으면 바로 통과). 이 회사 품목이 아닌 것이 섞이면 404 (check_ref 와 같은 오류)
+    ② 모든 줄을 INSERT 한 번으로 저장 ③ 저장 뒤 품목별 재고를 한 번에 다시 읽어 0 미만이면 409 (저장은 요청과 함께 취소)
+    ③이 끝에 한 번이어도 되는 이유: 한 호출 안의 줄은 방향이 모두 같아 재고가 한쪽으로만 움직인다.
+    예) 재고 10, 판매 6·4 → 4, 0. 마지막이 0 이상이면 중간도 모두 0 이상이라 줄마다 검사한 것과 판정이 같다.
+    commit 은 하지 않는다 (register_movement 와 같다).
+    """
+    if movement_type not in BULK_TYPES:
+        raise AppError(422, "VALIDATION_ERROR", "한 번에 쓸 수 없는 이력 유형입니다.", [{"field": "movement_type", "reason": "invalid"}])
+    if any(type(r["quantity"]) is not int or r["quantity"] < 1 for r in rows):  # bool·실수도 막는다
+        raise AppError(422, "VALIDATION_ERROR", "수량은 1 이상의 정수여야 합니다.", [{"field": "quantity", "reason": "invalid"}])
+    if not rows:
+        return
+    direction = "OUT" if movement_type in OUT_TYPES else "IN"
+    product_ids = {r["product_id"] for r in rows}
+    locked = db.execute(  # ① 회사 조건을 건 채 번호순 잠금: 다른 회사 품목은 결과에 나오지 않는다
+        select(Product.id).where(Product.company_id == company_id, Product.id.in_(product_ids))
+        .order_by(Product.id).with_for_update()
+    ).all()
+    if len(locked) != len(product_ids):
+        raise AppError(404, "NOT_FOUND", NOT_FOUND_MESSAGE, [{"field": "product_id", "reason": "not_found"}])
+    db.execute(insert(InventoryMovement), [  # ② 추가만 한다 (이력은 고치거나 지우지 않는다)
+        {"company_id": company_id, "product_id": r["product_id"], "created_by": user_id, "movement_type": movement_type,
+         "direction": direction, "quantity": r["quantity"], "movement_date": r["movement_date"],
+         "sales_channel": sales_channel, "external_ref": r.get("external_ref")}
+        for r in rows
+    ])
+    after = dict(db.execute(  # ③ 저장 뒤 재고 (품목 잠금 아래라 다른 요청은 끼어들지 못한다)
+        select(InventoryMovement.product_id, func.sum(movement_delta()))
+        .where(InventoryMovement.company_id == company_id, InventoryMovement.product_id.in_(product_ids))
+        .group_by(InventoryMovement.product_id)
+    ).all())
+    short = sorted(pid for pid in product_ids if after.get(pid, 0) < 0)
+    if short:
+        pid = short[0]
+        requested = sum(r["quantity"] for r in rows if r["product_id"] == pid)
+        stock = after[pid] + requested  # 저장 전 재고 (OUT 만 음수가 될 수 있다)
+        raise AppError(409, "INSUFFICIENT_STOCK", f"현재고 {stock}개보다 많이 출고할 수 없습니다.",
+                       {"current_stock": stock, "requested": requested, "product_id": pid})
 
 
 def create_movement(company_id: int, db: Session, user_id: int, data: MovementCreate) -> tuple[InventoryMovement, int]:

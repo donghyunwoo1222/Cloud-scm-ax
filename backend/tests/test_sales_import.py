@@ -6,7 +6,7 @@ from datetime import timedelta  # 날짜 빼기
 
 import pytest  # 테스트 도구
 from openpyxl import Workbook  # 엑셀 테스트 파일 만들기
-from sqlalchemy import func, select  # 개수 세기
+from sqlalchemy import event, func, select  # 쿼리 세기, 개수 세기
 
 from app.clock import seoul_today  # 서울 기준 오늘
 from app.errors import AppError  # 업무 오류
@@ -278,3 +278,101 @@ def test_commit_result_is_fixed(client, world, goods, session):
         ("O5", a2.id, 2, days_ago(1), "SALE", "OUT", "SMARTSTORE", staff),
     ]
     assert (stock(session, world["a_company"], a1), stock(session, world["a_company"], a2)) == (0, 2)
+
+
+# ---------- #211 여러 줄 한 번에 쓰기 (stock.register_movements) ----------
+
+def test_register_movements_keeps_register_movement_checks(world, goods, session):
+    """다른 회사 품목이 섞이면 404(check_ref 와 같은 오류), 수량 0 이하·정수 아님·조정/정정 유형은 422. 어느 경우든 아무것도 쓰지 않는다."""
+    company, user, mine, other = world["a_company"].id, world["a_staff"].id, goods["a"].id, goods["b"].id
+    day = seoul_today()
+    count = lambda: session.scalar(select(func.count()).select_from(InventoryMovement))
+    before = count()
+
+    def call(rows, movement_type="SALE"):
+        with pytest.raises(AppError) as e:
+            stock_service.register_movements(company, session, user, movement_type=movement_type, sales_channel="OWN_MALL", rows=rows)
+        return e.value
+
+    mixed = call([{"product_id": mine, "quantity": 1, "movement_date": day}, {"product_id": other, "quantity": 1, "movement_date": day}])
+    assert (mixed.status, mixed.code, mixed.message, mixed.details) == (
+        404, "NOT_FOUND", "대상을 찾을 수 없습니다.", [{"field": "product_id", "reason": "not_found"}])
+    for bad in (0, -1, True, 1.5):
+        e = call([{"product_id": mine, "quantity": bad, "movement_date": day}])
+        assert (e.status, e.code, e.details) == (422, "VALIDATION_ERROR", [{"field": "quantity", "reason": "invalid"}])
+    for kind in ("CORRECTION", "ADJUSTMENT", "NOPE"):
+        assert call([{"product_id": mine, "quantity": 1, "movement_date": day}], kind).details == [
+            {"field": "movement_type", "reason": "invalid"}]
+    assert count() == before
+
+
+def test_register_movements_rejects_negative_stock(engine, committed_company):
+    """저장 뒤 재고가 0 미만이면 409 이고, 요청이 취소돼 아무것도 남지 않는다 (재고 10 에 판매 6·5)."""
+    data = committed_company
+    cid, uid, pid = data["company_id"], data["admin_id"], data["product_id"]
+    run_in_new_session(engine, lambda s: stock_service.register_movement(
+        cid, s, uid, product_id=pid, movement_type="RECEIPT", direction="IN", quantity=10, movement_date=seoul_today()))
+    rows = [{"product_id": pid, "quantity": q, "movement_date": seoul_today()} for q in (6, 5)]
+    with pytest.raises(AppError) as e:
+        run_in_new_session(engine, lambda s: stock_service.register_movements(
+            cid, s, uid, movement_type="SALE", sales_channel="OWN_MALL", rows=rows))
+    assert (e.value.status, e.value.code, e.value.details) == (
+        409, "INSUFFICIENT_STOCK", {"current_stock": 10, "requested": 11, "product_id": pid})
+    assert run_in_new_session(engine, lambda s: stock_service.current_stock(cid, s, pid)) == 10
+
+
+def test_register_movements_keeps_row_order_for_5000_rows(world, goods, session):
+    """5,000줄(드라이버가 여러 묶음으로 나눠 보내는 크기)도 넘긴 순서 그대로 id 가 붙는다. 품목·날짜를 섞어 넘긴다."""
+    company, user = world["a_company"].id, world["a_staff"].id
+    pids = [goods["a"].id]
+    for n in (2, 3):
+        p = Product(company_id=company, sku=f"A-{n}", name="품목", unit="개", unit_cost=1000, default_supplier_id=world["a_supplier"].id)
+        session.add(p)
+        session.flush()
+        pids.append(p.id)
+    rows = [{"product_id": pids[i % 3], "quantity": 1 + i % 4, "movement_date": seoul_today() - timedelta(days=i % 7),
+             "external_ref": f"R{i}"} for i in range(5000)]
+    stock_service.register_movements(company, session, user, movement_type="RECEIPT", rows=rows)
+    saved = session.execute(select(InventoryMovement.external_ref, InventoryMovement.product_id, InventoryMovement.quantity)
+                            .where(InventoryMovement.company_id == company, InventoryMovement.external_ref.is_not(None))
+                            .order_by(InventoryMovement.id)).all()
+    assert [tuple(s) for s in saved] == [(r["external_ref"], r["product_id"], r["quantity"]) for r in rows]
+
+
+def test_commit_query_count_does_not_grow_with_rows(engine, world, goods, session):
+    """확정 쿼리 수는 행 수와 상관없다: 10행과 300행이 같고 10개 이하 (이전에는 행마다 3개)."""
+    company, user, pid = world["a_company"].id, world["a_staff"].id, goods["a"].id  # 측정 전에 꺼내 둔다 (만료된 객체 지연 조회 방지)
+    stock_service.register_movement(company, session, user, product_id=pid, movement_type="RECEIPT", direction="IN",
+                                    quantity=1000, movement_date=seoul_today() - timedelta(days=9))
+    session.commit()
+    opts = SalesImportOptions(**OPTS, sales_channel="OWN_MALL")
+    files = {n: csv_file(*[row(f"Q{n}-{i}", days_ago(1), "x", "A-1", 1) for i in range(n)]) for n in (10, 300)}
+    counts = {}
+    for n, content in files.items():
+        statements: list[str] = []
+
+        def listener(conn, cursor, statement, *rest, statements=statements):  # before_cursor_execute
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", listener)
+        try:
+            assert service.commit(company, session, user, "o.csv", content, opts)["imported_count"] == n
+        finally:
+            event.remove(engine, "before_cursor_execute", listener)
+        counts[n] = sum(not s.startswith(("SAVEPOINT", "RELEASE")) for s in statements)  # 세이브포인트는 테스트 틀이 넣는 문장
+    assert counts[10] == counts[300] == 8, counts  # 잠금 1 + 분석 읽기 4 + 재잠금 1 + INSERT 1 + 재고 확인 1
+
+
+def test_concurrent_imports_never_make_stock_negative(engine, committed_company):
+    """재고 10 에 서로 다른 파일(각 6개 판매)을 같은 순간 확정하면 하나만 반영되고 재고는 4 (음수가 되지 않는다)."""
+    data = committed_company
+    cid, uid, pid = data["company_id"], data["admin_id"], data["product_id"]
+    run_in_new_session(engine, lambda s: stock_service.register_movement(
+        cid, s, uid, product_id=pid, movement_type="RECEIPT", direction="IN", quantity=10, movement_date=seoul_today() - timedelta(days=9)))
+    opts = SalesImportOptions(**OPTS, sales_channel="OWN_MALL")
+    files = [csv_file(row(f"N{i}", days_ago(1), "x", "CC-1", 6)) for i in (1, 2)]
+    results = run_at_once(*[lambda content=content: run_in_new_session(
+        engine, lambda s: service.commit(cid, s, uid, "o.csv", content, opts)) for content in files])
+    assert sum(not isinstance(r, Exception) for r in results) == 1
+    assert [r.code for r in results if isinstance(r, Exception)] == ["IMPORT_HAS_PROBLEMS"]  # 잠근 뒤 다시 계산해 재고 부족 행이 된다
+    assert run_in_new_session(engine, lambda s: stock_service.current_stock(cid, s, pid)) == 4
