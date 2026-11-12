@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     smtp_from: str = ""  # SMTP_FROM: 보내는 주소 하나 (시스템 주소). 답장은 Reply-To 로 담당자에게 간다
     app_base_url: str = ""  # APP_BASE_URL: 재설정 메일 링크의 앞부분 (예: https://scm.example.com). 비면 재설정 요청은 503 (#170)
     smtp_security: str = "starttls"  # SMTP_SECURITY: starttls / ssl / none (none 은 로컬 전용)
+    # LLM 공통 호출(#180). 기본은 모두 "꺼짐": 하나라도 꺼져 있으면 LLM 을 부르지 않고 수동 입력으로 안내한다
+    llm_enabled: bool = False  # LLM_ENABLED: 전체 스위치(kill switch). false 면 즉시 끈다
+    llm_daily_calls_per_company: int = Field(0, ge=0)  # LLM_DAILY_CALLS_PER_COMPANY: 회사별 하루 호출 수. 0 = 꺼짐
+    llm_monthly_budget_usd: float = Field(0, ge=0)  # LLM_MONTHLY_BUDGET_USD: 전체 월 비용 한도(달러). 0 = 꺼짐
 
 
 settings = Settings()  # 앱 어디서나 import 해서 쓰는 설정 한 벌
