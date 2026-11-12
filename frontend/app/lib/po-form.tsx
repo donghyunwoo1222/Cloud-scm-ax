@@ -38,6 +38,9 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   ); // 품목 줄들 (수정이면 지금 줄들로 시작)
   const [error, setError] = useState<unknown>(null); // 저장 오류 (입력값은 지우지 않는다)
   const [busy, setBusy] = useState(false); // 저장 중이면 버튼을 잠그고 글자를 바꾼다
+  const [bulkBusy, setBulkBusy] = useState(false); // 기본 품목을 불러오는 중이면 버튼을 잠근다
+  const [notice, setNotice] = useState(""); // 일괄 추가 결과 안내 (건너뜀·100개 상한)
+  const [checked, setChecked] = useState(false); // 저장을 한 번 시도했는지 (수량 빈 줄 안내를 그때부터 보인다)
   const sending = useRef(false); // 상태값은 다음 화면 갱신 뒤에야 바뀌어 더블클릭을 못 막으므로, 즉시 바뀌는 ref 로 한 번 더 막는다 (#190)
 
   useEffect(() => {
@@ -81,9 +84,57 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       ...(box || lines[index].box ? { quantity: "" } : {}) });
   }
 
+  const targetSupplier = order ? String(order.supplier_id) : supplierId; // 기본 품목을 가져올 공급업체 (수정이면 발주서의 업체)
+  const pickedIds = new Set(lines.map((l) => Number(l.product_id)).filter(Boolean)); // 이미 담은 품목 번호 (선택 결과 표시용)
+  const emptyRows = lines.flatMap((l, i) => (Number(l.quantity) >= 1 ? [] : [i + 1])); // 수량이 비었거나 0인 줄 번호 (1부터)
+  const quantityProblem = checked && emptyRows.length ? `수량을 입력해 주세요: ${emptyRows.map((n) => `${n}번 줄`).join(", ")}` : ""; // 제출을 시도한 뒤에만 보이고, 고치면 바로 사라진다
+
+  // 공급업체의 기본 품목(default_supplier_id 가 그 업체인 활성 품목)을 줄로 한꺼번에 추가한다 (#195)
+  async function addDefaultItems() {
+    if (!targetSupplier || bulkBusy) return;
+    setBulkBusy(true);
+    setNotice("");
+    try {
+      const [products, recs] = await Promise.all([
+        apiList<ProductOption>(`/products?default_supplier_id=${targetSupplier}&page_size=100`), // 비활성·다른 회사 품목은 서버가 뺀다
+        api<{ items: { product_id: number; supplier_id: number; recommended_order_units: number }[] }>("/recommendations"), // 추천 전체를 받아 화면에서 거른다 (서버 필터 없음)
+      ]);
+      const recOf = new Map(recs.items.filter((r) => r.supplier_id === Number(targetSupplier)).map((r) => [r.product_id, r.recommended_order_units]));
+      const fresh = products.data.filter((p) => !pickedIds.has(p.id)); // 이미 있는 줄은 중복으로 넣지 않는다
+      const skipped = products.data.length - fresh.length;
+      fresh.sort((a, b) => Number(recOf.has(b.id)) - Number(recOf.has(a.id))); // 추천이 있는 품목을 위로 (나머지 순서는 그대로)
+      if (fresh.length >= 20 && !window.confirm(`이 공급업체의 품목 ${fresh.length}개를 추가합니다. 진행할까요?`)) return; // 취소하면 아무것도 추가하지 않는다
+      const added = fresh.map((p): Line => {
+        const { units } = packingFor(String(p.id), p);
+        const rec = recOf.get(p.id); // 추천 수량: 발주단위·최소 주문량까지 올림한 값, 없으면 비워 둔다
+        return { key: nextLineKey.current++, product_id: String(p.id), unit_price: String(p.unit_cost), box: units != null, quantity: rec != null ? String(rec) : "" };
+      });
+      setPickedProducts((picked) => ({ ...picked, ...Object.fromEntries(fresh.map((p) => [p.id, p])) }));
+      setLines((rows) => [...rows.filter((l) => l.product_id !== ""), ...added]); // 품목을 안 고른 빈 줄은 지우고 채운다
+      setNotice([
+        `${added.length}줄을 추가했습니다.`,
+        skipped ? `${skipped}개는 이미 있어 건너뜁니다.` : "",
+        products.meta.total > 100 ? `${products.meta.total}개 중 100개만 추가했습니다.` : "",
+      ].filter(Boolean).join(" "));
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  // 저장 전 수량 검사: 비었거나 0인 줄이 있으면 막고 어느 줄인지 보여 준다. 제출 버튼 클릭과 submit 양쪽에서 쓴다
+  function blockEmptyQuantity() {
+    if (!emptyRows.length) return false;
+    setChecked(true);
+    document.querySelector<HTMLInputElement>(`[data-qty-row="${emptyRows[0]}"]`)?.focus(); // 첫 문제 줄로 이동
+    return true;
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
     if (sending.current) return; // 이미 저장 중이면 두 번째 제출은 버린다
+    if (blockEmptyQuantity()) return;
     const items = lines.map((l) => ({
       product_id: num(l.product_id),
       ...(l.box ? { box_quantity: num(l.quantity) } : { quantity: num(l.quantity), unit_price: num(l.unit_price) }),
@@ -153,14 +204,14 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
             return (
             <tr key={line.key}>
               <td style={{ minWidth: 220 }}>
-                <ProductPicker label={`품목 ${index + 1}`} value={product} onSelect={(picked) => pickProduct(index, picked)} />
+                <ProductPicker label={`품목 ${index + 1}`} value={product} pickedIds={pickedIds} onSelect={(picked) => pickProduct(index, picked)} />
                 {(summary || line.box) && <span style={S.sub}>{[summary, line.box && `발주단위 ${orderUnit}`].filter(Boolean).join(" · ")}</span>}
                 {/* 고른 품목의 옵션과 발주단위를 자동으로 보여 준다 (단위는 품목 설정을 따르고 고를 수 없다) */}
               </td>
               <td style={S.num}>
                 <input type="number" inputMode="numeric" required min={1} step={1} max={line.box && units != null ? boxLimit(units) : MAX_ORDER_QUANTITY}
                   style={S.numInput} value={line.quantity} onChange={(e) => setLine(index, { quantity: e.target.value })}
-                  aria-label={`${index + 1}번 줄 ${suffix}`} />
+                  data-qty-row={index + 1} aria-invalid={checked && !(count >= 1)} aria-label={`${index + 1}번 줄 ${suffix}`} />
                 {line.box && <> {orderUnit}</>}{/* 단위 이름은 입력이 아니라 표시만 한다 */}
                 {!line.box && unit && <span style={S.sub}>재고 단위 ({unit})</span>}
                 {line.box && units != null && unit && (
@@ -194,10 +245,17 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         const key = nextLineKey.current++;
         setLines((rows) => [...rows, { ...EMPTY_LINE, key }]);
       }}>줄 추가</button>
+      {targetSupplier && <button type="button" disabled={bulkBusy} onClick={addDefaultItems}>{bulkBusy ? "불러오는 중…" : "기본 품목 추가"}</button>}
+      {/* 이 공급업체가 기본 공급업체인 활성 품목을 한 번에 추가한다. 추천이 있으면 수량도 채운다 */}
+      {emptyRows.length > 0 && (
+        <button type="button" onClick={() => setLines((rows) => rows.filter((l) => Number(l.quantity) >= 1))}>수량 빈 줄 모두 삭제</button>
+      )}{/* 수량이 비었거나 0인 줄만 지운다. 저장할 때 자동으로 빼지는 않는다 */}
+      {notice && <p role="status" style={S.hint}>{notice}</p>}
+      {quantityProblem && <p role="alert" style={S.error}>{quantityProblem}</p>}
       <p style={S.hint}>예상 합계 {estimatedAmount.toLocaleString("ko-KR")}원</p>
 
       <p style={{ ...S.buttons, marginTop: "var(--space-md)" }}>
-        <button type="submit" disabled={busy}>{busy ? "저장 중…" : order ? "변경 저장" : "초안 저장"}</button>
+        <button type="submit" disabled={busy} onClick={(e) => { if (blockEmptyQuantity()) e.preventDefault(); }}>{busy ? "저장 중…" : order ? "변경 저장" : "초안 저장"}</button>
         <Link href={order ? `/purchase-orders/${order.id}` : "/purchase-orders"} style={S.linkButtonGhost}>{order ? "발주서 상세로 돌아가기" : "발주 목록"}</Link>
       </p>
       <ErrorText error={error} labels={PO_LABELS} />
