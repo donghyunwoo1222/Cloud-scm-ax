@@ -37,6 +37,7 @@
 | --- | --- | --- | --- |
 | F1 회사·사용자 | POST /companies | 회사와 처음 관리자 계정 등록 | 누구나(로그인 전) |
 | F1 | POST /auth/login, POST /auth/logout | 로그인·로그아웃 | 누구나 |
+| F1 | POST /auth/otp/verify, POST /auth/otp/resend | 관리자 로그인 메일 인증코드 확인·재발송. 임시 토큰은 otp_pending 쿠키(브라우저가 이 경로에만 자동으로 보냄) (#179) | 비밀번호 단계를 통과한 관리자 |
 | F1 | GET /me | 내 정보·회사·역할 | 둘 다 |
 | 자동화 회사 정보 | GET /company, PATCH /company | 우리 회사 정보(사업자번호·대표자·주소·연락처) 조회·수정. 경로·본문에 회사 번호가 없고 토큰의 회사만 쓴다 (#156) | 조회 둘 다, 수정 관리자 |
 | F1 | GET /users, POST /users, PATCH /users/{id} | 직원 목록, 이메일·임시 비밀번호로 계정 생성, 역할·비활성 변경 | 관리자 |
@@ -215,6 +216,13 @@
 ```
 
 직접 입출고·정정·발주 입고 POST는 선택 헤더 `Idempotency-Key`(1~100자, 화면이 요청마다 새로 만든다)를 받는다. 같은 회사·경로·키로 다시 오면 새로 저장하지 않고 첫 응답을 상태 코드까지 그대로 돌려준다(24시간 유지). 같은 키에 다른 내용은 422 `IDEMPOTENCY_KEY_REUSED`. 지문에서 `confirm_warnings`는 빼므로 "409 → 확인 후 같은 키로 재전송"은 같은 요청이다. 실패한 요청(4xx·5xx)은 키를 남기지 않는다. 헤더가 없으면 이전과 같다. 동시에 같은 키가 오면 두 번째는 첫 요청이 끝날 때까지 기다린 뒤 첫 응답을 받는다(잠금 순서: 키 → 회사 → 발주서 → 품목, 키 테이블은 erd.md). 발주서 작성(`POST /purchase-orders`)은 대상이 아니다. 화면(`app/lib/confirmed-post.ts`)은 보낼 본문(키 순서 고정, `confirm_warnings` 제외)이 직전과 같으면 같은 키, 다르면 새 `crypto.randomUUID()`, 성공하면 키를 버리고, 409면 경고를 `window.confirm` 문장으로 보여 확인 시 같은 키로 다시 보낸다(취소하면 보내지 않고 입력 유지).
+
+### 관리자 로그인 메일 인증코드 화면 흐름 (#179)
+
+- 로그인 응답에 `otp_required: true`(+ `code_sent, message, expires_in, resend_after`)가 오면 화면은 로그인 화면 안에서 코드 입력 단계로 바꾼다. 이 응답이 없으면(직원, 유예 중 관리자) 기존처럼 바로 대시보드다.
+- 코드 확인·재발송 요청은 401이어도 로그인 화면으로 새로고침하지 않고(`redirectOn401: false`) 서버 문장을 그대로 보여 준다. 틀린 코드(`OTP_INVALID`)·만료(`OTP_EXPIRED`)는 코드 단계에 머물고, `OTP_RESTART`·`UNAUTHENTICATED`·`TOO_MANY_ATTEMPTS`는 비밀번호 단계로 돌아간다.
+- 재발송 카운트다운은 `resend_after`(또는 `OTP_RESEND_WAIT`의 `details.retry_after`)로 마감 시각을 정해 현재 시각과의 차이로 계산한다. 코드 단계는 화면 상태일 뿐이라 새로고침하면 처음 단계로 돌아간다(60초 안에 다시 로그인하면 서버가 새 메일 없이 기존 코드를 살려 준다).
+- 유예 중 관리자는 로그인 응답의 `otp_notice`를 받는다. 화면은 이 날짜 문장만 sessionStorage에 남겨 레이아웃 상단 배너로 보여 주고, 닫으면 지운다(코드·토큰·이메일은 저장하지 않는다).
 
 ### 3) 발주 입고: POST /purchase-orders/{id}/receipts
 
