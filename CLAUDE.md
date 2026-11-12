@@ -75,7 +75,7 @@ MVP 완료 기준: F1~F8 이슈 충족, 대표 시나리오 통과, 데이터 �
 - 쿠키 보안(확정): 브라우저는 Next.js 주소로만 요청하고 Next.js가 `/api/*`를 FastAPI로 전달한다(rewrites, CORS 불필요). 쿠키는 httpOnly, SameSite=Lax, 배포 환경에서 Secure. 상태를 바꾸는 요청은 POST/PATCH만 쓰고 GET은 읽기만 한다(CSRF 방어).
 - API: `/api/v1` 아래 REST, 상태 변경은 동사 경로(approve / order / cancel), 목록은 기본 20개씩 최신순
 - 구조: 서버 하나(모놀리식), `api / services / models / schemas / auth` 계층
-- AI: 규칙 기반 계산이 기본. LLM은 공통 래퍼(`app/services/llm.py`, #180)를 통해서만 호출하고 기본은 꺼짐. LLM은 계산하거나 저장하지 않고 제안만 한다
+- AI: 규칙 기반 계산이 기본. LLM은 공통 래퍼(`app/services/llm.py`, #180)를 통해서만 호출하고 기본은 꺼짐. LLM은 계산하거나 저장하지 않고 제안만 한다. 공급자는 Gemini API(무료 키로 시작). 무료 키의 입력은 구글의 학습·검수에 쓰일 수 있어 민감 데이터(실제 고객·거래처·가격 등)를 보내지 않고, 실제 고객 데이터는 결제를 연결한 유료 키에서만 쓴다
 - Cloud: GCP 또는 AWS는 미정. 7주차 배포 전에 월 비용 상한과 함께 정한다.
 - 협업: GitHub (Issues, Projects, PR)
 
