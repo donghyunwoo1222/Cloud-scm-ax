@@ -10,7 +10,11 @@ from datetime import date, timedelta  # 날짜와 기간 경계
 from sqlalchemy import case, func, select  # 조건 합계, 합계, SELECT 문
 from sqlalchemy.orm import Session, aliased  # DB 세션과 정정의 원본 이력 별칭
 
-from app.clock import seoul_today  # 서울 기준 오늘
+from app.clock import (  # 입출고일 공통 검사(미래·5년 하한), 서울 기준 오늘
+    date_problem,
+    oldest_allowed,
+    seoul_today,
+)
 from app.errors import AppError  # 공통 오류
 from app.models import (  # 입출고 이력, 품목, 발주서·발주 품목
     InventoryMovement,
@@ -21,9 +25,11 @@ from app.models import (  # 입출고 이력, 품목, 발주서·발주 품목
 from app.pagination import PageParams, paginate  # 목록 쪽 나누기
 from app.schemas.movements import CorrectionCreate, MovementCreate  # 등록·정정 요청 모양
 from app.schemas.stock import StockTrendDay, StockTrendOut  # 일별 마감 재고 응답
+from app.services.recommend import SALES_WINDOW_DAYS  # 최근 30일 (추천 순수 함수와 같은 기간)
 from app.services.tenant import check_ref, get_owned, scoped  # 회사 분리 도우미 (#23)
 
 OUT_TYPES = {"SALE", "DISPOSAL", "OTHER_OUT"}  # 항상 줄이는 유형
+LARGE_QUANTITY_MULTIPLE = 3  # 큰 수량 경고: 최근 30일 판매의 3배 초과 (#190 임시값, 사용자 테스트 후 재검토)
 
 
 def movement_delta():
@@ -79,6 +85,77 @@ def get_stock_trend(company_id: int, db: Session, product_id: int, today: date) 
     return StockTrendOut(product_id=product.id, name=product.name, sku=product.sku, unit=product.unit, days=days)
 
 
+def net_sales(company_id: int, db: Session, today: date, product_ids: list[int] | None = None) -> dict[int, int]:
+    """품목별 최근 30일 순판매 = 기간 안 SALE − 그 SALE 을 가리키는 정정 합계 (erd.md 조회 2). 한 번의 쿼리. 판매가 없으면 키 없음.
+
+    기간은 오늘 포함 30일(오늘−29일 ~ 오늘)이고 원래 SALE 의 날짜로 판단한다. 폐기·조정의 정정은 SALE 에 붙지 않아 빼지 않는다.
+    예) 오늘 11-04: 10-06 판매는 포함(오늘−29일), 10-05 판매는 제외(오늘−30일). SALE 100 + 정정 90 → 10 (S13).
+    product_ids 를 주면 그 품목만 본다(큰 수량 경고, #190). 정정은 원래 이력과 품목이 같아 같은 조건으로 줄인다.
+    """
+    only = [InventoryMovement.product_id.in_(product_ids)] if product_ids is not None else []  # 품목 조건 (없으면 회사 전체)
+    corrected = (
+        select(InventoryMovement.reverses_movement_id.label("original_id"), func.sum(InventoryMovement.quantity).label("qty"))  # 원래 이력별 정정 합계
+        .where(InventoryMovement.company_id == company_id, InventoryMovement.movement_type == "CORRECTION", *only)
+        .group_by(InventoryMovement.reverses_movement_id).subquery()
+    )
+    return {pid: int(qty) for pid, qty in db.execute(
+        select(InventoryMovement.product_id, func.sum(InventoryMovement.quantity - func.coalesce(corrected.c.qty, 0)))  # SALE마다 (수량 − 정정)
+        .outerjoin(corrected, corrected.c.original_id == InventoryMovement.id)  # 정정을 원래 SALE 에 붙인다
+        .where(
+            InventoryMovement.company_id == company_id,  # 우리 회사만 (R1)
+            InventoryMovement.movement_type == "SALE",  # 판매만 (폐기·기타 출고·조정 제외)
+            InventoryMovement.movement_date >= today - timedelta(days=SALES_WINDOW_DAYS - 1),  # 오늘−29일부터
+            InventoryMovement.movement_date <= today,  # 오늘까지
+            *only,
+        ).group_by(InventoryMovement.product_id)
+    ).all()}
+
+
+def check_movement_date(day: date, today: date, label: str) -> None:
+    """직접 입출고·발주 입고의 날짜 검사 (가져오기와 같은 date_problem). 미래이거나 5년보다 이르면 422."""
+    problem = date_problem(day, today)
+    if problem == "FUTURE_DATE":
+        message = f"{label}은 오늘 이후로 할 수 없습니다."
+    elif problem == "TOO_OLD_DATE":
+        message = f"{label}은 {oldest_allowed(today)}보다 이를 수 없습니다. 연도를 확인해 주세요."  # 예) 0202-11-01 오타
+    else:
+        return
+    raise AppError(422, "VALIDATION_ERROR", message, [{"field": "movement_date", "reason": "invalid"}])
+
+
+def movement_warnings(
+    company_id: int, db: Session, lines: list[tuple[Product, int]], today: date, *, check_inactive: bool
+) -> list[dict]:
+    """저장 전에 사용자 확인이 필요한 입력 (#190). 막지 않고 목록만 만든다. lines = [(품목, 재고 단위 수량)].
+
+    LARGE_QUANTITY: 수량 > 최근 30일 순판매 × 3 (예: 한 달 판매 300 → 900 까지는 통과, 901 부터 경고). 30일 판매 0 이면 검사하지 않는다.
+    INACTIVE_PRODUCT: 비활성 품목 (직접 입출고만. ORDERED 발주 입고는 check_inactive=False).
+    """
+    sales = net_sales(company_id, db, today, [p.id for p, _ in lines])  # 품목 id → 30일 순판매 (추천과 같은 숫자)
+    warnings = []
+    for product, quantity in lines:
+        sold = sales.get(product.id, 0)
+        if sold > 0 and quantity > sold * LARGE_QUANTITY_MULTIPLE:
+            warnings.append({"code": "LARGE_QUANTITY", "product_id": product.id, "sku": product.sku, "quantity": quantity,
+                             "sales_30d": sold, "limit": sold * LARGE_QUANTITY_MULTIPLE})
+        if check_inactive and not product.is_active:
+            warnings.append({"code": "INACTIVE_PRODUCT", "product_id": product.id, "sku": product.sku})
+    return warnings
+
+
+def require_confirmed(warnings: list[dict], confirmed: bool) -> None:
+    """경고가 있는데 사용자가 아직 확인하지 않았으면 409 CONFIRM_REQUIRED. 아무것도 저장하기 전에 부른다."""
+    if not warnings or confirmed:
+        return
+    sentences = [
+        f"{w['sku']}: 수량 {w['quantity']:,}개가 최근 30일 판매({w['sales_30d']:,}개)의 {LARGE_QUANTITY_MULTIPLE}배를 넘습니다."
+        if w["code"] == "LARGE_QUANTITY" else f"{w['sku']}: 비활성 품목입니다."
+        for w in warnings
+    ]
+    raise AppError(409, "CONFIRM_REQUIRED", "확인이 필요합니다. " + " ".join(sentences) + " 맞으면 확인 후 다시 보내 주세요.",
+                   {"warnings": warnings})
+
+
 def validate_new_movement(data: MovementCreate, today: date) -> str:
     """POST /inventory-movements 입력 규칙 검사. 통과하면 저장할 방향(IN/OUT)을 돌려준다. 어기면 422."""
 
@@ -96,8 +173,8 @@ def validate_new_movement(data: MovementCreate, today: date) -> str:
             raise invalid("reason", "재고 조정에는 사유가 필요합니다.")  # R10
     elif data.direction is not None:
         raise invalid("direction", "방향은 재고 조정에만 넣습니다. 다른 유형은 서버가 정합니다.")  # 잘못된 조합을 조용히 무시하지 않는다
-    if data.movement_date is not None and data.movement_date > today:
-        raise invalid("movement_date", "입출고일은 오늘 이후로 할 수 없습니다.")  # 아직 일어나지 않은 입출고가 재고·추천에 섞이지 않게
+    if data.movement_date is not None:
+        check_movement_date(data.movement_date, today, "입출고일")  # 미래·5년보다 이른 날짜는 422 (가져오기와 같은 규칙)
 
     if data.movement_type == "ADJUSTMENT":
         return data.direction  # 조정은 요청한 방향
@@ -152,6 +229,9 @@ def create_movement(company_id: int, db: Session, user_id: int, data: MovementCr
     """POST /inventory-movements: 직접 입고·출고 3종·조정. 비활성 품목도 허용한다(남은 재고 처리, 반품 입고)."""
     today = seoul_today()  # 서울 기준 오늘
     direction = validate_new_movement(data, today)  # 입력 규칙 검사 + 방향 결정
+    product = check_ref(company_id, db, Product, data.product_id, "product_id")  # 다른 회사·없는 품목은 404 (잠금은 register_movement 에서)
+    require_confirmed(movement_warnings(company_id, db, [(product, data.quantity)], today, check_inactive=True),
+                      data.confirm_warnings)  # 큰 수량·비활성 품목은 확인 전이면 409, 아무것도 저장하지 않는다
     return register_movement(
         company_id, db, user_id,
         product_id=data.product_id, movement_type=data.movement_type, direction=direction,

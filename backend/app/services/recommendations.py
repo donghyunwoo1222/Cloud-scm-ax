@@ -31,9 +31,11 @@ from app.services.purchase_orders import (
     received_quantities,  # 발주 줄별 누적 입고량 (입고 − 입고 정정)
 )
 from app.services.recommend import (  # 추천 계산 순수 함수와 결과 모양 (#38)
-    SALES_WINDOW_DAYS,
     Excluded,
     calculate_recommendation,
+)
+from app.services.stock import (
+    net_sales,  # 품목별 최근 30일 순판매 (큰 수량 경고와 같은 숫자를 쓰려고 stock 에 둔다, #190)
 )
 from app.services.tenant import scoped  # 회사 조건이 붙은 SELECT
 
@@ -46,29 +48,6 @@ def stock_and_first_day(company_id: int, db: Session) -> dict[int, tuple[int, da
         .where(InventoryMovement.company_id == company_id)  # 우리 회사만 (R1)
         .group_by(InventoryMovement.product_id)
     ).all()}  # 예) 입고 320 − 판매 300 − 폐기 5 = 15
-
-
-def net_sales(company_id: int, db: Session, today: date) -> dict[int, int]:
-    """품목별 최근 30일 순판매 = 기간 안 SALE − 그 SALE 을 가리키는 정정 합계 (erd.md 조회 2). 한 번의 쿼리. 판매가 없으면 키 없음.
-
-    기간은 오늘 포함 30일(오늘−29일 ~ 오늘)이고 원래 SALE 의 날짜로 판단한다. 폐기·조정의 정정은 SALE 에 붙지 않아 빼지 않는다.
-    예) 오늘 11-04: 10-06 판매는 포함(오늘−29일), 10-05 판매는 제외(오늘−30일). SALE 100 + 정정 90 → 10 (S13).
-    """
-    corrected = (
-        select(InventoryMovement.reverses_movement_id.label("original_id"), func.sum(InventoryMovement.quantity).label("qty"))  # 원래 이력별 정정 합계
-        .where(InventoryMovement.company_id == company_id, InventoryMovement.movement_type == "CORRECTION")
-        .group_by(InventoryMovement.reverses_movement_id).subquery()
-    )
-    return {pid: int(qty) for pid, qty in db.execute(
-        select(InventoryMovement.product_id, func.sum(InventoryMovement.quantity - func.coalesce(corrected.c.qty, 0)))  # SALE마다 (수량 − 정정)
-        .outerjoin(corrected, corrected.c.original_id == InventoryMovement.id)  # 정정을 원래 SALE 에 붙인다
-        .where(
-            InventoryMovement.company_id == company_id,  # 우리 회사만 (R1)
-            InventoryMovement.movement_type == "SALE",  # 판매만 (폐기·기타 출고·조정 제외)
-            InventoryMovement.movement_date >= today - timedelta(days=SALES_WINDOW_DAYS - 1),  # 오늘−29일부터
-            InventoryMovement.movement_date <= today,  # 오늘까지
-        ).group_by(InventoryMovement.product_id)
-    ).all()}
 
 
 def in_transit(company_id: int, db: Session) -> dict[int, int]:

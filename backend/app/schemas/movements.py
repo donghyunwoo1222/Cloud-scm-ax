@@ -27,6 +27,7 @@ class MovementCreate(BaseModel):
     sales_channel: SalesChannel | None = None  # 판매(SALE)일 때만 필수, 나머지는 비움
     reason: Reason | None = None  # 조정 사유 (ADJUSTMENT 필수)
     memo: Annotated[str, StringConstraints(max_length=1000)] | None = None  # 메모
+    confirm_warnings: bool = False  # 409 CONFIRM_REQUIRED 경고(큰 수량·비활성 품목)를 사용자가 확인했으면 true 로 다시 보낸다 (#190)
 
 
 class MovementOut(BaseModel):
