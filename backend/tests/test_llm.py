@@ -64,6 +64,9 @@ def on(monkeypatch, clock):
     monkeypatch.setattr(settings, "llm_enabled", True)
     monkeypatch.setattr(settings, "llm_daily_calls_per_company", 100)
     monkeypatch.setattr(settings, "llm_monthly_budget_usd", 10.0)
+    for name, value in (("llm_timeout_seconds", 8.0), ("llm_deadline_seconds", 20.0), ("llm_max_retries", 2),
+                        ("llm_retry_wait_seconds", 0.5), ("llm_max_input_chars", 20_000)):
+        monkeypatch.setattr(settings, name, value)  # 아래 숫자 예시가 환경과 관계없이 같게
     monkeypatch.setitem(llm.PROMPTS, "test", "열 이름 중 수량 열을 골라라.")
     monkeypatch.setattr(llm, "seoul_today", lambda: date(2026, 11, 12))
     yield
@@ -94,7 +97,7 @@ def test_success_returns_validated_output(on, monkeypatch, clock):
     system, user, timeout = fake.calls[0]
     assert "열 이름 중 수량 열을 골라라." in system and '"column"' in system  # 지시문과 출력 스키마는 system 에
     assert '"수량"' in user and "골라라" not in user  # 데이터는 user 에만
-    assert timeout == llm.ATTEMPT_TIMEOUT
+    assert timeout == 8.0
 
 
 @pytest.mark.parametrize("name,value", [
@@ -169,9 +172,9 @@ def test_bad_output_fails_without_retry(on, monkeypatch, clock, text):
 
 def test_too_large_input_is_not_sent(on, monkeypatch, clock):
     fake = use(monkeypatch, clock, [GOOD])
-    assert reason_of(lambda: ask(data="가" * (llm.MAX_INPUT_CHARS - 1))) == "TOO_LARGE"  # 따옴표 2자 포함 20,001자
+    assert reason_of(lambda: ask(data="가" * (settings.llm_max_input_chars - 1))) == "TOO_LARGE"  # 따옴표 2자 포함 20,001자
     assert fake.calls == []
-    assert ask(data="가" * (llm.MAX_INPUT_CHARS - 2)) == Pick(column="B")  # 딱 20,000자는 보낸다
+    assert ask(data="가" * (settings.llm_max_input_chars - 2)) == Pick(column="B")  # 딱 20,000자는 보낸다
 
 
 def test_daily_limit_per_company_resets_next_seoul_day(on, monkeypatch, clock):
@@ -255,3 +258,15 @@ def test_logs_one_line_without_raw_content(on, monkeypatch, clock, caplog):
     assert "outcome=UPSTREAM error=PermissionError" in lines[1]
     for text in (secret, "buyer@example.com", "eyJhbGciOi", "열 이름 중"):  # 원문·이메일·토큰·프롬프트
         assert text not in caplog.text
+
+
+def test_retry_count_and_wait_come_from_settings(on, monkeypatch, clock):
+    """재시도 횟수·대기는 설정값: 재시도 0 이면 1번만, 3 이면 0.2·0.4·0.8초 쉬고 4번."""
+    monkeypatch.setattr(settings, "llm_max_retries", 0)
+    fake = use(monkeypatch, clock, [LLMRetryable()])
+    assert reason_of(ask) == "UPSTREAM" and len(fake.calls) == 1
+    monkeypatch.setattr(settings, "llm_max_retries", 3)
+    monkeypatch.setattr(settings, "llm_retry_wait_seconds", 0.2)
+    fake = use(monkeypatch, clock, [LLMRetryable()])
+    assert reason_of(ask) == "UPSTREAM" and len(fake.calls) == 4
+    assert clock.sleeps == pytest.approx([0.2, 0.4, 0.8])

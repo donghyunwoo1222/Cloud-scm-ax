@@ -3,8 +3,12 @@
 원칙: LLM 은 계산하거나 저장하지 않는다. 제안만 하고, 확정은 스키마 검증 → 서버 규칙 검증 → 사용자 확인이 한다.
 LLM 에는 글자만 주고 글자만 받는다(도구·DB 접근 없음). 실패하면 모두 503 LLM_UNAVAILABLE 로 수동 입력을 안내한다.
 
-제공자 연결부는 LLMClient 모양(프로토콜)만 있다. 운영 코드에는 구현체가 없어서 client 가 None 이고, 그래서 항상 꺼져 있다.
-실제 어댑터는 제공자를 정한 뒤 별도 PR 에서 만든다(오류를 TimeoutError / LLMRetryable / 그 밖의 예외로 바꿔 던진다).
+제공자는 Gemini(app/services/llm_gemini.py)다. LLM_API_KEY 와 LLM_MODEL 이 둘 다 있을 때만 연결하고, 없으면 client 가 None 이라 꺼진다.
+기본 설정(LLM_ENABLED=false)에서는 아무 기능도 LLM 을 부르지 않아 기존 동작이 그대로다.
+
+주의(무료 키): Gemini 무료 키로 보낸 입력·출력은 구글의 제품 개선·모델 개발에 쓰이고 사람이 검수할 수 있다.
+무료 키로는 민감 데이터(실제 고객·거래처·가격, 이름·연락처·주소 등)를 보내지 않는다. 머리글·가린 견본·만든 예시만 보낸다.
+실제 고객 데이터를 보내려면 결제가 연결된 유료 키가 필요하다(키 값만 바꾸면 되고 코드는 그대로다).
 """
 
 import json  # 데이터를 글자(JSON)로 바꾼다
@@ -21,10 +25,8 @@ from app.clock import seoul_today  # 서울 기준 오늘 (일일 한도·월 �
 from app.config import settings  # LLM_* 환경 변수
 from app.errors import AppError  # 공통 오류 모양
 
-ATTEMPT_TIMEOUT = 8.0  # 한 번 시도에서 기다리는 최대 초
-DEADLINE = 20.0  # 시도·재시도 대기를 모두 합친 마감 초. 넘기면 더 시도하지 않고 TIMEOUT
-BACKOFF = (0.5, 1.0)  # 재시도 전 쉬는 초. 개수 = 최대 재시도 횟수(처음 1 + 재시도 2 = 최대 3번)
-MAX_INPUT_CHARS = 20_000  # 데이터를 JSON 으로 바꾼 글자 수 한도. 넘으면 호출하지 않는다(비용 보호)
+# 시간·횟수·크기 상한은 모두 설정(LLM_TIMEOUT_SECONDS·LLM_DEADLINE_SECONDS·LLM_MAX_RETRIES·LLM_RETRY_WAIT_SECONDS·
+# LLM_MAX_INPUT_CHARS)에서 호출할 때마다 읽는다. 예) 기본값이면 8초 시도, 0.5초·1초 쉬고 최대 3번, 전체 20초
 MESSAGE = "지금은 자동 처리를 할 수 없습니다. 직접 입력해 주세요."  # 모든 실패에 같은 문장
 
 PROMPTS: dict[str, str] = {}  # 목적 이름 → 시스템 지시문. #193·#197 이 각자 한 줄씩 추가한다
@@ -61,7 +63,6 @@ class LLMClient(Protocol):
     def complete(self, system: str, user: str, timeout: float) -> LLMReply: ...
 
 
-client: LLMClient | None = None  # 운영 구현체 없음(어댑터 PR 에서 채운다). 테스트는 가짜로 바꿔 끼운다
 
 
 class LLMUnavailable(AppError):
@@ -134,27 +135,29 @@ def ask(company_id: int, purpose: str, data, schema: type[LLMOutput]) -> LLMOutp
         if not _enabled():
             raise LLMUnavailable("DISABLED")
         payload = json.dumps(data, ensure_ascii=False)  # 데이터는 JSON 글자로만 보낸다
-        if len(payload) > MAX_INPUT_CHARS:
+        if len(payload) > settings.llm_max_input_chars:
             raise LLMUnavailable("TOO_LARGE")
         tag = f"data-{secrets.token_hex(8)}"  # 호출마다 다른 구분자: 데이터 안에 닫는 표시를 미리 써 넣어도 맞출 수 없다
         system = (f"{instruction}\n\n{GUARD.format(tag=tag)}\n"
                   f"{json.dumps(schema.model_json_schema(), ensure_ascii=False)}")  # 지시와 스키마는 system 에만
         user = f"<{tag}>\n{payload}\n</{tag}>"  # 사용자 데이터는 user 에만
+        deadline = settings.llm_deadline_seconds
+        waits = [settings.llm_retry_wait_seconds * 2**i for i in range(settings.llm_max_retries)]  # 0.5, 1, 2…
         while True:
-            remaining = DEADLINE - (now() - started)
+            remaining = deadline - (now() - started)
             if remaining <= 0:
                 raise LLMUnavailable("TIMEOUT")
             _reserve(company_id)  # 한도 검사 + 호출 수 1 증가
             attempts += 1
             try:
-                reply = client.complete(system, user, timeout=min(ATTEMPT_TIMEOUT, remaining))
+                reply = client.complete(system, user, timeout=min(settings.llm_timeout_seconds, remaining))
             except (TimeoutError, LLMRetryable) as exc:  # 다시 해 볼 만한 오류
                 error = type(exc).__name__
                 reason = "TIMEOUT" if isinstance(exc, TimeoutError) else "UPSTREAM"
-                if attempts > len(BACKOFF):
-                    raise LLMUnavailable(reason) from None  # 재시도 2번을 다 썼다
-                wait = BACKOFF[attempts - 1]
-                if now() - started + wait >= DEADLINE:
+                if attempts > len(waits):
+                    raise LLMUnavailable(reason) from None  # 재시도를 다 썼다
+                wait = waits[attempts - 1]
+                if now() - started + wait >= deadline:
                     raise LLMUnavailable("TIMEOUT") from None  # 쉬고 나면 마감을 넘긴다
                 sleep(wait)
                 continue
@@ -175,5 +178,19 @@ def ask(company_id: int, purpose: str, data, schema: type[LLMOutput]) -> LLMOutp
     finally:
         # 한 줄만 남긴다. 데이터·프롬프트·모델 출력·예외 문장·이메일·키·토큰은 남기지 않는다
         # 실패는 WARNING: 로그 설정이 없는 기본 상태(WARNING 이상만 출력)에서도 보이게 한다. 성공은 INFO
-        log.log(logging.INFO if outcome == "OK" else logging.WARNING, "llm purpose=%s company_id=%s attempts=%d latency_ms=%d outcome=%s error=%s cost_usd=%.6f",
-                 purpose, company_id, attempts, (now() - started) * 1000, outcome, error, cost)
+        log.log(logging.INFO if outcome == "OK" else logging.WARNING,
+                "llm purpose=%s company_id=%s attempts=%d latency_ms=%d outcome=%s error=%s cost_usd=%.6f",
+                purpose, company_id, attempts, (now() - started) * 1000, outcome, error, cost)
+
+
+def default_client() -> LLMClient | None:
+    """키와 모델 이름이 둘 다 있으면 Gemini 를 연결한다. 하나라도 비면 None(= 꺼짐). CI 에는 둘 다 없다."""
+    if not (settings.llm_model and settings.llm_api_key.get_secret_value()):
+        return None
+    # 함수 안에서 가져온다: llm_gemini 가 이 파일의 LLMReply 를 쓰기 때문(순환 import 방지)
+    from app.services.llm_gemini import GeminiClient
+
+    return GeminiClient()
+
+
+client: LLMClient | None = default_client()  # 앱 시작 때 한 번 정한다. 테스트는 가짜로 바꿔 끼운다
