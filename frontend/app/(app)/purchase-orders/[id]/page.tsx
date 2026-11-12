@@ -13,6 +13,7 @@ import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
 import { boxLimit, fmtDate, fmtTime, formatOrderUnitPrice, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, PoItemSort, PurchaseOrder, quantityLabel, remainingQuantity, totalAmount, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
+import { ChangeLogSection } from "./change-log"; // 변경 이력 섹션 (#181)
 import styles from "./receipt.module.css";
 
 // 상태별로 누를 수 있는 버튼: [서버 동사 경로, 버튼 이름]. 승인은 관리자만 (서버도 403 으로 막는다)
@@ -47,6 +48,9 @@ function Detail() {
   const [date, setDate] = useState(""); // 입고일 (화면이 열린 뒤 서울 오늘로 채운다)
   const [today, setToday] = useState(""); // 입고일 상한 (미래 날짜 선택 불가)
   const [company, setCompany] = useState<CompanyInfo | null>(null); // 회사 정보 (작성 중일 때만 읽는다. 못 읽으면 경고를 생략)
+  const [cancelling, setCancelling] = useState(false); // 취소 패널을 열었는지 (#181)
+  const [cancelReason, setCancelReason] = useState(""); // 취소 사유 입력 (실패해도 지우지 않는다)
+  const [logKey, setLogKey] = useState(0); // 바뀔 때마다 변경 이력을 다시 불러온다
   const [itemView, setItemView] = useState({ scope: "", ...DEFAULT_ITEM_VIEW }); // 발주서와 상태별로 표의 선택을 기억한다
 
   const load = useCallback(async () => {
@@ -82,7 +86,6 @@ function Detail() {
 
   // 승인·발주함 표시·취소: 바뀐 발주서를 돌려받아 화면에 반영한다
   async function act(action: string) {
-    if (action === "cancel" && !window.confirm("이 발주서를 취소할까요? 되돌릴 수 없습니다.")) return; // 취소는 한 번 더 확인
     if (action === "approve" && companyEmpty && !window.confirm(`${COMPANY_WARNING} 그대로 승인할까요?`)) return; // 경고와 같은 문장으로 한 번 더 확인 (취소하면 아무 일도 없다)
     try {
       setOrder(await api<PurchaseOrder>(`/purchase-orders/${id}/${action}`, { method: "POST" })); // 서버가 한 단계만 바꾼다
@@ -90,9 +93,31 @@ function Detail() {
       setNotice("");
       setReceiving(false);
       setQty({});
+      setLogKey((k) => k + 1); // 상태가 바뀌었으니 이력도 다시
     } catch (e) {
       setError(e); // 서버 문장 그대로 (INVALID_STATUS, CANNOT_CANCEL_RECEIVED, INACTIVE_REFERENCE 등)
       load(); // 다른 사람이 먼저 바꿨을 수 있으니 최신 상태로 다시 불러온다
+    }
+  }
+
+  // 취소 확정: 사유를 본문에 담아 보낸다. 발주함(ORDERED) 취소는 사유 필수(서버도 422 로 막는다). 실패하면 입력한 사유를 그대로 둔다
+  async function cancelOrder() {
+    if (sending.current) return; // 연속 클릭은 한 번만
+    sending.current = true;
+    setBusy(true);
+    const reason = cancelReason.trim();
+    try {
+      setOrder(await api<PurchaseOrder>(`/purchase-orders/${id}/cancel`, { method: "POST", body: reason ? { reason } : undefined }));
+      setError(null);
+      setCancelling(false);
+      setCancelReason(""); // 성공했을 때만 비운다
+      setLogKey((k) => k + 1); // 취소 사유가 든 이력을 다시 불러온다
+    } catch (e) {
+      setError(e); // 422·409 문장 그대로. 사유 입력은 그대로 둔다
+      load(); // 다른 사람이 먼저 바꿨을 수 있으니 최신 상태로
+    } finally {
+      sending.current = false;
+      setBusy(false);
     }
   }
 
@@ -115,6 +140,7 @@ function Detail() {
       setQty({}); // 성공했을 때만 입력값을 비운다
       setReceiving(false);
       setNotice("입고했습니다. 입고한 수량만큼 현재고가 늘었습니다.");
+      setLogKey((k) => k + 1); // 전량 입고면 상태 이력이 생긴다
     } catch (e) {
       setError(e); // 서버 문장 그대로 (OVER_RECEIPT 는 남은 수량이 들어 있다). 입력값은 지우지 않는다
     } finally {
@@ -128,6 +154,8 @@ function Detail() {
   if (!order) return <section><h1>발주서</h1><ErrorText error={error} /></section>; // 불러오기 전·실패
 
   const buttons = (ACTIONS[order.status] ?? []).filter(([action]) => (action !== "approve" || me?.role === "ADMIN") && (action !== "cancel" || !order.has_receipts)); // 담당자에게는 승인 버튼을 숨긴다
+  const cancelOpen = cancelling && buttons.some(([action]) => action === "cancel"); // 상태가 바뀌어 취소할 수 없게 되면 패널을 닫은 것으로 본다
+  const reasonRequired = order.status === "ORDERED"; // 발주함 취소만 사유 필수
   const staffDraft = order.status === "DRAFT" && me?.role !== "ADMIN"; // 담당자가 본 작성 중 발주서
   const delay = overdueDays(order, today); // 입고일에 쓰는 서울 오늘 날짜로 납기 지연도 판단한다
   const orderedStatus = order.status === "ORDERED"; // 발주함 상태에서만 미입고 필터를 보여준다
@@ -203,11 +231,27 @@ function Detail() {
         {order.status === "DRAFT" && <Link href={`/purchase-orders/${order.id}/edit`} style={S.linkButtonGhost}>수정</Link>}
         {["APPROVED", "ORDERED", "RECEIVED"].includes(order.status) && <Link href={`/purchase-orders/${order.id}/document`} style={S.linkButtonGhost}>발주서 문서</Link>}
         {/* 작성 중일 때만 수정 화면으로 간다 */}
-        {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving}
-          className={action === "cancel" ? undefined : "primary-action"} onClick={() => act(action)}>{label}</button>)}
-        {orderedStatus && !receiving && <button ref={receiptButton} className="primary-action" type="button"
+        {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving || cancelOpen || busy}
+          className={action === "cancel" ? undefined : "primary-action"} onClick={() => (action === "cancel" ? setCancelling(true) : act(action))}>{label}</button>)}
+        {orderedStatus && !receiving && <button ref={receiptButton} className="primary-action" type="button" disabled={cancelOpen}
           onClick={() => { setError(null); setNotice(""); setReceiving(true); }}>입고 등록</button>}
       </div>
+      {cancelOpen && (
+        <form style={S.sectionCard} aria-labelledby="cancel-heading" onSubmit={(e) => { e.preventDefault(); if (!busy && (!reasonRequired || cancelReason.trim())) cancelOrder(); }}>
+          <h2 id="cancel-heading" style={{ marginTop: 0 }}>발주서 취소</h2>
+          <p style={S.hint}>취소하면 되돌릴 수 없습니다.</p>
+          <label htmlFor="cancel-reason">취소 사유 {reasonRequired ? "(필수)" : "(선택)"}</label>
+          <textarea id="cancel-reason" rows={3} maxLength={500} style={{ display: "block", width: "100%" }} value={cancelReason} disabled={busy}
+            onChange={(e) => setCancelReason(e.target.value)} />
+          <span style={S.sub}>{cancelReason.length}/500자</span>
+          <ErrorText error={error} labels={PO_LABELS} />
+          <div style={S.buttons}>
+            <button type="button" disabled={busy} onClick={() => { setCancelling(false); setError(null); }}>닫기</button>
+            <button type="submit" disabled={busy || (reasonRequired && !cancelReason.trim())}>{busy ? "취소 중…" : "취소 확정"}</button>
+            {reasonRequired && !cancelReason.trim() && <span style={S.hint}>발주함 상태의 취소는 사유가 필요합니다.</span>}
+          </div>
+        </form>
+      )}
       {companyEmpty && (
         <p role="status" style={S.hint}>
           {COMPANY_WARNING}{" "}
@@ -401,7 +445,8 @@ function Detail() {
       )}
 
       {notice && <p role="status" style={S.ok}>{notice}</p>}
-      {!receiving && <ErrorText error={error} labels={PO_LABELS} />}
+      {!receiving && !cancelOpen && <ErrorText error={error} labels={PO_LABELS} />}
+      {!receiving && <ChangeLogSection orderId={id} refreshKey={logKey} />}
     </section>
   );
 }
