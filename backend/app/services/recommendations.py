@@ -19,6 +19,7 @@ from app.models import (  # 표
     PurchaseOrderItem,
     Supplier,
 )
+from app.schemas.common import MAX_ORDER_LINES  # 발주서 한 장의 줄 수 상한
 from app.schemas.recommendations import DraftCreate  # 초안 만들기 요청 모양
 from app.services.products import (
     filter_product_search,  # 재고 목록과 품목 목록이 같은 이름·SKU 검색을 쓴다
@@ -101,9 +102,29 @@ def calculate_for(
     return rows
 
 
+def drafts_by_product(company_id: int, db: Session) -> dict[int, dict]:
+    """품목 id → 그 품목이 든 작성 중(DRAFT) 발주서 요약. 쿼리 1번이고 품목·초안 수와 무관하다 (#184).
+
+    회사 조건을 줄과 발주서 양쪽에 명시한다(다른 회사 초안은 절대 안 나온다). 같은 품목이 초안 두 장에 있으면(기본 공급업체를 바꾼 경우)
+    번호가 가장 작은 초안을 쓴다(이전 화면의 목록 순회와 같은 결과).
+    """
+    rows = db.execute(
+        select(PurchaseOrderItem, PurchaseOrder.po_number)
+        .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderItem.purchase_order_id)
+        .where(PurchaseOrder.company_id == company_id, PurchaseOrderItem.company_id == company_id, PurchaseOrder.status == "DRAFT")
+        .order_by(PurchaseOrder.id.desc())  # 뒤에서 덮어쓰므로 번호가 작은 초안이 마지막에 남는다
+    ).all()
+    return {item.product_id: {
+        "purchase_order_id": item.purchase_order_id, "po_number": po_number, "quantity": item.quantity,
+        "box_quantity": item.quantity // item.units_per_box if item.units_per_box is not None else None,  # 발주 당시 입수로 환산
+        "order_unit": item.order_unit, "units_per_box": item.units_per_box,  # 발주 당시 스냅샷
+    } for item, po_number in rows}
+
+
 def list_recommendations(company_id: int, db: Session, today: date) -> dict:
     """GET /recommendations 응답 본문: items(추천)와 excluded(계산하지 않은 품목). 활성 품목만, 최신 품목 먼저. 저장하지 않는다."""
     items, excluded = [], []  # 추천 목록, 제외 목록
+    drafts = drafts_by_product(company_id, db)  # 품목별 작성 중 발주서 (없으면 draft: null)
     for product, supplier, stock, transit_qty, result in calculate_for(company_id, db, today):
         if isinstance(result, Excluded):  # 제외: 코드와 안내 문장
             excluded.append({"product_id": product.id, "product_sku": product.sku, "product_name": product.name,
@@ -126,6 +147,7 @@ def list_recommendations(company_id: int, db: Session, today: date) -> dict:
                 "min_order_units": product.min_order_units,  # 최소 주문량 (#194)
                 "moq_applied": result.moq_applied,  # 최소 주문량 때문에 늘어났는지 (화면 배지)
                 "recommended_box_quantity": result.order_units if product.units_per_box is not None else None,  # 기존 칸 유지
+                "draft": drafts.get(product.id),  # 이 품목이 든 작성 중 발주서 (없으면 null, #184)
             })
     return {"items": items, "excluded": excluded}
 
@@ -185,6 +207,9 @@ def create_drafts(company_id: int, db: Session, user_id: int, today: date, data:
         else:
             existing = set(db.scalars(select(PurchaseOrderItem.product_id).where(
                 PurchaseOrderItem.purchase_order_id == order.id)))  # 이 초안에 이미 있는 품목들
+            if len(existing) + len(lines) > MAX_ORDER_LINES:  # 합친 뒤 총 줄 수 상한 (기존 초안은 ①에서 이미 잠겨 있어 잠금 순서는 그대로, #184)
+                raise AppError(422, "VALIDATION_ERROR",
+                               f"작성 중인 발주서({order.po_number})는 품목 줄을 {MAX_ORDER_LINES:,}개까지 담을 수 있습니다(지금 {len(existing):,}줄 + 추가 {len(lines):,}줄).")
             dup = [p.sku for p, _, _ in lines if p.id in existing]
             if dup:  # 같은 품목은 한 발주서에 한 줄 (같은 요청을 두 번 보낸 경우도 여기서 막힌다)
                 raise AppError(409, "DUPLICATE_ITEM",
