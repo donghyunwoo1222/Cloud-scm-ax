@@ -13,6 +13,7 @@ from app.auth.deps import CurrentUser  # 로그인 사용자
 from app.db import DB  # 요청마다 DB 세션
 from app.errors import AppError  # 공통 오류
 from app.schemas.receipt_import import ReceiptImportOptions  # 열 지정·옵션
+from app.services import import_mapping  # LLM 열 매핑 제안 (#193)
 from app.services import receipt_import as service  # 가져오기 업무 규칙
 
 router = APIRouter(prefix="/receipt-imports")
@@ -30,6 +31,11 @@ def parse_options(options: str) -> ReceiptImportOptions:
 @router.post("/inspect")  # 1단계: 머리글·행 수·열 미리 선택 힌트 (읽기만)
 def inspect(user: CurrentUser, file: Annotated[UploadFile, File()]) -> dict:
     return {"data": service.inspect_file(*read_upload(file))}
+
+
+@router.post("/suggest")  # 1-1단계(#193): LLM 열 매핑 제안. 실패해도 200 + source "rules" (읽기만)
+def suggest(user: CurrentUser, file: Annotated[UploadFile, File()]) -> dict:
+    return {"data": import_mapping.suggest(user.company_id, "receipts", *read_upload(file))}  # 회사는 토큰에서만
 
 
 @router.post("/preview")  # 2단계: 새 품목 N개·입고 M건·건너뜀·문제 행 (읽기만)
