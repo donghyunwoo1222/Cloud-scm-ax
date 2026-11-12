@@ -77,5 +77,6 @@ class PurchaseOrderItem(CompanyMixin, Base):
     units_per_box: Mapped[int | None]  # 발주 줄 작성 당시 박스 입수
     box_unit_price: Mapped[int | None]  # 발주 줄 작성 당시 박스당 단가
     order_unit: Mapped[str | None]  # 발주 줄 작성 당시 발주단위 이름 (마스터를 바꿔도 이 줄은 그대로, #185)
+    min_order_units: Mapped[int | None]  # 발주 줄 작성 당시 최소 주문량(발주단위 수) 스냅샷 (#194)
     recommended_quantity: Mapped[int | None]  # 추천으로 만든 줄이면 당시 추천 수량
     recommendation_reason: Mapped[str | None]  # 당시 화면에 보인 이유 문장

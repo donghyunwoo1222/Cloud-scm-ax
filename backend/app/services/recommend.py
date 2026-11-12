@@ -41,13 +41,26 @@ class Recommendation:
     recommended_quantity: int | None  # 추천 수량(올림한 정수). 추천하지 않으면 None (= 부족 아님)
     reason: str | None  # 이유 문구. 추천하지 않으면 None
     unit_factor: int = 1  # 발주단위 1개 = 기본단위 몇 개 (#187, 박스 설정 없으면 1)
+    min_order_units: int | None = None  # 최소 주문량(발주단위 수, #194). 없으면 제한 없음
 
     @property
-    def order_units(self) -> int | None:
-        """발주단위 수 = ceil(추천 수량 ÷ 환산계수). 추천 수량이 이미 정수라 정수 올림이 분수 올림과 같다 (예: 230 ÷ 100 → 3)."""
+    def packed_units(self) -> int | None:
+        """MOQ 적용 전 발주단위 수 = ceil(추천 수량 ÷ 환산계수). 추천 수량이 이미 정수라 정수 올림이 분수 올림과 같다 (예: 230 ÷ 100 → 3)."""
         if self.recommended_quantity is None:
             return None
         return -(-self.recommended_quantity // self.unit_factor)  # 정수 올림 (부동소수점 없이)
+
+    @property
+    def order_units(self) -> int | None:
+        """발주단위 수 = max(발주단위 올림, 최소 주문량) (#194). 예) 부족 1BOX·MOQ 5 → 5, 부족 8BOX·MOQ 5 → 8."""
+        if self.packed_units is None:
+            return None
+        return max(self.packed_units, self.min_order_units or 0)
+
+    @property
+    def moq_applied(self) -> bool:
+        """최소 주문량 때문에 발주단위 수가 늘어났는지 (같으면 늘어난 게 아니다)."""
+        return self.packed_units is not None and self.order_units > self.packed_units
 
     @property
     def arrival_quantity(self) -> int | None:
@@ -68,6 +81,7 @@ def calculate_recommendation(
     cycle: int = REPLENISH_CYCLE_DAYS,  # 보충 주기(일)
     unit_factor: int = 1,  # 환산계수 (발주단위 1개 = 기본단위 몇 개, #187)
     order_unit: str | None = None,  # 발주단위 이름 (예: 박스). 환산계수가 1보다 클 때 이유 문구에 쓴다
+    min_order_units: int | None = None,  # 최소 주문량(발주단위 수, #194). None 이면 제한 없음
 ) -> Recommendation | Excluded:
     """품목 하나의 추천을 계산한다. 같은 입력이면 항상 같은 결과를 돌려준다."""
     # 제외 검사: 위에서부터 먼저 걸린 하나만 돌려준다 (MISSING_INFO → INSUFFICIENT_DATA → NO_SALES_30D, 확정)
@@ -97,12 +111,15 @@ def calculate_recommendation(
         f"리드타임 동안 {_num(lead_demand)}{unit}가 필요하고 안전재고 {safety_stock}{unit}를 더하면 {_num(reorder_point)}{unit}입니다. "
         f"지금 가용재고는 {available}{unit}라서 발주를 추천합니다. 추천 수량은 {quantity}{unit}입니다."
     )  # 예) 하루 평균 10개 … 50개가 필요 … 70개입니다. 가용재고는 50개 … 추천 수량은 160개입니다.
-    result = Recommendation(avg, available, reorder_point, quantity, reason, unit_factor)
-    if unit_factor > 1:  # 마지막 단계: 발주단위 배수로 올림 (환산계수 1이면 문구도 그대로)
-        result = Recommendation(avg, available, reorder_point, quantity, reason + (
-            f" 발주단위로 올림하면 {result.order_units}{order_unit or '박스'}({result.arrival_quantity}{unit})입니다."
-        ), unit_factor)  # 예) 부족 230개 → 3박스(300개)
-    return result
+    result = Recommendation(avg, available, reorder_point, quantity, reason, unit_factor, min_order_units)
+    label = (order_unit or "박스") if unit_factor > 1 else unit  # 발주단위 이름 (환산계수 1이면 재고 단위)
+    if unit_factor > 1:  # 발주단위 배수로 올림 (환산계수 1이면 문구도 그대로)
+        reason += f" 발주단위로 올림하면 {result.packed_units}{label}({result.packed_units * unit_factor}{unit})입니다."  # 예) 부족 230개 → 3박스(300개)
+    if result.moq_applied:  # 마지막 단계: 최소 주문량까지 올림. 늘어난 양을 숫자로 알린다 (#194)
+        arrival = f"({result.arrival_quantity}{unit})" if unit_factor > 1 else ""  # 환산계수 1이면 괄호 환산은 같은 숫자라 뺀다
+        reason += (f" 최소 주문량 {min_order_units}{label}를 적용해 {result.order_units}{label}{arrival}를 추천합니다."
+                   f" 부족분보다 {result.arrival_quantity - quantity}{unit} 많습니다.")  # 예) 부족 120개 → 5박스(500개), 380개 많음
+    return Recommendation(avg, available, reorder_point, quantity, reason, unit_factor, min_order_units)
 
 
 def stock_status(result: Recommendation | Excluded) -> str:

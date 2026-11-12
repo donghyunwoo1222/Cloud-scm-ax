@@ -116,6 +116,7 @@ def calculate_for(
             sales_30d=sales.get(product.id, 0), stock=stock, in_transit=transit.get(product.id, 0),
             lead_time=supplier.lead_time_days, safety_stock=product.safety_stock, unit=product.unit,
             unit_factor=product.units_per_box or 1, order_unit=product.order_unit,  # 발주단위 올림 (#187)
+            min_order_units=product.min_order_units,  # 최소 주문량까지 올림 (#194)
         )
         rows.append((product, supplier, stock, transit.get(product.id, 0), result))
     return rows
@@ -143,6 +144,8 @@ def list_recommendations(company_id: int, db: Session, today: date) -> dict:
                 "order_unit": product.order_unit or product.unit, "unit_factor": product.units_per_box or 1,  # #185
                 "recommended_order_units": result.order_units,  # 발주단위 수 (예: 230개, 1박스=100 → 3, #187)
                 "recommended_arrival_quantity": result.arrival_quantity,  # 도착 수량(기본단위, 예: 300)
+                "min_order_units": product.min_order_units,  # 최소 주문량 (#194)
+                "moq_applied": result.moq_applied,  # 최소 주문량 때문에 늘어났는지 (화면 배지)
                 "recommended_box_quantity": result.order_units if product.units_per_box is not None else None,  # 기존 칸 유지
             })
     return {"items": items, "excluded": excluded}
