@@ -115,13 +115,10 @@ def calculate_for(
             today=today, first_movement_date=first_day, supplier_active=supplier.is_active,
             sales_30d=sales.get(product.id, 0), stock=stock, in_transit=transit.get(product.id, 0),
             lead_time=supplier.lead_time_days, safety_stock=product.safety_stock, unit=product.unit,
+            unit_factor=product.units_per_box or 1, order_unit=product.order_unit,  # 발주단위 올림 (#187)
         )
         rows.append((product, supplier, stock, transit.get(product.id, 0), result))
     return rows
-
-
-def boxes_for(quantity: int, units_per_box: int) -> int:
-    return (quantity + units_per_box - 1) // units_per_box  # 정수 올림: 27개 ÷ 10개 → 3박스
 
 
 def list_recommendations(company_id: int, db: Session, today: date) -> dict:
@@ -143,11 +140,10 @@ def list_recommendations(company_id: int, db: Session, today: date) -> dict:
                 "reorder_point": float(result.reorder_point),  # 예: 70.0, 19/6 → 3.1666…
                 "recommended_quantity": result.recommended_quantity, "reason": result.reason,
                 "units_per_box": product.units_per_box, "box_unit_cost": product.box_unit_cost,
-                "order_unit": product.order_unit or product.unit, "unit_factor": product.units_per_box or 1,  # #185, 올림은 #187
-                "recommended_box_quantity": (
-                    boxes_for(result.recommended_quantity, product.units_per_box)
-                    if product.units_per_box is not None else None
-                ),
+                "order_unit": product.order_unit or product.unit, "unit_factor": product.units_per_box or 1,  # #185
+                "recommended_order_units": result.order_units,  # 발주단위 수 (예: 230개, 1박스=100 → 3, #187)
+                "recommended_arrival_quantity": result.arrival_quantity,  # 도착 수량(기본단위, 예: 300)
+                "recommended_box_quantity": result.order_units if product.units_per_box is not None else None,  # 기존 칸 유지
             })
     return {"items": items, "excluded": excluded}
 
@@ -186,7 +182,7 @@ def create_drafts(company_id: int, db: Session, user_id: int, today: date, data:
         if line.quantity is None and box_quantity is None:  # 수량 생략 시 박스 기본값을 서버가 다시 계산한다
             if product.units_per_box is None:
                 raise AppError(422, "VALIDATION_ERROR", "박스 입수가 없는 품목에는 quantity를 보내세요.")
-            box_quantity = boxes_for(result.recommended_quantity, product.units_per_box)
+            box_quantity = result.order_units  # 순수 함수가 올림한 발주단위 수 (#187)
         values = order_item_values(product, line.quantity, product.unit_cost, box_quantity)
         by_supplier[supplier.id].append((product, result, values))
         suppliers[supplier.id] = supplier

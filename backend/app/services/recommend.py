@@ -40,6 +40,19 @@ class Recommendation:
     reorder_point: Fraction  # 재주문점, 분수 그대로 (예: 19/6 = 3.17)
     recommended_quantity: int | None  # 추천 수량(올림한 정수). 추천하지 않으면 None (= 부족 아님)
     reason: str | None  # 이유 문구. 추천하지 않으면 None
+    unit_factor: int = 1  # 발주단위 1개 = 기본단위 몇 개 (#187, 박스 설정 없으면 1)
+
+    @property
+    def order_units(self) -> int | None:
+        """발주단위 수 = ceil(추천 수량 ÷ 환산계수). 추천 수량이 이미 정수라 정수 올림이 분수 올림과 같다 (예: 230 ÷ 100 → 3)."""
+        if self.recommended_quantity is None:
+            return None
+        return -(-self.recommended_quantity // self.unit_factor)  # 정수 올림 (부동소수점 없이)
+
+    @property
+    def arrival_quantity(self) -> int | None:
+        """도착 수량(기본단위) = 발주단위 수 × 환산계수 (예: 3박스 × 100 = 300). 항상 환산계수의 정수배."""
+        return None if self.order_units is None else self.order_units * self.unit_factor
 
 
 def calculate_recommendation(
@@ -53,6 +66,8 @@ def calculate_recommendation(
     safety_stock: int,  # 품목의 안전재고
     unit: str = "개",  # 이유 문구에는 품목의 실제 재고 단위를 붙인다.
     cycle: int = REPLENISH_CYCLE_DAYS,  # 보충 주기(일)
+    unit_factor: int = 1,  # 환산계수 (발주단위 1개 = 기본단위 몇 개, #187)
+    order_unit: str | None = None,  # 발주단위 이름 (예: 박스). 환산계수가 1보다 클 때 이유 문구에 쓴다
 ) -> Recommendation | Excluded:
     """품목 하나의 추천을 계산한다. 같은 입력이면 항상 같은 결과를 돌려준다."""
     # 제외 검사: 위에서부터 먼저 걸린 하나만 돌려준다 (MISSING_INFO → INSUFFICIENT_DATA → NO_SALES_30D, 확정)
@@ -68,21 +83,26 @@ def calculate_recommendation(
     lead_demand = avg * lead_time  # 리드타임 동안 팔릴 양 (예: 10 × 5 = 50)
     reorder_point = lead_demand + safety_stock  # 재주문점 (예: 50 + 20 = 70)
     if available > reorder_point:  # 가용재고가 재주문점보다 크면 (같으면 추천한다)
-        return Recommendation(avg, available, reorder_point, None, None)  # 계산 숫자만 돌려주고 추천은 없음 (S2, S3)
+        return Recommendation(avg, available, reorder_point, None, None, unit_factor)  # 계산 숫자만 돌려주고 추천은 없음 (S2, S3)
 
     raw = avg * (lead_time + cycle) + safety_stock - available  # 올림 전 추천 수량 (예: 10 × (5 + 14) + 20 − 50 = 160)
     quantity = math.ceil(raw)  # 마지막에만 올림 (예: 7/30 × 19 + 2 − 0 = 6.43 → 7)
     # 여기까지 오면 raw = avg × cycle + (재주문점 − 가용재고) 이고 avg > 0, 재주문점 ≥ 가용재고라 항상 1 이상이다.
     # 이슈 본문의 "0 이하면 추천 없음"은 cycle 을 0 이하로 바꿀 때를 대비한 방어 줄로 남긴다.
     if quantity <= 0:
-        return Recommendation(avg, available, reorder_point, None, None)
+        return Recommendation(avg, available, reorder_point, None, None, unit_factor)
 
     reason = (  # 정해진 문장 틀에 계산 숫자만 끼워 넣는다 (LLM 아님, 확정)
         f"최근 30일 하루 평균 {_num(avg)}{unit}가 팔렸고 리드타임은 {lead_time}일입니다. "
         f"리드타임 동안 {_num(lead_demand)}{unit}가 필요하고 안전재고 {safety_stock}{unit}를 더하면 {_num(reorder_point)}{unit}입니다. "
         f"지금 가용재고는 {available}{unit}라서 발주를 추천합니다. 추천 수량은 {quantity}{unit}입니다."
     )  # 예) 하루 평균 10개 … 50개가 필요 … 70개입니다. 가용재고는 50개 … 추천 수량은 160개입니다.
-    return Recommendation(avg, available, reorder_point, quantity, reason)
+    result = Recommendation(avg, available, reorder_point, quantity, reason, unit_factor)
+    if unit_factor > 1:  # 마지막 단계: 발주단위 배수로 올림 (환산계수 1이면 문구도 그대로)
+        result = Recommendation(avg, available, reorder_point, quantity, reason + (
+            f" 발주단위로 올림하면 {result.order_units}{order_unit or '박스'}({result.arrival_quantity}{unit})입니다."
+        ), unit_factor)  # 예) 부족 230개 → 3박스(300개)
+    return result
 
 
 def stock_status(result: Recommendation | Excluded) -> str:

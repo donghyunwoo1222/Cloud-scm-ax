@@ -256,7 +256,7 @@
 
 `avg_daily_sales`와 `reorder_point`는 소수 그대로 계산하고, `recommended_quantity`만 올림한 정수다. 예) 30일 판매 7, 리드타임 5, 안전재고 2, 가용재고 0 → 일평균 0.233…, 재주문점 3.17, 추천 수량 6.43 → 7(S12). 화면과 이유 문구에서는 일평균을 소수 첫째 자리까지 보여준다. 이유 문구는 AX 설계 문서의 문장 틀에 계산 숫자만 끼워 넣는다(확정, LLM은 C1).
 
-박스 설정 품목의 추천에는 현재 `units_per_box`, `box_unit_cost`, `recommended_box_quantity`를 함께 반환한다(#110). 27개를 10개입으로 발주할 때 `recommended_quantity`는 27이고 `recommended_box_quantity`는 3이다. 박스 설정이 없는 품목은 추가 세 칸이 null이다.
+박스 설정 품목의 추천에는 현재 `units_per_box`, `box_unit_cost`, `recommended_box_quantity`를 함께 반환한다(#110). 27개를 10개입으로 발주할 때 `recommended_quantity`는 27이고 `recommended_box_quantity`는 3이다. 박스 설정이 없는 품목은 추가 세 칸이 null이다. 모든 추천에는 `recommended_order_units`(발주단위 수, 27개 ÷ 10 → 3)와 `recommended_arrival_quantity`(도착 수량, 3 × 10 = 30)도 함께 반환한다(#187). 박스 설정이 없으면 환산계수 1이라 두 칸 모두 `recommended_quantity`와 같다.
 
 ### 6) 추천으로 초안 만들기: POST /recommendations/drafts
 

@@ -97,6 +97,47 @@ def test_s14_insufficient_data_wins_over_no_sales():
     assert r.code == "INSUFFICIENT_DATA"
 
 
+# ----- 발주단위 올림 S15~S19 (#187): 기본단위로 계산한 뒤 마지막에 발주단위 배수로 올린다 -----
+
+def test_s15_shortage_230_becomes_3_boxes():
+    """S15: 부족 230개(안전재고 40, 가용 0: 10 × 19 + 40 − 0), 1BOX = 100개 → 3BOX, 도착 300개 (70개 더 온다)."""
+    r = calc(safety_stock=40, stock=0, unit_factor=100, order_unit="BOX")
+    assert (r.recommended_quantity, r.order_units, r.arrival_quantity) == (230, 3, 300)
+    assert r.reason.endswith("추천 수량은 230개입니다. 발주단위로 올림하면 3BOX(300개)입니다.")
+
+
+def test_s16_exact_multiple_is_not_over_ceiled():
+    """S16: 부족 200개(가용 30), 1BOX = 100개 → 2BOX, 도착 200개 (나누어떨어지면 더 올리지 않는다)."""
+    r = calc(safety_stock=40, stock=30, unit_factor=100, order_unit="BOX")
+    assert (r.recommended_quantity, r.order_units, r.arrival_quantity) == (200, 2, 200)
+
+
+def test_s17_factor_1_is_unchanged():
+    """S17: 환산계수 1이면 결과가 변경 전과 완전히 같다 (S1 160, S12 7, 이유 문구 포함)."""
+    assert calc(unit_factor=1, order_unit="개") == calc()
+    s1, s12 = calc(unit_factor=1), calc(unit_factor=1, sales_30d=7, safety_stock=2, stock=0)
+    assert (s1.order_units, s1.arrival_quantity, s12.order_units, s12.arrival_quantity) == (160, 160, 7, 7)
+    assert "발주단위" not in s1.reason
+
+
+def test_s19_large_factor_bag_25000g():
+    """S19: 1BAG = 25000g, 부족 25001g(안전재고 24811, 가용 0) → 2BAG, 도착 50000g. 1g 넘으면 한 봉지 더."""
+    r = calc(safety_stock=24811, stock=0, unit="g", unit_factor=25000, order_unit="BAG")
+    assert (r.recommended_quantity, r.order_units, r.arrival_quantity) == (25001, 2, 50000)
+
+
+def test_fraction_ceil_then_order_unit():
+    """분수 → 추천 수량 올림 → 발주단위 올림: S12 6.43 → 7개, 1팩 = 5개 → 2팩(10개). 부동소수점을 쓰지 않는다."""
+    r = calc(sales_30d=7, safety_stock=2, stock=0, unit_factor=5)
+    assert (r.recommended_quantity, r.order_units, r.arrival_quantity) == (7, 2, 10)
+
+
+def test_no_recommendation_has_no_order_units():
+    """추천하지 않는 품목(S2)은 발주단위 수·도착 수량도 None."""
+    r = calc(stock=150, unit_factor=100)
+    assert (r.order_units, r.arrival_quantity) == (None, None)
+
+
 # ----- 경계와 우선순위 -----
 
 def test_available_equal_reorder_point_recommends():
