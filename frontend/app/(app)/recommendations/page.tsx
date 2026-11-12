@@ -4,7 +4,7 @@ import Link from "next/link"; // 발주서 상세 링크
 import { useSearchParams } from "next/navigation"; // 대시보드에서 선택한 품목 번호
 import { Fragment, Suspense, useCallback, useEffect, useRef, useState } from "react"; // 주소를 읽는 화면과 추천 상태
 
-import { ApiError, api, apiList } from "../../lib/api"; // 공통 API 호출 함수·오류 종류
+import { ApiError, api } from "../../lib/api"; // 공통 API 호출 함수·오류 종류
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
 import { Options, skuWithOptions } from "../../lib/options"; // 품목 옵션 요약
 import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PoItem, PurchaseOrder, quantityLabel, unitConversion } from "../../lib/po"; // 발주서와 발주단위 환산 표시
@@ -17,6 +17,7 @@ type Item = {
   product_id: number; product_sku: string; product_name: string; // 품목
   color?: string | null; size?: string | null; spec?: string | null; // 품목 옵션
   supplier_id: number; supplier_name: string; unit: string; // 기본 공급업체
+  draft: (Pick<Draft, "quantity" | "box_quantity" | "order_unit" | "units_per_box"> & { purchase_order_id: number; po_number: string }) | null; // 이 품목이 든 작성 중 발주서 (서버가 내려준다, #184)
   current_stock: number; in_transit: number; available: number; // 현재고, 발주 진행 중, 가용재고(= 둘의 합)
   avg_daily_sales: number; lead_time_days: number; safety_stock: number; // 일평균(소수), 리드타임, 안전재고
   reorder_point: number; recommended_quantity: number; reason: string; // 재주문점(소수), 추천 수량, 이유 문구
@@ -32,7 +33,7 @@ type Created = PurchaseOrder & { created: boolean }; // 초안 만들기 응답 
 const REASON_TEXT: Record<string, string> = {
   ENOUGH_STOCK: "지금은 재고가 충분합니다", INSUFFICIENT_DATA: "기록이 14일이 안 됩니다", NO_SALES_30D: "최근 30일 판매가 없습니다",
 }; // NOT_RECOMMENDED 의 품목별 사유 → 문장
-const MAX_ITEMS = 100; // 한 요청에 보낼 수 있는 품목 수 (서버 상한)
+const MAX_ITEMS = 1000; // 한 요청에 보낼 수 있는 품목 수 (서버 상한, #184)
 
 // 소수는 첫째 자리까지, 정수는 그대로 (예: 0.2333 → "0.2", 70 → "70"). 서버 이유 문구와 같은 방식
 const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
@@ -65,15 +66,12 @@ function Recommendations({ productId }: { productId: number | null }) {
   const load = useCallback(async () => {
     setLoadError(null); // 다시 시도하면 오류 문장을 지운다
     try {
-      const [rec, draftList] = await Promise.all([
-        api<{ items: Item[]; excluded: Excluded[] }>("/recommendations"), // 추천은 요청할 때 서버가 계산한다
-        // shortcut: 작성 중 발주서 100장까지만 본다(업체당 DRAFT 1장이라 업체 100곳까지). 넘으면 API 에 칸을 붙인다
-        apiList<PurchaseOrder>("/purchase-orders?status=DRAFT&page_size=100"),
-      ]);
+      const rec = await api<{ items: Item[]; excluded: Excluded[] }>("/recommendations"); // 추천은 요청할 때 서버가 계산한다 (초안 여부도 품목마다 함께 온다)
       const map: Record<number, Draft> = {}; // 품목 id → 작성 중 발주서
-      for (const o of draftList.data) { // 조회한 초안에서 품목별로 표시할 값을 찾는다
-        for (const i of o.items) map[i.product_id] = {
-          id: o.id, po_number: o.po_number, quantity: i.quantity, box_quantity: i.box_quantity, unit: i.unit, order_unit: i.order_unit, units_per_box: i.units_per_box,
+      for (const i of rec.items) { // 서버가 준 draft 를 화면이 쓰던 모양으로 옮긴다
+        if (i.draft) map[i.product_id] = {
+          id: i.draft.purchase_order_id, po_number: i.draft.po_number, quantity: i.draft.quantity, box_quantity: i.draft.box_quantity,
+          unit: i.unit, order_unit: i.draft.order_unit, units_per_box: i.draft.units_per_box,
         }; // 저장된 수량과 단위를 그대로 쓴다
       }
       setItems(productId === null ? rec.items : rec.items.filter((i) => i.product_id === productId));
