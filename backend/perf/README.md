@@ -4,7 +4,7 @@
 
 ## 실행 방법
 
-`backend/` 폴더에서 (로컬 Docker DB가 5433 포트로 떠 있어야 하고, 표는 pytest를 한 번 돌려 만들어 둔 `scm_test`에 있어야 한다):
+`backend/` 폴더에서 (로컬 Docker DB가 5433 포트로 떠 있어야 하고, 표는 pytest를 한 번 돌려 만들어 둔 `scm_test`에 있어야 한다). 다른 작업과 겹치지 않게 `scm_test_<이름>` 전용 DB(예: `scm_test_sales_import`)도 쓸 수 있다(#211, pytest와 같은 이름 규칙). 그 DB를 `TEST_DATABASE_URL`로 pytest를 한 번 돌려 표를 만든 뒤 아래 주소의 DB 이름만 바꾼다:
 
 ```bash
 DATABASE_URL=postgresql+psycopg://scm:scm_local_pw@localhost:5433/scm_test \
@@ -12,13 +12,13 @@ SECRET_KEY=ci-only-test-secret-not-used-anywhere-else \
 python -X utf8 -m perf.measure_scale
 ```
 
-- 약 8~10분 걸린다(가짜 데이터 만들기 약 2분, 판매 가져오기 확정 5,000행 × 4회가 가장 오래 걸림). 결과는 화면에 마크다운 표로 나온다. 파일로 남기려면 `> result.txt`를 붙인다.
+- #211 전에는 약 8~10분 걸렸다(판매 가져오기 확정 5,000행 × 3회가 대부분). #211 뒤에는 확정이 회당 약 1초라 그만큼 짧아진다(전체 시간은 다시 재지 않았다). 결과는 화면에 마크다운 표로 나온다. 파일로 남기려면 `> result.txt`를 붙인다.
 - 느린 문장의 EXPLAIN도 함께 보려면 끝에 `--explain-all`을 붙인다.
 
 ## 반드시 지킬 것
 
 - **측정하는 동안 pytest를 돌리지 않는다.** pytest는 시작할 때 `scm_test`의 표를 모두 지우고 다시 만든다. 같이 돌면 측정이 깨진다.
-- **개발 DB(`scm`)에는 쓰지 않는다.** 스크립트는 DB 이름이 정확히 `scm_test`가 아니면 아무것도 하지 않고 멈춘다. 표를 만들거나 지우는 코드(`reset_database`, `downgrade`)도 쓰지 않는다.
+- **개발 DB(`scm`)에는 쓰지 않는다.** 스크립트는 DB 이름이 `scm_test` 또는 `scm_test_<이름>`이 아니면 아무것도 하지 않고 멈춘다. 표를 만들거나 지우는 코드(`reset_database`, `downgrade`)도 쓰지 않는다.
 - `seed.py`와 상관없다. 스크립트가 만드는 회사는 이름이 `__perf__`로 시작하는 2곳뿐이다.
 
 ## 무엇을 하나

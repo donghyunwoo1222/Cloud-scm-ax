@@ -10,6 +10,7 @@
 import csv
 import io
 import json
+import re
 import statistics
 import sys
 import time
@@ -46,13 +47,13 @@ TABLES = (Company, User, Supplier, Product, PurchaseOrder, PurchaseOrderItem, In
 
 
 def guard() -> None:
-    """DB 이름이 정확히 scm_test 가 아니면 멈춘다. 표가 없으면 안내하고 멈춘다 (표를 만들거나 지우는 코드는 쓰지 않는다)."""
+    """DB 이름이 scm_test 또는 scm_test_<이름>(pytest 와 같은 규칙, #211)이 아니면 멈춘다. 표가 없으면 안내하고 멈춘다 (표를 만들거나 지우는 코드는 쓰지 않는다)."""
     name = make_url(settings.database_url).database
-    if name != "scm_test":
-        sys.exit(f"DB 이름이 scm_test 가 아닙니다({name!r}). 아무것도 하지 않고 멈춥니다.")
+    if name is None or re.fullmatch(r"scm_test(_[a-z0-9_]+)?", name) is None:  # tests/conftest.py 의 is_test_db_name 과 같은 규칙
+        sys.exit(f"DB 이름이 scm_test 또는 scm_test_<이름> 이 아닙니다({name!r}). 아무것도 하지 않고 멈춥니다.")
     with engine.connect() as conn:
         if conn.scalar(text("SELECT to_regclass('public.inventory_movements')")) is None:
-            sys.exit("scm_test 에 표가 없습니다. pytest 를 한 번 돌려 표를 만든 뒤 다시 실행하세요.")
+            sys.exit(f"{name} 에 표가 없습니다. 그 DB 를 TEST_DATABASE_URL 로 pytest 를 한 번 돌려 표를 만든 뒤 다시 실행하세요.")
 
 
 def row_counts() -> dict[str, int]:
