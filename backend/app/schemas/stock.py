@@ -13,6 +13,10 @@ class StockOut(BaseModel):
     sku: str  # SKU
     name: str  # 품목명
     unit: str  # 단위
+    color: str | None = None  # 옵션: 색상 (없으면 null)
+    size: str | None = None  # 옵션: 사이즈
+    spec: str | None = None  # 옵션: 규격
+    group_code: str | None = None  # 그룹 코드
     safety_stock: int  # 안전재고
     is_active: bool  # 활성 여부
     current_stock: int  # 현재고 = 입출고 이력 합계

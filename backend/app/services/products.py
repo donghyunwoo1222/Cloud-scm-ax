@@ -11,11 +11,18 @@ from app.schemas.products import ProductCreate, ProductUpdate  # 요청 모양
 from app.services.tenant import check_ref, get_owned, scoped  # 회사 분리 도우미 (#23)
 
 
-def filter_product_search(stmt: Select, q: str | None) -> Select:  # 품목 목록과 재고 목록에서 쓰는 같은 검색 조건
+def filter_product_search(stmt: Select, q: str | None, group_code: str | None = None) -> Select:  # 품목 목록·재고 목록·추천 목록이 쓰는 같은 검색 조건
+    code = group_code.strip().upper() if group_code else ""  # 그룹 코드는 대문자로 저장하므로 대문자로 맞춰 비교한다
+    if code:  # 그룹 코드를 골랐으면
+        stmt = stmt.where(Product.group_code == code)  # 정확히 같은 그룹만 남긴다 (예: TS-BASIC 은 TS-BASIC-2 와 다르다)
     term = q.strip() if q else ""  # 앞뒤 공백을 빼고, 검색어가 없으면 빈 문자열로 본다
     if not term:  # 비었거나 공백만 있으면
-        return stmt  # 원래 조회 조건 그대로 돌려준다
-    return stmt.where(or_(  # SKU와 품목명 중 한 곳에 검색어가 들어 있으면 선택한다
+        return stmt  # 지금까지의 조건 그대로 돌려준다
+    return stmt.where(or_(  # SKU·품목명·그룹 코드·옵션 중 한 곳에 검색어가 들어 있으면 선택한다
+        Product.group_code.icontains(term, autoescape=True),  # 그룹 코드에서도 찾는다
+        Product.color.icontains(term, autoescape=True),  # 색상 (예: "검정")
+        Product.size.icontains(term, autoescape=True),  # 사이즈 (예: "M")
+        Product.spec.icontains(term, autoescape=True),  # 규격 (예: "2L")
         Product.sku.icontains(term, autoescape=True),  # SKU에서 대소문자 없이 찾고 %·_는 글자 그대로 읽는다
         Product.name.icontains(term, autoescape=True),  # 품목명에도 같은 규칙을 적용한다
     ))
@@ -24,14 +31,15 @@ def filter_product_search(stmt: Select, q: str | None) -> Select:  # 품목 목�
 def list_products(
     company_id: int, db: Session, page: PageParams, include_inactive: bool, q: str | None,
     *, default_supplier_id: int | None = None,  # 기본 공급업체를 지정한 호출만 필터를 적용한다
+    group_code: str | None = None,  # 그룹 코드를 지정한 호출만 정확 일치 필터를 적용한다
 ) -> tuple[list, dict]:
-    """우리 회사 품목 목록. 최신순, 기본은 활성만, q 는 SKU 또는 품목명 부분 일치(대소문자 무시)."""
+    """우리 회사 품목 목록. 최신순, 기본은 활성만, q 는 SKU·품목명·그룹 코드·옵션 부분 일치(대소문자 무시)."""
     stmt = scoped(company_id, Product)  # 회사 조건이 붙은 시작점
     if default_supplier_id is not None:  # 공급업체가 선택됐으면
         stmt = stmt.where(Product.default_supplier_id == default_supplier_id)  # 쪽을 자르기 전에 업체에 속한 품목만 남긴다
     if not include_inactive:  # 비활성 포함을 요청하지 않았으면
         stmt = stmt.where(Product.is_active.is_(True))  # 활성만
-    stmt = filter_product_search(stmt, q)  # 쪽을 나누기 전에 기존 품목 검색 조건을 적용한다
+    stmt = filter_product_search(stmt, q, group_code)  # 쪽을 나누기 전에 기존 품목 검색 조건을 적용한다
     stmt = stmt.order_by(Product.created_at.desc(), Product.id.desc())  # 최신순
     return paginate(db, stmt, page)  # 한 쪽 + meta
 

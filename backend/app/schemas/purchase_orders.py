@@ -74,6 +74,10 @@ class ItemOut(BaseModel):
     product_id: int  # 품목
     product_sku: str  # 품목 SKU
     product_name: str  # 품목명
+    color: str | None = None  # 품목 옵션: 색상 (품목 마스터의 현재 값)
+    size: str | None = None  # 품목 옵션: 사이즈
+    spec: str | None = None  # 품목 옵션: 규격
+    group_code: str | None = None  # 품목 그룹 코드
     unit: str  # 품목 단위 (품목 마스터의 현재 값, 개·박스 등)
     quantity: int  # 발주 수량
     unit_price: int  # 발주 단가

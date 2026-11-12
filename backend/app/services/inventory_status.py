@@ -49,7 +49,8 @@ def with_status(company_id: int, db: Session, today: date, products: list[Produc
 
 def list_stock(
     company_id: int, db: Session, today: date, page: PageParams, include_inactive: bool, status: str | None,
-    *, q: str | None = None,  # 품목명·SKU 검색어는 생략할 수 있다
+    *, q: str | None = None,  # 품목명·SKU·옵션 검색어는 생략할 수 있다
+    group_code: str | None = None,  # 그룹 코드 정확 일치 필터도 생략할 수 있다
 ) -> tuple[list[dict], dict]:
     """GET /stock. 상태 필터가 없으면 지금처럼 DB 가 쪽을 자르고 그 쪽만 계산한다.
 
@@ -57,10 +58,10 @@ def list_stock(
     예) 품목 300개 중 부족 7개 → 1쪽에 7개, total 7. 쪽을 먼저 자르고 거르면 1쪽에 부족이 0개일 수 있다.
     """
     if status is None:
-        products, meta = list_products(company_id, db, page, include_inactive, q)  # 검색과 활성 조건으로 거른 뒤 DB가 쪽을 나눈다
+        products, meta = list_products(company_id, db, page, include_inactive, q, group_code=group_code)  # 검색과 활성 조건으로 거른 뒤 DB가 쪽을 나눈다
         return with_status(company_id, db, today, products), meta
     # shortcut: 검색에 맞는 활성 품목의 상태를 파이썬에서 계산하고 쪽을 나눈다. 수천 개에서 느려지면 계산 결과 저장을 검토한다
-    rows = calculate_for(company_id, db, today, q=q)  # 검색이 맞는 활성 품목만 계산한다 (비활성은 상태가 없다)
+    rows = calculate_for(company_id, db, today, q=q, group_code=group_code)  # 검색이 맞는 활성 품목만 계산한다 (비활성은 상태가 없다)
     statuses = {p.id: status_of(r) for p, *_, r in rows}  # 품목 id → (상태, 이유, 재주문점)
     products = [p for p, *_ in rows if statuses[p.id][0] == status]  # 고른 상태만
     start = (page.page - 1) * page.page_size  # 예) 2쪽, 20개씩 → 20번째부터

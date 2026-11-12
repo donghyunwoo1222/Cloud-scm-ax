@@ -24,6 +24,7 @@ def out(product: Product, supplier: Supplier) -> dict:
     """품목 + 기본 공급업체 요약 → 응답 모양 (재고 숫자는 없음)."""
     return ProductOut(
         id=product.id, sku=product.sku, name=product.name, unit=product.unit,
+        color=product.color, size=product.size, spec=product.spec, group_code=product.group_code,
         unit_cost=product.unit_cost, safety_stock=product.safety_stock, is_active=product.is_active,
         units_per_box=product.units_per_box, box_unit_cost=product.box_unit_cost,
         default_supplier=SupplierBrief.model_validate(supplier),  # id·이름·리드타임
@@ -43,11 +44,12 @@ def list_products(
     db: DB,
     page: Page,
     include_inactive: Annotated[bool, Query()] = False,  # true 면 비활성 포함 (기본은 숨김)
-    q: Annotated[str | None, Query(max_length=100)] = None,  # SKU·품목명 검색어
+    q: Annotated[str | None, Query(max_length=100)] = None,  # SKU·품목명·그룹 코드·옵션 검색어
     default_supplier_id: QueryId = None,  # 선택한 기본 공급업체 번호
+    group_code: Annotated[str | None, Query(max_length=50)] = None,  # 그룹 코드 정확 일치 (대소문자 무시)
 ) -> dict:
     rows, meta = products_service.list_products(
-        user.company_id, db, page, include_inactive, q, default_supplier_id=default_supplier_id,  # 회사는 토큰에서, 업체는 필터에서 읽는다
+        user.company_id, db, page, include_inactive, q, default_supplier_id=default_supplier_id, group_code=group_code,  # 회사는 토큰에서, 업체는 필터에서 읽는다
     )
     suppliers = products_service.suppliers_of(user.company_id, db, rows)  # 기본 공급업체를 한 번에
     return {"data": [out(p, suppliers[p.default_supplier_id]) for p in rows], "meta": meta}

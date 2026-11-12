@@ -58,6 +58,7 @@ def list_movements(
         out = MovementOut.model_validate(m)  # 이력 칸
         product = products[m.product_id]
         out.product_sku, out.product_name, out.product_unit = product.sku, product.name, product.unit
+        out.product_color, out.product_size, out.product_spec, out.product_group_code = product.color, product.size, product.spec, product.group_code
         out.purchase_order_id = order_ids.get(m.purchase_order_item_id)
         out.current_stock = stocks.get(m.product_id)
         if m.id in original_ids:

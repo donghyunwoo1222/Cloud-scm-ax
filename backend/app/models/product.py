@@ -26,6 +26,10 @@ class Product(CompanyMixin, Base):
     unit_cost: Mapped[int]  # 구매 단가 (원 단위 정수)
     units_per_box: Mapped[int | None]  # 박스 입수
     box_unit_cost: Mapped[int | None]  # 박스당 구매 단가
+    color: Mapped[str | None]  # 옵션: 색상 (예: 검정). 같은 상품의 SKU를 구분하는 속성이고 연결에는 쓰지 않는다
+    size: Mapped[str | None]  # 옵션: 사이즈 (예: M)
+    spec: Mapped[str | None]  # 옵션: 규격 (예: 2L, 30롤)
+    group_code: Mapped[str | None]  # 같은 상품끼리 묶는 그룹 코드 (대문자 저장)
     safety_stock: Mapped[int] = mapped_column(server_default="0")  # 안전재고, 기본 0
     default_supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))  # 기본 공급업체 (필수)
     is_active: Mapped[bool] = mapped_column(server_default=true())  # 기본 참, 삭제 대신 비활성

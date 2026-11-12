@@ -91,6 +91,7 @@ def in_transit(company_id: int, db: Session) -> dict[int, int]:
 def calculate_for(
     company_id: int, db: Session, today: date, product_ids: list[int] | None = None,
     *, q: str | None = None,  # 재고 상태를 계산하기 전에 검색어로 품목을 좁힐 수 있다
+    group_code: str | None = None,  # 그룹 코드로도 좁힐 수 있다
 ) -> list[tuple]:
     """활성 품목마다 (품목, 기본 공급업체, 현재고, 진행 중 수량, 계산 결과). 최신 품목 먼저. 쿼리는 품목 수와 무관하게 5번.
 
@@ -103,7 +104,7 @@ def calculate_for(
     )
     if product_ids is not None:
         stmt = stmt.where(Product.id.in_(product_ids))  # 요청한 품목만
-    products = db.execute(filter_product_search(stmt, q)).all()  # 이름·SKU가 일치하는 활성 품목만 계산 대상으로 가져온다
+    products = db.execute(filter_product_search(stmt, q, group_code)).all()  # 이름·SKU가 일치하는 활성 품목만 계산 대상으로 가져온다
     stocks = stock_and_first_day(company_id, db)  # 품목 id → (현재고, 첫 입출고 날짜)
     sales = net_sales(company_id, db, today)  # 품목 id → 30일 순판매
     transit = in_transit(company_id, db)  # 품목 id → 진행 중 발주 수량
@@ -129,10 +130,12 @@ def list_recommendations(company_id: int, db: Session, today: date) -> dict:
     for product, supplier, stock, transit_qty, result in calculate_for(company_id, db, today):
         if isinstance(result, Excluded):  # 제외: 코드와 안내 문장
             excluded.append({"product_id": product.id, "product_sku": product.sku, "product_name": product.name,
+                             "color": product.color, "size": product.size, "spec": product.spec, "group_code": product.group_code,
                              "code": result.code, "message": result.message})
         elif result.recommended_quantity is not None:  # 추천: 가용재고 ≤ 재주문점 (충분한 품목은 어느 목록에도 넣지 않는다)
             items.append({
                 "product_id": product.id, "product_sku": product.sku, "product_name": product.name,
+                "color": product.color, "size": product.size, "spec": product.spec, "group_code": product.group_code,
                 "supplier_id": supplier.id, "supplier_name": supplier.name, "unit": product.unit,
                 "current_stock": stock, "in_transit": transit_qty, "available": result.available,
                 "avg_daily_sales": float(result.avg_daily_sales),  # 분수 → 소수 그대로 (예: 7/30 → 0.2333…). 표시는 화면이 첫째 자리로
