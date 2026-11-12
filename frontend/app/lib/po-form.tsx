@@ -60,6 +60,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       units: saved?.units_per_box ?? product?.units_per_box,
       price: saved?.box_unit_price ?? product?.box_unit_cost,
       orderUnit: (locked ? saved?.order_unit : product?.order_unit) ?? "박스", // 기존 박스 줄은 발주 당시 이름
+      moq: saved ? saved.min_order_units : product?.min_order_units, // 최소 주문량: 기존 줄은 발주 당시 값 (#194)
     };
   }
 
@@ -84,6 +85,13 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       product_id: num(l.product_id),
       ...(l.box ? { box_quantity: num(l.quantity) } : { quantity: num(l.quantity), unit_price: num(l.unit_price) }),
     })); // 서버는 보낸 단위에 맞춰 발주량과 당시 값을 저장한다
+    const belowMoq = lines.flatMap((l) => {
+      const { product, moq, orderUnit } = packingFor(l.product_id);
+      const count = Number(l.quantity);
+      const unit = l.box ? orderUnit : product?.unit ?? "";
+      return moq != null && count >= 1 && count < moq ? [`- ${product?.name ?? "품목"}: 최소 ${moq}${unit}, 입력 ${count}${unit}`] : [];
+    }); // 최소 주문량보다 적은 줄 (막지 않고 확인만 받는다. 공급업체와 협의한 예외가 있을 수 있다, #194)
+    if (belowMoq.length && !window.confirm(`최소 주문량보다 적은 품목이 있습니다.\n${belowMoq.join("\n")}\n그대로 저장할까요?`)) return;
     try {
       const saved = order
         ? await api<PurchaseOrder>(`/purchase-orders/${order.id}`, { method: "PATCH", body: { due_date: dueDate || null, memo: memo || null, delivery_address: deliveryAddress || null, payment_terms: paymentTerms || null, items } }) // 수정: items 전체 교체
@@ -130,7 +138,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         </thead>
         <tbody>
           {lines.map((line, index) => {
-            const { product, units, price, orderUnit } = packingFor(line.product_id);
+            const { product, units, price, orderUnit, moq } = packingFor(line.product_id);
             const unit = product?.unit;
             const count = Number(line.quantity);
             const suffix = line.box ? `${orderUnit} 수` : unit ? `${unit} 수량` : "수량";
@@ -151,6 +159,11 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
                 {line.box && units != null && unit && (
                   <span style={S.sub}>{unitConversion(count > 0 ? count : 1, orderUnit, units, unit, "=")}</span>
                 )}{/* 입력 즉시 "3BOX = 300EA" (비어 있으면 "1BOX = 100EA") */}
+                {moq != null && (
+                  <span style={count >= 1 && count < moq ? { ...S.sub, ...S.error } : S.sub}>
+                    최소 주문량 {moq}{line.box ? orderUnit : unit}
+                  </span>
+                )}{/* 적게 입력하면 경고 색. 저장 때 확인창으로 한 번 더 묻는다 */}
               </td>
               <td style={S.num}>
                 {line.box && price != null ? (

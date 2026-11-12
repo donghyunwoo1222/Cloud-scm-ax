@@ -94,6 +94,7 @@ def test_s1_shortage_recommends_160(client, world, session):
         "recommended_quantity": 160, "recommended_order_units": 160, "recommended_arrival_quantity": 160,  # 환산계수 1 (#187)
         "units_per_box": None, "box_unit_cost": None, "recommended_box_quantity": None,
         "order_unit": "개", "unit_factor": 1,  # 박스 설정이 없으면 재고 단위·1 (#185)
+        "min_order_units": None, "moq_applied": False,  # 최소 주문량 없음 (#194)
         "reason": "최근 30일 하루 평균 10개가 팔렸고 리드타임은 5일입니다. 리드타임 동안 50개가 필요하고 "
                   "안전재고 20개를 더하면 70개입니다. 지금 가용재고는 50개라서 발주를 추천합니다. 추천 수량은 160개입니다.",
     }]
@@ -139,6 +140,20 @@ def test_s18_ordered_box_line_counts_in_base_units(client, world, session):
     assert (row["current_stock"], row["in_transit"], row["available"]) == (150, 200, 350)
     assert (row["recommended_quantity"], row["recommended_order_units"], row["recommended_arrival_quantity"]) == (140, 2, 200)
     assert (row["recommended_box_quantity"], row["order_unit"], row["unit_factor"]) == (2, "BOX", 100)
+
+
+def test_s20_moq_raises_order_units_in_list_and_draft(client, world, session):
+    """S20(API): 부족 160개 → 2BOX(1BOX = 100), MOQ 5BOX → 목록 5BOX·500개·moq_applied. 수량을 비운 초안도 5BOX이고 줄에 MOQ 스냅샷 (#194)."""
+    p = stock_50_sold_300(session, world, "S20", units_per_box=100, box_unit_cost=90_000, order_unit="BOX", min_order_units=5)
+    session.commit()
+    row = item(get(client), "S20")
+    assert (row["recommended_quantity"], row["recommended_order_units"], row["recommended_arrival_quantity"]) == (160, 5, 500)
+    assert (row["min_order_units"], row["moq_applied"]) == (5, True)
+    assert "최소 주문량 5BOX를 적용해 5BOX(500개)를 추천합니다. 부족분보다 340개 많습니다." in row["reason"]
+    r = client.post("/api/v1/recommendations/drafts", json={"items": [{"product_id": p.id}]})
+    assert r.status_code == 201, r.json()
+    [line] = r.json()["data"][0]["items"]
+    assert (line["box_quantity"], line["quantity"], line["min_order_units"]) == (5, 500, 5)
 
 
 def test_s5_no_sales_excluded(client, world, session):

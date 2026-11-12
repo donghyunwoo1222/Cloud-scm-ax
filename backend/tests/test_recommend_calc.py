@@ -126,6 +126,52 @@ def test_s19_large_factor_bag_25000g():
     assert (r.recommended_quantity, r.order_units, r.arrival_quantity) == (25001, 2, 50000)
 
 
+# ----- 최소 주문량 S20~S23 (#194): 발주단위로 올린 뒤 MOQ와 비교해 큰 쪽 -----
+
+def test_s20_shortage_1_box_moq_5_becomes_5_boxes():
+    """S20: 일평균 1, 가용 5 → 부족 14개 → 1BOX(1BOX = 100개), MOQ 5BOX → 5BOX, 도착 500개. 늘어난 양을 문구로 알린다."""
+    r = calc(sales_30d=30, safety_stock=0, stock=5, unit_factor=100, order_unit="BOX", min_order_units=5)
+    assert (r.recommended_quantity, r.packed_units, r.order_units, r.arrival_quantity, r.moq_applied) == (14, 1, 5, 500, True)
+    assert r.reason.endswith("추천 수량은 14개입니다. 발주단위로 올림하면 1BOX(100개)입니다. "
+                             "최소 주문량 5BOX를 적용해 5BOX(500개)를 추천합니다. 부족분보다 486개 많습니다.")
+
+
+def test_s21_shortage_8_boxes_over_moq_5_stays_8():
+    """S21: 부족 790개(안전재고 600, 가용 0) → 8BOX, MOQ 5BOX 보다 크므로 8BOX 그대로. 문구에 최소 주문량이 없다."""
+    r = calc(safety_stock=600, stock=0, unit_factor=100, order_unit="BOX", min_order_units=5)
+    assert (r.recommended_quantity, r.order_units, r.arrival_quantity, r.moq_applied) == (790, 8, 800, False)
+    assert "최소 주문량" not in r.reason
+    assert r.reason == calc(safety_stock=600, stock=0, unit_factor=100, order_unit="BOX").reason  # MOQ 없을 때와 같은 문구
+
+
+def test_s22_no_moq_is_unchanged():
+    """S22: MOQ 없음이면 S1·S12·S15 결과와 문구가 변경 전과 같다."""
+    assert calc(min_order_units=None) == calc()
+    s12 = calc(sales_30d=7, safety_stock=2, stock=0)
+    assert (s12.order_units, s12.moq_applied) == (7, False)
+    s15 = calc(safety_stock=40, stock=0, unit_factor=100, order_unit="BOX")
+    assert (s15.order_units, s15.arrival_quantity, s15.moq_applied) == (3, 300, False)
+
+
+def test_s23_moq_without_box_settings_uses_base_unit():
+    """S23: 박스 설정 없음(환산계수 1), 부족 7개(S12), MOQ 20 → 20개. 환산 괄호는 같은 숫자라 쓰지 않는다."""
+    r = calc(sales_30d=7, safety_stock=2, stock=0, min_order_units=20)
+    assert (r.recommended_quantity, r.order_units, r.arrival_quantity, r.moq_applied) == (7, 20, 20, True)
+    assert r.reason.endswith("추천 수량은 7개입니다. 최소 주문량 20개를 적용해 20개를 추천합니다. 부족분보다 13개 많습니다.")
+
+
+def test_moq_equal_to_packed_units_is_not_applied():
+    """MOQ가 발주단위 올림 결과와 같으면(부족 230개 → 3BOX, MOQ 3) 늘어난 게 아니라 문구를 더하지 않는다."""
+    r = calc(safety_stock=40, stock=0, unit_factor=100, order_unit="BOX", min_order_units=3)
+    assert (r.order_units, r.moq_applied) == (3, False) and "최소 주문량" not in r.reason
+
+
+def test_no_recommendation_ignores_moq():
+    """추천하지 않는 품목(S2)은 MOQ가 있어도 발주단위 수가 None."""
+    r = calc(stock=150, min_order_units=5)
+    assert (r.order_units, r.moq_applied) == (None, False)
+
+
 def test_fraction_ceil_then_order_unit():
     """분수 → 추천 수량 올림 → 발주단위 올림: S12 6.43 → 7개, 1팩 = 5개 → 2팩(10개). 부동소수점을 쓰지 않는다."""
     r = calc(sales_30d=7, safety_stock=2, stock=0, unit_factor=5)

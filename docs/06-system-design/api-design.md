@@ -144,6 +144,7 @@
 - 발주 줄 응답의 `quantity`, `received_quantity`, `recommended_quantity`는 모두 재고 단위다. 박스 줄에는 발주 당시 `units_per_box`와 `box_unit_price`, 발주한 `box_quantity`를 담고, 재고 단위 줄에는 이 세 칸이 null이다. 모든 줄에 `line_total`(원)을 담는다. 박스 줄의 `unit_price`는 당시 품목의 재고 단위 구매 단가이고, 실제 발주 금액은 `box_quantity × box_unit_price`다. 재고 단위 줄의 금액은 `quantity × unit_price`다. 예를 들어 10개입 3박스, 박스당 10,005원은 `quantity: 30`, `line_total: 30015`다.
 - 설정이 없는 품목에 박스 발주를 요청하거나, 박스 수를 환산한 재고 단위 수량이 기존 상한인 100만을 넘으면 422 `VALIDATION_ERROR`다.
 - 발주단위 이름(#185): 품목 등록·수정에 선택 칸 `order_unit`(1~20자)을 받는다. 박스 설정이 있는데 비우면 "박스", 박스 설정 없이 보내면 422 `VALIDATION_ERROR`(field `order_unit`), 박스 설정을 해제하면 함께 비운다. 품목·추천·발주 줄 응답에 `order_unit`과 `unit_factor`(= `units_per_box`, 박스 설정이 없으면 기본단위·1)를 더한다. 발주 줄의 두 값은 발주 당시 스냅샷이다. 발주 요청의 품목 줄은 모르는 칸을 422로 거절하므로 `unit_factor`·`order_unit`을 보낼 수 없다.
+- 최소 주문량(#194): 품목 등록·수정에 선택 칸 `min_order_units`(발주단위 수, 정수 1~1,000,000, null 이면 제한 없음)를 받고 품목 응답에 담는다. 발주 줄 응답의 `min_order_units`는 발주 당시 스냅샷이다. MOQ 미만 발주도 서버는 저장한다(화면이 확인을 받는다).
 
 ### 판매 가져오기 (#154, MVP 이후)
 
@@ -257,6 +258,8 @@
 `avg_daily_sales`와 `reorder_point`는 소수 그대로 계산하고, `recommended_quantity`만 올림한 정수다. 예) 30일 판매 7, 리드타임 5, 안전재고 2, 가용재고 0 → 일평균 0.233…, 재주문점 3.17, 추천 수량 6.43 → 7(S12). 화면과 이유 문구에서는 일평균을 소수 첫째 자리까지 보여준다. 이유 문구는 AX 설계 문서의 문장 틀에 계산 숫자만 끼워 넣는다(확정, LLM은 C1).
 
 박스 설정 품목의 추천에는 현재 `units_per_box`, `box_unit_cost`, `recommended_box_quantity`를 함께 반환한다(#110). 27개를 10개입으로 발주할 때 `recommended_quantity`는 27이고 `recommended_box_quantity`는 3이다. 박스 설정이 없는 품목은 추가 세 칸이 null이다. 모든 추천에는 `recommended_order_units`(발주단위 수, 27개 ÷ 10 → 3)와 `recommended_arrival_quantity`(도착 수량, 3 × 10 = 30)도 함께 반환한다(#187). 박스 설정이 없으면 환산계수 1이라 두 칸 모두 `recommended_quantity`와 같다.
+
+최소 주문량(#194): `recommended_order_units` = max(발주단위 올림, `min_order_units`)이다. 추천 응답에 `min_order_units`와 `moq_applied`(최소 주문량 때문에 발주단위 수가 늘어났으면 true)를 더한다. 늘어난 경우 이유 문구 끝에 "최소 주문량 5BOX를 적용해 5BOX(500개)를 추천합니다. 부족분보다 340개 많습니다." 문장이 붙는다. `recommended_quantity`는 그대로 부족 수량이다. 수량을 비운 초안 만들기도 같은 값을 쓴다.
 
 ### 6) 추천으로 초안 만들기: POST /recommendations/drafts
 

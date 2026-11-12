@@ -82,7 +82,11 @@ def order_item_values(
     product: Product, quantity: int | None, unit_price: int | None, box_quantity: int | None,
     existing: PurchaseOrderItem | None = None,
 ) -> dict:
-    """수동·추천 발주에 같은 환산을 적용하고 기존 박스 줄은 당시 조건으로 수정한다."""
+    """수동·추천 발주에 같은 환산을 적용하고 기존 박스 줄은 당시 조건으로 수정한다.
+
+    최소 주문량은 스냅샷만 남기고 막지 않는다(공급업체와 협의한 예외가 있을 수 있어 화면이 확인만 받는다, #194).
+    """
+    moq = existing.min_order_units if existing is not None else product.min_order_units  # 기존 줄은 당시 값 유지
     if existing is not None and existing.units_per_box is not None:
         units_per_box, box_unit_price = existing.units_per_box, existing.box_unit_price  # 당시 값 유지
         order_unit = existing.order_unit  # 당시 발주단위 이름도 유지 (#185)
@@ -96,13 +100,14 @@ def order_item_values(
         order_unit = product.order_unit  # 지금 마스터의 발주단위 이름을 스냅샷으로 남긴다 (#185)
         unit_price = product.unit_cost  # 기존 단가 응답 칸의 의미 유지
     else:
-        return {"quantity": quantity, "unit_price": unit_price}
+        return {"quantity": quantity, "unit_price": unit_price, "min_order_units": moq}
     return {
         "quantity": stock_quantity(box_quantity, units_per_box),
         "unit_price": unit_price,
         "units_per_box": units_per_box,
         "box_unit_price": box_unit_price,
         "order_unit": order_unit,
+        "min_order_units": moq,
     }
 
 
@@ -356,6 +361,7 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder]) -> list
             unit_price=i.unit_price, recommended_quantity=i.recommended_quantity,
             units_per_box=i.units_per_box, box_unit_price=i.box_unit_price, box_quantity=box_quantity,
             order_unit=i.order_unit or p.unit, unit_factor=i.units_per_box or 1,  # 발주 당시 스냅샷. 박스 줄이 아니면 재고 단위·1
+            min_order_units=i.min_order_units,  # 발주 당시 최소 주문량 (#194)
             line_total=i.quantity * i.unit_price if box_quantity is None else box_quantity * i.box_unit_price,
             recommendation_reason=i.recommendation_reason, received_quantity=int(received.get(i.id, 0)),
         ))
