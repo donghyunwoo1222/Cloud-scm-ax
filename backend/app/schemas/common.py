@@ -18,6 +18,9 @@ SafetyStock = Annotated[int, Field(strict=True, ge=0, le=1_000_000)]  # 안전�
 Won = Annotated[int, Field(strict=True, ge=0, le=100_000_000)]  # 단가(원): 0~1억 원
 LeadTimeDays = Annotated[int, Field(strict=True, ge=0, le=365)]  # 리드타임: 0~365일
 OptionalText = Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] | None  # 선택 칸: 200자까지, 비워도 됨
+MAX_ORDER_LINES = 2000  # 발주서 한 장의 품목 줄 수 상한 (서버 보호용, #184)
+MAX_DRAFT_ITEMS = 1000  # 추천으로 초안 만들기 1회 품목 상한 (서버 보호용, #184)
+
 Memo = Annotated[str, StringConstraints(max_length=1000)] | None  # 메모: 1000자까지
 
 

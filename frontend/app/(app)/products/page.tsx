@@ -3,7 +3,7 @@
 import Link from "next/link"; // 공급업체와 첫 입고로 이동한다.
 import { FormEvent, useEffect, useRef, useState } from "react"; // 폼 제출, 처음 한 번 실행, 상태
 
-import { api, apiList } from "../../lib/api"; // 공통 API 호출 함수
+import { api, apiListAll } from "../../lib/api"; // 공통 API 호출 함수
 import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸치는 입력 항목
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { optionSummary } from "../../lib/options"; // 옵션 요약 ("검정 / M")
@@ -81,14 +81,7 @@ export default function ProductsPage() {
   useEffect(() => {
     let active = true; // 화면을 닫으면 더 불러오거나 상태를 갱신하지 않는다
     async function loadSuppliers() { // 비활성 업체에 연결된 기존 품목도 찾을 수 있게 전체 업체를 모은다
-      const options: SupplierOption[] = []; // 서버에서 가져온 공급업체를 한 배열에 모은다
-      let page = 1; // 공급업체 목록은 첫 쪽부터 읽는다
-      while (active) { // 선택지에 100번째 이후 업체도 포함한다
-        const result = await apiList<SupplierOption>(`/suppliers?page_size=100&include_inactive=true&page=${page}`); // 비활성 포함 목록 한 쪽
-        options.push(...result.data); // 이번 쪽의 업체를 뒤에 붙인다
-        if (page * result.meta.page_size >= result.meta.total) break; // 전체 개수만큼 읽었으면 멈춘다
-        page += 1; // 다음 쪽으로 이동한다
-      } // 모든 선택지를 모은다
+      const options = await apiListAll<SupplierOption>("/suppliers?include_inactive=true"); // 100개씩 끝까지 읽는 공통 함수 (비활성 포함)
       if (active) setSuppliers(options); // 화면이 열려 있을 때만 선택지를 바꾼다
     } // 공급업체 목록 불러오기를 정의한다
     loadSuppliers().catch((e) => { if (active) setError(e); }); // 공급업체를 못 불러오면 기존 오류 영역에 표시한다

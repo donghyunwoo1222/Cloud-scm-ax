@@ -4,7 +4,7 @@ import Link from "next/link"; // 기존 발주서로 가는 링크
 import { useRouter } from "next/navigation"; // 저장 후 상세 화면으로 이동
 import { FormEvent, useEffect, useRef, useState } from "react"; // 폼 제출, 최초 조회, 줄 번호와 상태
 
-import { api, ApiError, apiList } from "./api"; // 공통 API 호출 함수, 서버 오류
+import { api, ApiError, apiList, apiListAll } from "./api"; // 공통 API 호출 함수, 서버 오류
 import { Field } from "./field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { ErrorText } from "./list"; // 서버 오류 표시
 import { optionSummary } from "./options"; // 고른 품목의 옵션 요약
@@ -39,12 +39,12 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   const [error, setError] = useState<unknown>(null); // 저장 오류 (입력값은 지우지 않는다)
   const [busy, setBusy] = useState(false); // 저장 중이면 버튼을 잠그고 글자를 바꾼다
   const [bulkBusy, setBulkBusy] = useState(false); // 기본 품목을 불러오는 중이면 버튼을 잠근다
-  const [notice, setNotice] = useState(""); // 일괄 추가 결과 안내 (건너뜀·100개 상한)
+  const [notice, setNotice] = useState(""); // 일괄 추가 결과 안내 (추가한 줄 수·건너뜀)
   const [checked, setChecked] = useState(false); // 저장을 한 번 시도했는지 (수량 빈 줄 안내를 그때부터 보인다)
   const sending = useRef(false); // 상태값은 다음 화면 갱신 뒤에야 바뀌어 더블클릭을 못 막으므로, 즉시 바뀌는 ref 로 한 번 더 막는다 (#190)
 
   useEffect(() => {
-    if (!order) apiList<Option>("/suppliers?page_size=100").then((r) => setSuppliers(r.data)).catch(setError);
+    if (!order) apiListAll<Option>("/suppliers").then(setSuppliers).catch(setError); // 활성 업체를 100개씩 끝까지 읽는다
     else apiList<ProductOption>("/products").then((r) => setPickedProducts((picked) => ({
       ...Object.fromEntries(r.data.map((p) => [p.id, p])), ...picked,
     }))).catch(setError); // 기존 작성 중 품목의 포장 설정을 첫 목록에서 보완한다
@@ -96,12 +96,12 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
     setNotice("");
     try {
       const [products, recs] = await Promise.all([
-        apiList<ProductOption>(`/products?default_supplier_id=${targetSupplier}&page_size=100`), // 비활성·다른 회사 품목은 서버가 뺀다
+        apiListAll<ProductOption>(`/products?default_supplier_id=${targetSupplier}`), // 100개씩 끝까지 읽는다. 비활성·다른 회사 품목은 서버가 뺀다
         api<{ items: { product_id: number; supplier_id: number; recommended_order_units: number }[] }>("/recommendations"), // 추천 전체를 받아 화면에서 거른다 (서버 필터 없음)
       ]);
       const recOf = new Map(recs.items.filter((r) => r.supplier_id === Number(targetSupplier)).map((r) => [r.product_id, r.recommended_order_units]));
-      const fresh = products.data.filter((p) => !pickedIds.has(p.id)); // 이미 있는 줄은 중복으로 넣지 않는다
-      const skipped = products.data.length - fresh.length;
+      const fresh = products.filter((p) => !pickedIds.has(p.id)); // 이미 있는 줄은 중복으로 넣지 않는다
+      const skipped = products.length - fresh.length;
       fresh.sort((a, b) => Number(recOf.has(b.id)) - Number(recOf.has(a.id))); // 추천이 있는 품목을 위로 (나머지 순서는 그대로)
       if (fresh.length >= 20 && !window.confirm(`이 공급업체의 품목 ${fresh.length}개를 추가합니다. 진행할까요?`)) return; // 취소하면 아무것도 추가하지 않는다
       const added = fresh.map((p): Line => {
@@ -114,7 +114,6 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       setNotice([
         `${added.length}줄을 추가했습니다.`,
         skipped ? `${skipped}개는 이미 있어 건너뜁니다.` : "",
-        products.meta.total > 100 ? `${products.meta.total}개 중 100개만 추가했습니다.` : "",
       ].filter(Boolean).join(" "));
     } catch (e) {
       setError(e);

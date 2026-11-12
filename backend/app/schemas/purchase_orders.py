@@ -6,6 +6,7 @@ from typing import Annotated, Literal  # 타입에 검사를 덧붙이는 도구
 from pydantic import BaseModel, ConfigDict, Field, model_validator  # 모양 정의·검사 도구
 
 from app.schemas.common import (  # 공통 칸 타입(번호·수량·단가 상한 #71)·PATCH 규칙
+    MAX_ORDER_LINES,
     Id,
     Memo,
     OptionalText,
@@ -52,7 +53,7 @@ class PurchaseOrderCreate(BaseModel):
     memo: Memo = None  # 메모
     delivery_address: OptionalText = None  # 납품장소 (비우면 문서에 회사 주소)
     payment_terms: OptionalText = None  # 지불조건 (비우면 공급업체 기본값을 복사한다)
-    items: Annotated[list[ItemIn], Field(min_length=1)]  # 품목 줄 1개 이상
+    items: Annotated[list[ItemIn], Field(min_length=1, max_length=MAX_ORDER_LINES)]  # 품목 줄 1~2000개 (초과는 422, #184)
 
 
 class PurchaseOrderUpdate(PatchModel):
@@ -66,7 +67,7 @@ class PurchaseOrderUpdate(PatchModel):
     memo: Memo = None  # 메모 (null 이면 비움)
     delivery_address: OptionalText = None  # 납품장소 (null 이면 비움)
     payment_terms: OptionalText = None  # 지불조건 (null 이면 비움)
-    items: Annotated[list[ItemIn], Field(min_length=1)] | None = None  # 최종 품목 줄 목록
+    items: Annotated[list[ItemIn], Field(min_length=1, max_length=MAX_ORDER_LINES)] | None = None  # 최종 품목 줄 목록
 
 
 class ItemOut(BaseModel):
