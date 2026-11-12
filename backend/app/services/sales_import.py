@@ -356,14 +356,13 @@ def commit(company_id: int, db: Session, user_id: int, filename: str, content: b
                        {"problem_count": len(result["problems"])})
     if not result["to_apply"]:
         raise AppError(409, "NOTHING_TO_IMPORT", "반영할 행이 없습니다.")
-    # ③ 날짜순으로 한 줄씩 기존 출고 함수로 쓴다 (음수 검사·품목 잠금 규칙 그대로)
+    # ③ 날짜순 그대로 한 번에 쓴다 (#211: 줄마다 잠금·합계·저장 3쿼리 → 품목 잠금·저장·재고 확인 3쿼리)
     try:
-        for c in result["to_apply"]:
-            stock_service.register_movement(
-                company_id, db, user_id,
-                product_id=c.product_id, movement_type="SALE", direction="OUT", quantity=c.quantity,
-                movement_date=c.day, sales_channel=opts.sales_channel, external_ref=c.ref,
-            )
+        stock_service.register_movements(
+            company_id, db, user_id, movement_type="SALE", sales_channel=opts.sales_channel,
+            rows=[{"product_id": c.product_id, "quantity": c.quantity, "movement_date": c.day, "external_ref": c.ref}
+                  for c in result["to_apply"]],
+        )
     except IntegrityError:  # 다른 품목 잠금 아래 같은 주문번호가 동시에 들어온 드문 경우: DB 유일 제한이 막는다
         raise AppError(409, "DUPLICATE_REF", "같은 주문번호가 동시에 반영되었습니다. 미리보기부터 다시 하세요.") from None
     summary = summarize(result, len(rows))

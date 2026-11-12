@@ -10,6 +10,7 @@
 import csv
 import io
 import json
+import re
 import statistics
 import sys
 import time
@@ -29,6 +30,7 @@ from app.models import (
     Company,
     IdempotencyKey,
     InventoryMovement,
+    PoChangeLog,
     Product,
     PurchaseOrder,
     PurchaseOrderItem,
@@ -42,17 +44,17 @@ N_PRODUCTS_X, N_SUPPLIERS_X, N_PRODUCTS_Y = 3000, 40, 600  # 회사 X(측정 대
 N_ORDERS_X = 1500  # 회사 X 의 과거 발주서 수 (발주서 목록과 created_at 인덱스 판단용)
 SLOW_SECONDS = 2.0  # 이 시간을 넘으면 "느림" (사용자 결정)
 READ_RUNS, WRITE_RUNS = 5, 3  # 읽기는 5회(첫 번째는 워밍업), 쓰기는 3회
-TABLES = (Company, User, Supplier, Product, PurchaseOrder, PurchaseOrderItem, InventoryMovement, IdempotencyKey)
+TABLES = (Company, User, Supplier, Product, PurchaseOrder, PurchaseOrderItem, InventoryMovement, IdempotencyKey, PoChangeLog)
 
 
 def guard() -> None:
-    """DB 이름이 정확히 scm_test 가 아니면 멈춘다. 표가 없으면 안내하고 멈춘다 (표를 만들거나 지우는 코드는 쓰지 않는다)."""
+    """DB 이름이 scm_test 또는 scm_test_<이름>(pytest 와 같은 규칙, #211)이 아니면 멈춘다. 표가 없으면 안내하고 멈춘다 (표를 만들거나 지우는 코드는 쓰지 않는다)."""
     name = make_url(settings.database_url).database
-    if name != "scm_test":
-        sys.exit(f"DB 이름이 scm_test 가 아닙니다({name!r}). 아무것도 하지 않고 멈춥니다.")
+    if name is None or re.fullmatch(r"scm_test(_[a-z0-9_]+)?", name) is None:  # tests/conftest.py 의 is_test_db_name 과 같은 규칙
+        sys.exit(f"DB 이름이 scm_test 또는 scm_test_<이름> 이 아닙니다({name!r}). 아무것도 하지 않고 멈춥니다.")
     with engine.connect() as conn:
         if conn.scalar(text("SELECT to_regclass('public.inventory_movements')")) is None:
-            sys.exit("scm_test 에 표가 없습니다. pytest 를 한 번 돌려 표를 만든 뒤 다시 실행하세요.")
+            sys.exit(f"{name} 에 표가 없습니다. 그 DB 를 TEST_DATABASE_URL 로 pytest 를 한 번 돌려 표를 만든 뒤 다시 실행하세요.")
 
 
 def row_counts() -> dict[str, int]:
@@ -67,7 +69,7 @@ def cleanup() -> None:
         ids = list(s.scalars(select(Company.id).where(Company.name.like(f"{PREFIX}%"))))
         if not ids:
             return
-        for model in (IdempotencyKey, InventoryMovement, PurchaseOrderItem, PurchaseOrder, Product, Supplier, User):  # 가리키는 쪽부터
+        for model in (IdempotencyKey, InventoryMovement, PoChangeLog, PurchaseOrderItem, PurchaseOrder, Product, Supplier, User):  # 가리키는 쪽부터 (변경 이력은 발주서보다 먼저, #181)
             s.execute(delete(model).where(model.company_id.in_(ids)))
         s.execute(delete(Company).where(Company.id.in_(ids)))
         s.commit()
@@ -297,6 +299,7 @@ def main(explain_all: bool = False) -> None:
             def drop_drafts():  # 측정용 초안만 지운다 (회사 X 의 DRAFT)
                 with Session(engine) as s:
                     ids = select(PurchaseOrder.id).where(PurchaseOrder.company_id == x["company_id"], PurchaseOrder.status == "DRAFT")
+                    s.execute(delete(PoChangeLog).where(PoChangeLog.purchase_order_id.in_(ids)))  # 초안 변경 이력(#181)이 발주서를 가리키므로 먼저
                     s.execute(delete(PurchaseOrderItem).where(PurchaseOrderItem.purchase_order_id.in_(ids)))
                     s.execute(delete(PurchaseOrder).where(PurchaseOrder.company_id == x["company_id"], PurchaseOrder.status == "DRAFT"))
                     s.commit()
