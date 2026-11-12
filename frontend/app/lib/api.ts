@@ -19,6 +19,7 @@ type Options = {
   method?: "GET" | "POST" | "PATCH"; // 상태를 바꾸는 요청은 POST/PATCH 만 쓴다 (GET 은 읽기만)
   body?: unknown; // 보낼 JSON 본문 (FormData 면 파일 업로드: 그대로 보낸다)
   redirectOn401?: boolean; // 401 이면 로그인 화면으로 보낼지 (로그인 요청 자체는 false)
+  headers?: Record<string, string>; // 더 붙일 헤더 (예: Idempotency-Key, #190)
 };
 
 // 목록 응답의 쪽 정보 (서버 meta)
@@ -38,13 +39,13 @@ export async function apiList<T>(path: string): Promise<{ data: T[]; meta: Meta 
 
 // 요청을 보내고 성공 본문(JSON)을 돌려주거나 ApiError 를 던지는 공통 부분
 async function request(path: string, options: Options) {
-  const { method = "GET", body, redirectOn401 = true } = options; // 기본값: GET, 401 이면 이동
+  const { method = "GET", body, redirectOn401 = true, headers: extra } = options; // 기본값: GET, 401 이면 이동
   let response: Response; // 서버 응답
   try {
     response = await fetch(`/api/v1${path}`, {
       method, // 요청 방식
       // FormData 는 브라우저가 경계 문자열이 든 Content-Type 을 직접 붙이므로 우리가 지정하지 않는다
-      headers: body === undefined || body instanceof FormData ? undefined : { "Content-Type": "application/json" }, // 본문이 JSON 일 때만 표시
+      headers: body === undefined || body instanceof FormData ? extra : { "Content-Type": "application/json", ...extra }, // 본문이 JSON 일 때만 표시 + 더 붙일 헤더
       body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body), // 객체 → JSON 문자열
       credentials: "same-origin", // 같은 주소의 쿠키(로그인 토큰)를 자동으로 붙인다
     });
