@@ -6,7 +6,10 @@ import jwt  # 테스트에서 직접 토큰을 만들어 본다
 
 from app.auth.deps import COOKIE_NAME  # 쿠키 이름
 from app.config import settings  # 진짜 서명 키 (만료 토큰 테스트용)
+from app.db import get_db  # 테스트 세션을 꺼내는 열쇠
+from app.main import app  # 끼워 둔 테스트 세션 찾기
 from app.models import User  # 사용자 표
+from tests.helpers import GRACE_UNTIL  # 관리자 유예 종료 시각 (#179)
 
 SIGNUP = {  # 기본 가입 요청
     "company_name": "가나상사",
@@ -18,7 +21,12 @@ LOGIN_FAILED = "이메일 또는 비밀번호가 올바르지 않습니다."  # 
 
 
 def sign_up(client, **override):
-    return client.post("/api/v1/companies", json={**SIGNUP, **override})  # 가입 요청
+    response = client.post("/api/v1/companies", json={**SIGNUP, **override})  # 가입 요청
+    if response.status_code == 201:  # 새 관리자는 처음부터 메일 코드 대상(#179). 이 파일은 비밀번호 로그인을 보므로 유예 중으로 둔다
+        session = app.dependency_overrides[get_db]()  # client fixture 가 끼운 테스트 세션
+        session.query(User).filter_by(email=response.json()["data"]["email"]).update({"otp_grace_until": GRACE_UNTIL})
+        session.commit()
+    return response
 
 
 def login(client, email="admin@gana.com", password="correct-horse"):
