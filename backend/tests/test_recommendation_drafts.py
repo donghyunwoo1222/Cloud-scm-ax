@@ -173,13 +173,13 @@ def test_other_company_product_is_404(client, world, session):
 
 
 def test_request_validation(client, world, session):
-    """같은 품목 두 줄 409 DUPLICATE_ITEM. 빈 목록·101개·추천 수량을 보내면·수량 0 은 422."""
+    """같은 품목 두 줄 409 DUPLICATE_ITEM. 빈 목록·1,001개·추천 수량을 보내면·수량 0 은 422."""
     p = stock_50_sold_300(session, world, "V")
     session.commit()
     line = {"product_id": p.id, "quantity": 10}
     assert post(client, [line, line]).json()["error"]["code"] == "DUPLICATE_ITEM"
     assert post(client, []).status_code == 422
-    assert post(client, [line] * 101).status_code == 422
+    assert post(client, [line] * 1001).status_code == 422
     assert post(client, [{**line, "recommended_quantity": 999}]).status_code == 422  # 추천 수량은 서버만 정한다
     assert post(client, [{"product_id": p.id, "quantity": 0}]).status_code == 422
     assert drafts(session, world) == 0
