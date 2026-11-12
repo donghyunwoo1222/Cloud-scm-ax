@@ -60,7 +60,8 @@
 | F6 | POST /purchase-orders/{id}/approve | DRAFT → APPROVED | 관리자 |
 | F6 | POST /purchase-orders/{id}/order | APPROVED → ORDERED(공급업체에 발주했음 표시) | 둘 다 |
 | F6 | POST /purchase-orders/{id}/receipts | 발주 품목 입고(부분 가능). 이력 등록 + 상태 갱신을 한 번에 | 둘 다 |
-| F6 | POST /purchase-orders/{id}/cancel | 입고 이력이 없는 발주만 취소 | 둘 다 |
+| F6 | POST /purchase-orders/{id}/cancel | 입고 이력이 없는 발주만 취소. 선택 본문 `{"reason": "사유(500자 이하)"}`, 발주함(ORDERED) 취소는 사유 필수(없거나 공백이면 422) | 둘 다 |
+| F6 | GET /purchase-orders/{id}/change-log | 발주서 변경 이력(#181): DRAFT 수정·상태 변경의 변경 전·후 값, 수정자 이름(이메일 없음), 시각, 사유. 최신순, 쪽 나누기. 다른 회사 404. 수정·삭제 API는 없다 | 둘 다 |
 | F7 대시보드 | GET /dashboard | 부족·과잉·장기재고·진행 중 발주·이번 달 입출고 요약. 입고 예정과 월 입출고는 각각 `incoming_by_unit`, `in_by_unit`, `out_by_unit`에 재고 단위별 합계를 반환한다. | 둘 다 |
 | F8 발주 추천 | GET /recommendations | 현재 시점 추천 목록 계산·반환 | 둘 다 |
 | F8 | POST /recommendations/drafts | 선택한 품목으로 공급업체별 DRAFT 발주서 생성·품목 추가 | 둘 다 |
