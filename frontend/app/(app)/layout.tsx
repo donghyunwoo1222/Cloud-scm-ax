@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation"; // 지금 주소(현�
 import { ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react"; // 자식 화면 타입, 주소 읽는 부품 감싸기, 함수 고정, 처음·변경 때 실행, 포커스용 ref, 상태
 
 import { ApiError, api } from "../lib/api"; // 공통 API 호출 함수·오류 종류
-import { Me, MeContext, ROLE_LABEL } from "../lib/me"; // 내 정보 모양·공유 상자·역할 이름
+import { Me, MeContext, NOTICE_KEY, ROLE_LABEL } from "../lib/me"; // 내 정보 모양·공유 상자·역할 이름
 import { S } from "../lib/styles"; // 화면 공통 스타일
 
 // 사이드 메뉴를 업무별 그룹으로 나눈다. title 이 없는 그룹(대시보드)은 제목 없이 맨 위에 놓인다.
@@ -73,6 +73,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null); // 내 정보 (불러오기 전에는 null)
   const [failed, setFailed] = useState(false); // 로그인 확인이 401 이 아닌 이유(네트워크·서버 오류)로 실패했는지
   const [attempt, setAttempt] = useState(0); // "다시 시도" 를 누를 때마다 올려 확인을 다시 한다
+  // 유예 중 관리자에게 보여 줄 메일 인증코드 안내 (없으면 빈 문자열). 로그인 화면이 남겨 둔 값을 읽고, 저장소를 못 쓰면(비공개 창 등) 안내만 생략한다
+  // 이 레이아웃은 로그인 확인 뒤에야 내용을 그려 서버 화면과 어긋나지 않으므로 처음 값을 바로 읽어도 된다
+  const [notice, setNotice] = useState(() => {
+    try { return typeof window !== "undefined" ? window.sessionStorage.getItem(NOTICE_KEY) ?? "" : ""; } catch { return ""; }
+  });
   const [menuOpen, setMenuOpen] = useState(false); // 좁은 화면에서 드로어가 열려 있는지
   // 넓은 화면에서 사이드 메뉴를 접었는지(접으면 햄버거만 남는 얇은 띠). 다음에 열어도 유지하도록 브라우저에 기억한다.
   // 메뉴는 로그인 확인 뒤에야 그려져 서버 화면과 어긋나지 않으므로 처음 값을 바로 읽어도 된다. 저장소를 못 쓰면(시크릿 창 등) 그냥 펼친 채로 시작한다
@@ -92,6 +97,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       if (!(e instanceof ApiError && e.status === 401)) setFailed(true); // 401 은 api 함수가 이동시키니 그 밖의 실패만 안내한다
     });
   }, [attempt, router]);
+
+  function dismissNotice() {
+    setNotice("");
+    try { window.sessionStorage.removeItem(NOTICE_KEY); } catch { /* 지우지 못해도 이번 화면에서는 닫힌다 */ }
+  }
 
   // 드로어를 닫는다. 버튼·Esc·배경으로 닫을 때는 햄버거로 포커스를 돌려주고, 메뉴 링크로 이동할 때는 돌려주지 않는다
   const closeMenu = useCallback((returnFocus: boolean) => {
@@ -207,6 +217,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </button>
           </header>
           )}
+          {me && notice && (
+          <div role="status" style={S.otpNotice}>
+            <span>{notice}</span>
+            <button type="button" onClick={dismissNotice}>닫기</button>
+          </div>
+          )}
+          {/* 유예 중 관리자 안내: 로그인한 뒤 닫을 때까지 모든 화면 위에 보인다 */}
           <main hidden={!me} style={S.main}>{!me?.must_change_password && children}</main>
           {/* 각 화면 내용. 로그인 확인 전에도 그려 두되(Next.js 가 화면 구조를 미리 검사할 수 있게) 확인 전까지는 숨긴다.
               데이터는 화면이 아니라 서버가 지킨다: 로그인 안 한 상태의 API 호출은 401 → 로그인 화면 */}
