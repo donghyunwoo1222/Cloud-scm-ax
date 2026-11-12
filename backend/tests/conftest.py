@@ -1,4 +1,5 @@
 import os  # 환경 변수 읽기
+import re  # DB 이름 규칙 검사
 from pathlib import Path  # 파일 경로 다루기
 
 import pytest  # 테스트 도구
@@ -41,11 +42,16 @@ def create_test_database_if_missing(url: str) -> None:
     admin.dispose()  # 접속을 정리한다
 
 
+def is_test_db_name(name: str | None) -> bool:
+    """테스트 DB 이름으로 허용되는지: 정확히 scm_test, 또는 scm_test_ 뒤에 영문 소문자·숫자·밑줄 (예: scm_test_181). scm·scm_testing·scm_test-x 는 거부."""
+    return name is not None and re.fullmatch(r"scm_test(_[a-z0-9_]+)?", name) is not None
+
+
 def reset_database(url: str) -> None:
-    """표를 모두 지우고 마이그레이션으로 처음부터 다시 만든다. DB 이름이 정확히 scm_test 가 아니면 아무것도 하지 않고 멈춘다."""
-    name = make_url(url).database  # 주소에서 DB 이름만 꺼낸다 (접속은 아직 하지 않는다)
-    if name != "scm_test":  # 개발 DB(scm) 등을 잘못 넣으면 downgrade base 가 그 DB 의 표를 모두 지운다
-        pytest.exit(f"테스트 DB 이름이 scm_test 가 아닙니다({name!r}). 아무것도 지우지 않고 멈춥니다.", returncode=1)
+    """표를 모두 지우고 마이그레이션으로 처음부터 다시 만든다. DB 이름이 허용 규칙(is_test_db_name)에 안 맞으면 아무것도 하지 않고 멈춘다."""
+    name = make_url(url).database  # 주소(TEST_DATABASE_URL)에서 DB 이름만 꺼낸다 (접속은 아직 하지 않는다). 이 이름 검사는 TEST_DATABASE_URL 을 본다
+    if not is_test_db_name(name):  # 개발 DB(scm) 등을 잘못 넣으면 downgrade base 가 그 DB 의 표를 모두 지운다
+        pytest.exit(f"테스트 DB 이름이 scm_test 또는 scm_test_<이름> 이 아닙니다({name!r}). 아무것도 지우지 않고 멈춥니다.", returncode=1)
     create_test_database_if_missing(url)  # 테스트 DB 준비
     cfg = Config(str(BACKEND_DIR / "alembic.ini"))  # alembic 설정 읽기
     cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations"))  # 어느 폴더에서 실행해도 마이그레이션 파일을 찾게
