@@ -98,7 +98,7 @@
 
 성공하면 201과 함께 등록된 이력과 등록 직후 재고(`stock_after`)를 돌려준다. 화면이 바로 재고 숫자를 갱신할 수 있다.
 
-`movement_date`를 비우면 서울 기준 오늘로 저장한다. 미래 날짜는 422 `VALIDATION_ERROR`, 과거 날짜는 허용한다(늦게 입력하는 경우). 아직 일어나지 않은 입출고가 재고·30일 판매에 섞이지 않게 하기 위해서다(#29, 임시 확정). 이 경로는 `purchase_order_item_id`와 `CORRECTION`을 받지 않는다(422): 발주 입고는 3), 정정은 2)로만 한다.
+`movement_date`를 비우면 서울 기준 오늘로 저장한다. 미래 날짜와 오늘로부터 5년보다 이른 날짜(예: 2026-11-12이면 2021-11-12보다 이른 날짜, 0202-11-01 같은 오타)는 422 `VALIDATION_ERROR`, 그 사이의 과거 날짜는 허용한다(늦게 입력하는 경우, 하한은 #190). 발주 입고와 판매·입고 가져오기(`TOO_OLD_DATE` 문제 행)도 같은 공통 함수(`app/clock.py`의 `date_problem`)로 검사한다. 아직 일어나지 않은 입출고가 재고·30일 판매에 섞이지 않게 하기 위해서다(#29, 임시 확정). 이 경로는 `purchase_order_item_id`와 `CORRECTION`을 받지 않는다(422): 발주 입고는 3), 정정은 2)로만 한다.
 
 ### 2) 잘못 넣은 이력 정정: POST /inventory-movements/{id}/corrections
 
@@ -196,6 +196,21 @@
 대시보드 입고 대기 카드의 `purchase_orders.due_today`와 `purchase_orders.overdue`는 서울 기준으로 오늘이 납기인 발주함(ORDERED) 건수와 오늘보다 납기가 이른 발주함 건수다(#120). 부분 입고 발주도 한 건으로 센다.
 
 발주 목록 `GET /purchase-orders?receipt_due=`에는 `TODAY`(오늘), `OVERDUE`(오늘보다 이전), `NEXT_7_DAYS`(내일~7일 뒤, 양 끝 포함), `UNSCHEDULED`(납기 미정)를 지정할 수 있다. 회사, 공급업체, 상태, 발주번호 검색 조건과 함께 발주함(ORDERED)인 줄을 먼저 거른 뒤 최신순으로 쪽을 나눈다. 발주함 이외의 상태를 함께 지정하면 빈 목록이고, 알 수 없는 납기 구간은 422다.
+
+#### 입력 확인 경고와 멱등 키 (#190)
+
+저장 전에 사용자 확인이 필요한 입력은 409 `CONFIRM_REQUIRED`로 돌려주고 아무것도 저장하지 않는다. 같은 본문에 `"confirm_warnings": true`를 넣어 다시 보내면 처리한다. 막는 것이 아니라 확인을 받는 것이다.
+
+- `LARGE_QUANTITY`: 수량(재고 단위)이 최근 30일 순판매(SALE − 판매 정정, 추천과 같은 숫자) × 3을 넘는다. 예) 30일 판매 300 → 900까지 통과, 901부터 경고. 30일 판매가 0인 품목과 정정은 검사하지 않는다. 직접 입고·출고·조정과 발주 입고(줄마다)에 적용한다(배수 3은 임시값).
+- `INACTIVE_PRODUCT`: 비활성 품목의 직접 입고·출고·조정. 이미 ORDERED인 발주의 입고에는 내지 않는다(데이터 원칙 8).
+
+```json
+// 409 Conflict
+{"error": {"code": "CONFIRM_REQUIRED", "message": "확인이 필요합니다. SOLD: 수량 301개가 최근 30일 판매(100개)의 3배를 넘습니다. 맞으면 확인 후 다시 보내 주세요.",
+  "details": {"warnings": [{"code": "LARGE_QUANTITY", "product_id": 3, "sku": "SOLD", "quantity": 301, "sales_30d": 100, "limit": 300}]}}}
+```
+
+직접 입출고·정정·발주 입고 POST는 선택 헤더 `Idempotency-Key`(1~100자, 화면이 요청마다 새로 만든다)를 받는다. 같은 회사·경로·키로 다시 오면 새로 저장하지 않고 첫 응답을 상태 코드까지 그대로 돌려준다(24시간 유지). 같은 키에 다른 내용은 422 `IDEMPOTENCY_KEY_REUSED`. 지문에서 `confirm_warnings`는 빼므로 "409 → 확인 후 같은 키로 재전송"은 같은 요청이다. 실패한 요청(4xx·5xx)은 키를 남기지 않는다. 헤더가 없으면 이전과 같다. 동시에 같은 키가 오면 두 번째는 첫 요청이 끝날 때까지 기다린 뒤 첫 응답을 받는다(잠금 순서: 키 → 회사 → 발주서 → 품목, 키 테이블은 erd.md). 발주서 작성(`POST /purchase-orders`)은 대상이 아니다.
 
 ### 3) 발주 입고: POST /purchase-orders/{id}/receipts
 
@@ -321,6 +336,8 @@
 | LAST\_ADMIN | 409 | 회사의 마지막 활성 관리자를 담당자로 바꾸거나 비활성으로 바꿈(자기 자신 포함). 직원 변경은 회사 행을 잠근 뒤 대상 직원을 읽어 검사한다(#71) | F1 |
 | DUPLICATE\_NAME | 409 | 같은 회사에 같은 이름의 공급업체를 등록하거나 그 이름으로 바꿈(앞뒤 공백 제거 후 비교, 다른 회사는 허용) | F2 |
 | DUPLICATE\_SKU | 409 | 같은 회사에 같은 SKU의 품목을 등록하거나 그 SKU로 바꿈(공백 제거·대문자로 비교, 다른 회사는 허용) | F3 |
+| CONFIRM\_REQUIRED | 409 | 큰 수량(30일 판매 × 3 초과)·비활성 품목 직접 입출고를 확인 없이 보냄. details.warnings 에 `LARGE_QUANTITY`·`INACTIVE_PRODUCT`, `confirm_warnings: true` 로 다시 보내면 처리(#190) | 입력 검증 |
+| IDEMPOTENCY\_KEY\_REUSED | 422 | 같은 `Idempotency-Key` 로 다른 내용의 요청을 보냄(#190) | 입력 검증 |
 | HTTP\_ERROR | 400·405 등 | 위 코드에 해당하지 않는 프레임워크 오류(깨진 요청 본문, 허용하지 않는 메서드 등). 없는 경로는 NOT\_FOUND(`app/errors.py`) | 공통 |
 
 에러가 날 때 어느 칸이 문제인지는 `details`에 칸 이름과 사유로 담는다(VALIDATION\_ERROR). 401과 403은 왜 실패했는지 최소한만 알려준다.
