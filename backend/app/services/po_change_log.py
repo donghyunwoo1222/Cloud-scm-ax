@@ -50,7 +50,7 @@ def list_changes(company_id: int, db: Session, order_id: int, page: PageParams) 
     rows, meta = paginate(db, scoped(company_id, PoChangeLog).where(
         PoChangeLog.purchase_order_id == order_id).order_by(PoChangeLog.id.desc()), page)
     names = dict(db.execute(scoped(company_id, User).with_only_columns(User.id, User.name).where(
-        User.id.in_({r.changed_by for r in rows})))) if rows else {}  # 사용자 번호 → 이름 (한 번에)
+        User.id.in_({r.changed_by for r in rows}))).all()) if rows else {}  # 사용자 번호 → 이름 (한 번에)
     return [
         {"id": r.id, "field": r.field, "old_value": r.old_value, "new_value": r.new_value,
          "changed_by_name": names.get(r.changed_by, ""), "reason": r.reason, "created_at": r.created_at}
