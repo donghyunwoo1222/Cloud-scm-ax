@@ -6,15 +6,15 @@
 
 | 문서 | 내용 |
 |---|---|
-| [erd.md](./erd.md) | 표 8개(업무 7개 + 멱등 키), 컬럼, 관계, 업무 규칙(R1~R10) 대응, 시나리오 S1~S14 점검 |
-| [api-design.md](./api-design.md) | REST API 31개, 권한, 오류 코드, 핵심 API 상세 |
+| [erd.md](./erd.md) | 표 9개(업무 7개 + 멱등 키 + 발주서 변경 이력), 컬럼, 관계, 업무 규칙(R1~R10) 대응, 시나리오 S1~S14 점검 |
+| [api-design.md](./api-design.md) | REST API 32개, 권한, 오류 코드, 핵심 API 상세 |
 | [architecture.md](./architecture.md) | 기술 스택, 구성도, 폴더 구조, 추천 계산 함수, 배포·운영, 주차별 계획 |
 
 읽는 순서: ERD → API → 아키텍처.
 
 ## 핵심 설계 요약
 
-- 표 8개: companies, users, suppliers, products, purchase_orders, purchase_order_items, inventory_movements, idempotency_keys(멱등 키, #190)
+- 표 9개: companies, users, suppliers, products, purchase_orders, purchase_order_items, inventory_movements, idempotency_keys(멱등 키, #190), po_change_log(발주서 변경 이력, #181)
 - 재고는 컬럼으로 저장하지 않고 `inventory_movements`의 합계로 계산한다.
 - 모든 업무 표에 `company_id`를 둔다. 회사 정보는 토큰에서만 가져온다.
 - 마이너스 재고는 서버 트랜잭션과 행 잠금으로 막는다.

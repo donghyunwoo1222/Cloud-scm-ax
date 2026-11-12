@@ -75,7 +75,8 @@ def test_disallowed_moves(client, world, po, session):
 @pytest.mark.parametrize("status", ["DRAFT", "APPROVED", "ORDERED"])
 def test_cancel_without_receipt(client, world, po, session, status):
     set_status(session, po, status)
-    d = act(client, po, "cancel").json()["data"]
+    body = {"json": {"reason": "공급업체 사정"}} if status == "ORDERED" else {}  # 발주함 취소는 사유 필수 (#181)
+    d = client.post(f"{URL}/{po['id']}/cancel", **body).json()["data"]
     assert d["status"] == "CANCELLED" and d["cancelled_at"] is not None
 
 
