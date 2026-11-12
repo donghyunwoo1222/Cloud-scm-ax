@@ -13,7 +13,7 @@ RECOMMENDATIONS = "/api/v1/recommendations"
 
 def test_box_recommendation_and_receipts(client, session, world):
     # 일평균 1 × (리드타임 5 + 보충 주기 14) + 안전재고 8 = 27개
-    product = add_product(session, world, "BOX", safety_stock=8, units_per_box=10, box_unit_cost=10_005)
+    product = add_product(session, world, "BOX", safety_stock=8, units_per_box=10, box_unit_cost=10_005, order_unit="박스")
     add_move(session, world, product, "RECEIPT", "IN", 30, OLD)
     add_move(session, world, product, "SALE", "OUT", 30, 1)
     session.commit()
@@ -63,7 +63,7 @@ def test_box_recommendation_and_receipts(client, session, world):
 
 def test_manual_box_order_validation_and_legacy_lines(client, session, world):
     plain = add_product(session, world, "PLAIN")
-    foreign = add_product(session, world, "FOREIGN-BOX", key="b", units_per_box=10, box_unit_cost=500)
+    foreign = add_product(session, world, "FOREIGN-BOX", key="b", units_per_box=10, box_unit_cost=500, order_unit="박스")
     session.commit()
     login_as(client)
     supplier_id = world["a_supplier"].id

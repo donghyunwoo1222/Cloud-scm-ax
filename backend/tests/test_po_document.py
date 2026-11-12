@@ -67,7 +67,7 @@ def test_document_amounts_and_company_fallbacks(client, session, world):
 
 
 def test_document_box_line(client, session, world):
-    p = add_product(session, world, "a", "BX", units_per_box=24, box_unit_cost=12_000)
+    p = add_product(session, world, "a", "BX", units_per_box=24, box_unit_cost=12_000, order_unit="박스")
     session.commit()
     login_as(client, "admin@a.test")
     response = client.post(URL, json={"supplier_id": world["a_supplier"].id, "items": [{"product_id": p.id, "box_quantity": 5}]})

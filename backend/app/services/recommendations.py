@@ -143,6 +143,7 @@ def list_recommendations(company_id: int, db: Session, today: date) -> dict:
                 "reorder_point": float(result.reorder_point),  # 예: 70.0, 19/6 → 3.1666…
                 "recommended_quantity": result.recommended_quantity, "reason": result.reason,
                 "units_per_box": product.units_per_box, "box_unit_cost": product.box_unit_cost,
+                "order_unit": product.order_unit or product.unit, "unit_factor": product.units_per_box or 1,  # #185, 올림은 #187
                 "recommended_box_quantity": (
                     boxes_for(result.recommended_quantity, product.units_per_box)
                     if product.units_per_box is not None else None

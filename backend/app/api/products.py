@@ -27,6 +27,7 @@ def out(product: Product, supplier: Supplier) -> dict:
         color=product.color, size=product.size, spec=product.spec, group_code=product.group_code,
         unit_cost=product.unit_cost, safety_stock=product.safety_stock, is_active=product.is_active,
         units_per_box=product.units_per_box, box_unit_cost=product.box_unit_cost,
+        order_unit=product.order_unit or product.unit, unit_factor=product.units_per_box or 1,  # 박스 설정이 없으면 재고 단위·1
         default_supplier=SupplierBrief.model_validate(supplier),  # id·이름·리드타임
         created_at=product.created_at, updated_at=product.updated_at,
     ).model_dump(mode="json")

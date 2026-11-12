@@ -74,11 +74,11 @@ def build_document(company_id: int, db: Session, order_id: int) -> dict:
         lines.append({
             "no": number,
             "product_name": item["product_name"], "product_sku": item["product_sku"],
-            "unit": "박스" if boxed else item["unit"],
+            "unit": item["order_unit"] if boxed else item["unit"],  # 발주 당시 발주단위 이름 (예: 박스, PACK)
             "quantity": item["box_quantity"] if boxed else item["quantity"],
             "unit_price": item["box_unit_price"] if boxed else item["unit_price"],
             "amount": item["line_total"],
-            "note": f"1박스={item['units_per_box']:,}개" if boxed else "",
+            "note": f"1{item['order_unit']}={item['units_per_box']:,}{item['unit']}" if boxed else "",  # 예: 1박스=10개
         })
     supply_total = sum(line["amount"] for line in lines)
     vat = vat_of(supply_total)
