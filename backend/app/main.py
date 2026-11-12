@@ -5,7 +5,9 @@ from app.api import (  # 경로가 든 모듈들
     companies,
     dashboard,
     health,
+    import_templates,
     movements,
+    product_imports,
     products,
     purchase_orders,
     receipt_imports,
@@ -32,3 +34,5 @@ app.include_router(dashboard.router, prefix="/api/v1")  # 대시보드 요약
 app.include_router(recommendations.router, prefix="/api/v1")  # 발주 추천 조회
 app.include_router(sales_imports.router, prefix="/api/v1")  # 판매 가져오기 (CSV·엑셀)
 app.include_router(receipt_imports.router, prefix="/api/v1")  # 품목·입고 가져오기 (CSV·엑셀)
+app.include_router(product_imports.router, prefix="/api/v1")  # 품목 마스터 가져오기 (신규·수정, #189)
+app.include_router(import_templates.router, prefix="/api/v1")  # 가져오기 템플릿 내려받기 (#189)
