@@ -37,6 +37,8 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
     })) : [{ ...EMPTY_LINE }],
   ); // 품목 줄들 (수정이면 지금 줄들로 시작)
   const [error, setError] = useState<unknown>(null); // 저장 오류 (입력값은 지우지 않는다)
+  const [busy, setBusy] = useState(false); // 저장 중이면 버튼을 잠그고 글자를 바꾼다
+  const sending = useRef(false); // 상태값은 다음 화면 갱신 뒤에야 바뀌어 더블클릭을 못 막으므로, 즉시 바뀌는 ref 로 한 번 더 막는다 (#190)
 
   useEffect(() => {
     if (!order) apiList<Option>("/suppliers?page_size=100").then((r) => setSuppliers(r.data)).catch(setError);
@@ -81,6 +83,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
 
   async function submit(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
+    if (sending.current) return; // 이미 저장 중이면 두 번째 제출은 버린다
     const items = lines.map((l) => ({
       product_id: num(l.product_id),
       ...(l.box ? { box_quantity: num(l.quantity) } : { quantity: num(l.quantity), unit_price: num(l.unit_price) }),
@@ -92,13 +95,17 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       return moq != null && count >= 1 && count < moq ? [`- ${product?.name ?? "품목"}: 최소 ${moq}${unit}, 입력 ${count}${unit}`] : [];
     }); // 최소 주문량보다 적은 줄 (막지 않고 확인만 받는다. 공급업체와 협의한 예외가 있을 수 있다, #194)
     if (belowMoq.length && !window.confirm(`최소 주문량보다 적은 품목이 있습니다.\n${belowMoq.join("\n")}\n그대로 저장할까요?`)) return;
+    sending.current = true; // 확인창을 통과한 뒤 즉시 잠금 (취소하면 잠그지 않는다)
+    setBusy(true);
     try {
       const saved = order
         ? await api<PurchaseOrder>(`/purchase-orders/${order.id}`, { method: "PATCH", body: { due_date: dueDate || null, memo: memo || null, delivery_address: deliveryAddress || null, payment_terms: paymentTerms || null, items } }) // 수정: items 전체 교체
         : await api<PurchaseOrder>("/purchase-orders", { method: "POST", body: { supplier_id: num(supplierId), due_date: dueDate || null, memo: memo || null, delivery_address: deliveryAddress || null, payment_terms: paymentTerms || null, items } }); // 작성
-      router.push(`/purchase-orders/${saved.id}`); // 저장되면 상세 화면으로
+      router.push(`/purchase-orders/${saved.id}`); // 저장되면 상세 화면으로 (화면을 떠나므로 잠금은 풀지 않는다: 이동 중 클릭으로 한 장 더 생기지 않게)
     } catch (e) {
       setError(e); // 서버 문장 그대로 보여주고 입력값은 그대로 둔다
+      sending.current = false; // 실패하면 고쳐서 다시 누를 수 있게 푼다
+      setBusy(false);
     }
   }
 
@@ -190,7 +197,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       <p style={S.hint}>예상 합계 {estimatedAmount.toLocaleString("ko-KR")}원</p>
 
       <p style={{ ...S.buttons, marginTop: "var(--space-md)" }}>
-        <button type="submit">{order ? "변경 저장" : "초안 저장"}</button>
+        <button type="submit" disabled={busy}>{busy ? "저장 중…" : order ? "변경 저장" : "초안 저장"}</button>
         <Link href={order ? `/purchase-orders/${order.id}` : "/purchase-orders"} style={S.linkButtonGhost}>{order ? "발주서 상세로 돌아가기" : "발주 목록"}</Link>
       </p>
       <ErrorText error={error} labels={PO_LABELS} />
