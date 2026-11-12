@@ -4,7 +4,7 @@ import Link from "next/link"; // 상세·작성 화면 링크
 import { useSearchParams } from "next/navigation"; // 주소의 ?status= 읽기 (대시보드 숫자를 누르면 걸러진 채로 열기)
 import { Suspense, useEffect, useState } from "react"; // 주소 읽는 부품 감싸기, 처음 한 번 실행, 상태
 
-import { apiList } from "../../lib/api"; // 공통 API 호출 함수
+import { apiListAll } from "../../lib/api"; // 공통 API 호출 함수
 import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { seoulToday } from "../../lib/movement-form"; // 상세 화면과 같은 서울 날짜
@@ -47,8 +47,8 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
 
   useEffect(() => {
     // 비활성 업체가 낸 지난 발주서도 걸러 볼 수 있게 비활성도 포함한다
-    // shortcut: 업체 100개까지만 불러온다(서버 page_size 최대). 100개를 넘으면 검색형 선택 상자로 바꾼다
-    apiList<SupplierOption>("/suppliers?page_size=100&include_inactive=true").then((r) => setSuppliers(r.data)).catch(setError);
+    // 업체를 100개씩 끝까지 읽는다 (1,000곳 이상이면 검색형 선택 상자로 바꾸는 것은 후속)
+    apiListAll<SupplierOption>("/suppliers?include_inactive=true").then(setSuppliers).catch(setError);
   }, []);
 
   useEffect(() => { // 빌드 중 서버 시각을 읽지 않고 브라우저에서 날짜를 정한다
