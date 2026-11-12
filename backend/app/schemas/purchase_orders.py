@@ -84,6 +84,8 @@ class ItemOut(BaseModel):
     units_per_box: int | None  # 발주 당시 입수
     box_unit_price: int | None  # 발주 당시 박스당 단가
     box_quantity: int | None  # 박스 단위로 발주한 수량
+    order_unit: str  # 발주 당시 발주단위 이름 (박스 줄이 아니면 재고 단위)
+    unit_factor: int  # 발주 당시 환산계수 (박스 줄이 아니면 1)
     line_total: int  # 박스 발주 금액은 박스 수 × 박스 단가
     recommended_quantity: int | None  # 추천으로 만든 줄이면 당시 추천 수량
     recommendation_reason: str | None  # 당시 추천 이유 문장

@@ -64,7 +64,9 @@ def create_product(company_id: int, db: Session, data: ProductCreate) -> Product
     """품목 등록. 기본 공급업체는 같은 회사의 활성 업체만."""
     check_box_settings(data.units_per_box, data.box_unit_cost)
     check_default_supplier(company_id, db, data.default_supplier_id)  # 다른 회사 404, 비활성 409
-    product = Product(company_id=company_id, **data.model_dump())  # 요청 칸 + 회사 (회사는 토큰에서)
+    values = data.model_dump()  # 요청 칸
+    values["order_unit"] = order_unit_for(data.units_per_box, data.order_unit, sent=data.order_unit is not None)
+    product = Product(company_id=company_id, **values)  # 요청 칸 + 회사 (회사는 토큰에서)
     db.add(product)  # 세션에 올림
     commit_product(db)  # 확정, 같은 SKU 면 409
     return product
@@ -80,6 +82,9 @@ def update_product(company_id: int, db: Session, product_id: int, data: ProductU
     )
     if "default_supplier_id" in changes:  # 기본 공급업체를 바꾸면
         check_default_supplier(company_id, db, changes["default_supplier_id"])  # 새 업체를 검사
+    units_per_box = changes.get("units_per_box", product.units_per_box)  # 저장 뒤의 박스 입수
+    sent = changes.get("order_unit") is not None  # 이번 요청이 발주단위 이름을 보냈는지
+    changes["order_unit"] = order_unit_for(units_per_box, changes.get("order_unit", product.order_unit), sent=sent)
     for field, value in changes.items():
         setattr(product, field, value)  # 값을 바꾼다
     commit_product(db)  # 확정, SKU 를 바꿔 겹치면 409
@@ -89,6 +94,19 @@ def update_product(company_id: int, db: Session, product_id: int, data: ProductU
 def check_box_settings(units_per_box: int | None, box_unit_cost: int | None) -> None:
     if (units_per_box is None) != (box_unit_cost is None):  # 두 값이 있어야 박스 수량과 금액을 모두 계산할 수 있다
         raise AppError(422, "VALIDATION_ERROR", "박스 입수와 박스당 구매 단가는 함께 설정하거나 해제하세요.")
+
+
+def order_unit_for(units_per_box: int | None, order_unit: str | None, *, sent: bool) -> str | None:
+    """저장할 발주단위 이름. 박스 설정이 없으면 None, 있으면 보낸 값 또는 "박스".
+
+    예) 입수 10 + 이름 없음 → "박스", 입수 10 + "PACK" → "PACK", 입수 없음 + "PACK" → 422, 입수 해제 → None.
+    """
+    if units_per_box is None:  # 박스 설정이 없는 품목은 재고 단위로만 발주한다
+        if sent:  # 환산계수 없이 이름만 보내면 몇 개인지 알 수 없다
+            raise AppError(422, "VALIDATION_ERROR", "발주단위는 박스 입수와 박스당 구매 단가를 함께 설정할 때만 정할 수 있습니다.",
+                           [{"field": "order_unit", "reason": "requires_box_settings"}])
+        return None  # 박스 설정을 해제하면 이름도 함께 비운다
+    return order_unit or "박스"  # 이름을 비우면 기존 화면과 같은 "박스"
 
 
 def check_default_supplier(company_id: int, db: Session, supplier_id: int) -> Supplier:

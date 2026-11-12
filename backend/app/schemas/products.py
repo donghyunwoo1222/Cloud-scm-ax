@@ -39,6 +39,15 @@ def limit_50(value):
     return value
 
 
+def limit_20(value):
+    if value is not None and len(value) > 20:  # 발주단위 이름은 재고 단위처럼 20자까지
+        raise ValueError("20자 이하여야 합니다.")
+    return value
+
+
+OrderUnit = Annotated[str | None, BeforeValidator(strip_or_none), AfterValidator(limit_20)]  # 발주단위 이름 (예: 박스, PACK)
+
+
 def upper_or_none(value):
     return value.upper() if isinstance(value, str) else value  # 예) "ts-01" → "TS-01"
 
@@ -58,6 +67,7 @@ class ProductCreate(BaseModel):
     unit_cost: Won  # 구매 단가 (원, 0~1억)
     units_per_box: Quantity | None = None  # 박스 하나에 들어 있는 재고 단위 수
     box_unit_cost: Won | None = None  # 박스당 구매 단가
+    order_unit: OrderUnit = None  # 발주단위 이름. 박스 설정이 있는데 비우면 서버가 "박스"를 넣는다
     safety_stock: SafetyStock = 0  # 안전재고 (0~100만, 기본 0)
     default_supplier_id: Id  # 기본 공급업체 (필수, 같은 회사의 활성 업체만)
 
@@ -77,6 +87,7 @@ class ProductUpdate(PatchModel):
     unit_cost: Won | None = None  # 단가
     units_per_box: Quantity | None = None  # 박스 입수
     box_unit_cost: Won | None = None  # 박스당 구매 단가
+    order_unit: OrderUnit = None  # 발주단위 이름 (박스 설정을 해제하면 함께 비운다)
     safety_stock: SafetyStock | None = None  # 안전재고
     default_supplier_id: Id | None = None  # 기본 공급업체
     is_active: bool | None = None  # false: 비활성, true: 다시 활성
@@ -104,6 +115,8 @@ class ProductOut(BaseModel):
     unit_cost: int  # 단가
     units_per_box: int | None  # 박스 입수
     box_unit_cost: int | None  # 박스당 구매 단가
+    order_unit: str  # 발주단위 이름. 박스 설정이 없으면 재고 단위 (예: 개)
+    unit_factor: int  # 환산계수: 발주단위 1개 = 재고 단위 몇 개. 박스 설정이 없으면 1
     safety_stock: int  # 안전재고
     is_active: bool  # 활성 여부
     default_supplier: SupplierBrief  # 기본 공급업체 id·이름·리드타임

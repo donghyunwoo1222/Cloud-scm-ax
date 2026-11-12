@@ -18,6 +18,7 @@ class Product(CompanyMixin, Base):
             "AND units_per_box BETWEEN 1 AND 1000000 AND box_unit_cost BETWEEN 0 AND 100000000)",
             name="ck_products_box_settings",
         ),
+        CheckConstraint("(units_per_box IS NULL) = (order_unit IS NULL)", name="ck_products_order_unit"),  # 발주단위 이름은 박스 설정과 함께만 (#185)
     )
 
     sku: Mapped[str]  # 품목 코드
@@ -25,7 +26,8 @@ class Product(CompanyMixin, Base):
     unit: Mapped[str]  # 단위 (개, 박스 등)
     unit_cost: Mapped[int]  # 구매 단가 (원 단위 정수)
     units_per_box: Mapped[int | None]  # 박스 입수
-    box_unit_cost: Mapped[int | None]  # 박스당 구매 단가
+    box_unit_cost: Mapped[int | None]  # 박스당 구매 단가 (= 발주단위당 단가)
+    order_unit: Mapped[str | None]  # 발주단위 이름 (예: 박스, PACK, BAG). 환산계수는 units_per_box (#185)
     color: Mapped[str | None]  # 옵션: 색상 (예: 검정). 같은 상품의 SKU를 구분하는 속성이고 연결에는 쓰지 않는다
     size: Mapped[str | None]  # 옵션: 사이즈 (예: M)
     spec: Mapped[str | None]  # 옵션: 규격 (예: 2L, 30롤)

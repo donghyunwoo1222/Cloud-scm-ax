@@ -67,6 +67,7 @@ class PurchaseOrderItem(CompanyMixin, Base):
             "AND quantity % NULLIF(units_per_box, 0) = 0 AND quantity <= 1000000)",
             name="ck_po_items_box_snapshot",
         ),
+        CheckConstraint("(units_per_box IS NULL) = (order_unit IS NULL)", name="ck_po_items_order_unit"),  # 발주단위 스냅샷은 박스 줄에만 (#185)
     )
 
     purchase_order_id: Mapped[int] = mapped_column(ForeignKey("purchase_orders.id"), index=True)  # 속한 발주서
@@ -75,5 +76,6 @@ class PurchaseOrderItem(CompanyMixin, Base):
     unit_price: Mapped[int]  # 발주 당시 재고 단위 단가 (원)
     units_per_box: Mapped[int | None]  # 발주 줄 작성 당시 박스 입수
     box_unit_price: Mapped[int | None]  # 발주 줄 작성 당시 박스당 단가
+    order_unit: Mapped[str | None]  # 발주 줄 작성 당시 발주단위 이름 (마스터를 바꿔도 이 줄은 그대로, #185)
     recommended_quantity: Mapped[int | None]  # 추천으로 만든 줄이면 당시 추천 수량
     recommendation_reason: Mapped[str | None]  # 당시 화면에 보인 이유 문장

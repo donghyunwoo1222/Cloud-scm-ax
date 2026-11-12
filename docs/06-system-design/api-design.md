@@ -143,6 +143,7 @@
 - 수동 발주 작성·수정의 품목 줄은 기존 `{"product_id": 1, "quantity": 30, "unit_price": 1000}` 또는 박스 방식 `{"product_id": 1, "box_quantity": 3}`을 받는다. 두 방식은 한 발주서의 서로 다른 줄에서 함께 쓸 수 있다. 새 박스 줄은 품목의 박스 입수와 박스당 구매 단가를 복사한다. 기존 박스 줄은 DRAFT에서 박스 수를 고쳐도 당시 값으로 계산한다. 기존 화면이 그 줄을 재고 단위 방식으로 다시 보내면 수량이 당시 입수의 배수이고 `unit_price`가 그대로일 때만 반영한다.
 - 발주 줄 응답의 `quantity`, `received_quantity`, `recommended_quantity`는 모두 재고 단위다. 박스 줄에는 발주 당시 `units_per_box`와 `box_unit_price`, 발주한 `box_quantity`를 담고, 재고 단위 줄에는 이 세 칸이 null이다. 모든 줄에 `line_total`(원)을 담는다. 박스 줄의 `unit_price`는 당시 품목의 재고 단위 구매 단가이고, 실제 발주 금액은 `box_quantity × box_unit_price`다. 재고 단위 줄의 금액은 `quantity × unit_price`다. 예를 들어 10개입 3박스, 박스당 10,005원은 `quantity: 30`, `line_total: 30015`다.
 - 설정이 없는 품목에 박스 발주를 요청하거나, 박스 수를 환산한 재고 단위 수량이 기존 상한인 100만을 넘으면 422 `VALIDATION_ERROR`다.
+- 발주단위 이름(#185): 품목 등록·수정에 선택 칸 `order_unit`(1~20자)을 받는다. 박스 설정이 있는데 비우면 "박스", 박스 설정 없이 보내면 422 `VALIDATION_ERROR`(field `order_unit`), 박스 설정을 해제하면 함께 비운다. 품목·추천·발주 줄 응답에 `order_unit`과 `unit_factor`(= `units_per_box`, 박스 설정이 없으면 기본단위·1)를 더한다. 발주 줄의 두 값은 발주 당시 스냅샷이다. 발주 요청의 품목 줄은 모르는 칸을 422로 거절하므로 `unit_factor`·`order_unit`을 보낼 수 없다.
 
 ### 판매 가져오기 (#154, MVP 이후)
 
