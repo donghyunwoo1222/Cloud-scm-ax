@@ -4,6 +4,7 @@ import Link from "next/link"; // 발주 입고 이력에서 발주서로 이동�
 import { FormEvent, useCallback, useEffect, useId, useRef, useState } from "react"; // 폼 제출, 불러오기, 현재고 안내 연결, 중복 방지, 상태
 
 import { api, apiList } from "./api"; // 공통 API 호출 함수
+import { useConfirmedPost } from "./confirmed-post"; // 멱등 키 + 확인 경고 재전송 (#190)
 import { Field } from "./field"; // 모바일에서 라벨이 테두리에 걸치는 입력 항목
 import { ErrorText } from "./list"; // 서버 오류 표시
 import { movementOptions, skuWithOptions } from "./options"; // 품목 옵션 요약
@@ -43,6 +44,7 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
   const [done, setDone] = useState(""); // 성공 안내 문장
   const [error, setError] = useState<unknown>(null); // 등록 오류
   const [busy, setBusy] = useState(false); // 등록 중이면 버튼을 잠그고 글자를 바꾼다
+  const post = useConfirmedPost(); // 같은 내용 재전송은 같은 키, 409 확인 필요면 확인창
   const sending = useRef(false); // 상태값은 다음 화면 갱신 뒤에야 바뀌어 더블클릭을 못 막으므로, 즉시 바뀌는 ref 로 한 번 더 막는다
   const [savedCount, setSavedCount] = useState(0); // 등록에 성공한 횟수 (바뀌면 아래 최근 이력을 다시 불러온다)
 
@@ -84,7 +86,8 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
     if (type === "SALE") body.sales_channel = channel; // 채널은 판매일 때만
     if (type === "ADJUSTMENT") { body.direction = direction; body.reason = reason; } // 조정은 방향·사유 필수
     try {
-      const r = await api<{ stock_after: number }>("/inventory-movements", { method: "POST", body });
+      const r = await post<{ stock_after: number }>("/inventory-movements", body, product ? { [product.id]: product.name } : {});
+      if (r === null) return; // 확인창에서 취소: 아무것도 저장하지 않고 입력을 유지한다
       setError(null);
       setDone(`${label}를 등록했습니다 · 현재고 ${quantityLabel(r.stock_after, product?.unit)}`); // 예: "KB-101 입고 5개를 등록했습니다 · 현재고 27개" (현재고는 서버가 돌려준 등록 직후 값)
       stockRequest.current += 1; // 등록 전에 요청한 재고가 새 수량을 덮지 않도록 한다
