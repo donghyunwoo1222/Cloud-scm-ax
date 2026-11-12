@@ -32,6 +32,12 @@ from app.schemas.purchase_orders import (  # 요청·응답 모양
     ReceiptDue,
 )
 from app.schemas.recommendations import DraftItemIn  # 추천 초안의 요청 줄
+from app.services.po_change_log import (  # 변경 이력 (#181)
+    Change,
+    describe_line,
+    log_change,
+    text_of,
+)
 from app.services.stock import (  # 이력을 쓰는 유일한 함수 (품목 잠금·flush)와 입력 검사 (#190)
     check_movement_date,
     movement_warnings,
@@ -155,11 +161,15 @@ def create_order(company_id: int, db: Session, user_id: int, data: PurchaseOrder
     return order
 
 
-def update_order(company_id: int, db: Session, order_id: int, data: PurchaseOrderUpdate) -> PurchaseOrder:
-    """PATCH /purchase-orders/{id}: DRAFT 일 때만(409 INVALID_STATUS). items 를 보내면 최종 목록으로 맞춘다."""
+def update_order(company_id: int, db: Session, user_id: int, order_id: int, data: PurchaseOrderUpdate) -> PurchaseOrder:
+    """PATCH /purchase-orders/{id}: DRAFT 일 때만(409 INVALID_STATUS). items 를 보내면 최종 목록으로 맞춘다.
+
+    바뀐 칸은 변경 이력(po_change_log)에 같은 트랜잭션으로 남긴다(#181). 변경 전 값은 값을 바꾸기 전에 읽어 둔다.
+    """
     order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # 발주서 잠금(잠금 순서: 발주서 → 품목). 다른 회사 404
     if order.status != "DRAFT":  # 승인 이후에는 수정 불가 (R5)
         raise AppError(409, "INVALID_STATUS", "작성 중(DRAFT)인 발주서만 수정할 수 있습니다.", {"status": order.status})
+    changes: list[Change] = []  # 이력에 남길 (항목, 전, 후)
     if data.items is not None:  # 품목 줄을 보냈으면
         existing = {i.product_id: i for i in db.scalars(scoped(company_id, PurchaseOrderItem).where(
             PurchaseOrderItem.purchase_order_id == order.id))}  # 지금 줄들 (품목 id → 줄)
@@ -167,19 +177,31 @@ def update_order(company_id: int, db: Session, order_id: int, data: PurchaseOrde
         lines = {i.product_id: order_item_values(
             products[i.product_id], i.quantity, i.unit_price, i.box_quantity, existing.get(i.product_id),
         ) for i in data.items}
-        gone = [i.id for pid, i in existing.items() if pid not in lines]  # 목록에서 빠진 줄
+        gone = [pid for pid in existing if pid not in lines]  # 목록에서 빠진 줄의 품목 id
+        skus = {pid: p.sku for pid, p in products.items()}  # 품목 id → SKU (이력에서 줄을 SKU 로 가리킨다)
+        skus.update(db.execute(select(Product.id, Product.sku).where(Product.id.in_(gone))).all() if gone else {})  # 빠진 줄 품목의 SKU 는 한 번에
+        for pid in gone:  # 삭제 직전 값을 한 줄 문장으로 남긴다 (삭제 뒤에는 읽을 수 없다)
+            item = existing[pid]
+            changes.append((f"items[{skus[pid]}]", describe_line({
+                "quantity": item.quantity, "unit_price": item.unit_price,
+                "units_per_box": item.units_per_box, "box_unit_price": item.box_unit_price}), None))
         if gone:
-            db.execute(delete(PurchaseOrderItem).where(PurchaseOrderItem.id.in_(gone)))  # 삭제 (DRAFT 줄은 입고 이력이 없다)
+            db.execute(delete(PurchaseOrderItem).where(PurchaseOrderItem.id.in_([existing[pid].id for pid in gone])))  # 삭제 (DRAFT 줄은 입고 이력이 없다)
         for pid, values in lines.items():
             if pid in existing:  # 있던 줄의 추천 근거는 유지한다
                 for field, value in values.items():
+                    old = getattr(existing[pid], field)  # setattr 전에 변경 전 값을 읽는다
+                    changes.append((f"items[{skus[pid]}].{field}", text_of(old), text_of(value)))
                     setattr(existing[pid], field, value)
             else:  # 새 줄
                 db.add(PurchaseOrderItem(company_id=company_id, purchase_order_id=order.id, product_id=pid, **values))
+                changes.append((f"items[{skus[pid]}]", None, describe_line(values)))
     for field, value in data.model_dump(exclude_unset=True, exclude={"items"}).items():  # 납기·메모·납품장소·지불조건 중 보낸 칸 (줄 검사를 모두 통과한 뒤에 바꾼다)
         if field in ("delivery_address", "payment_terms"):
             value = value or None  # 빈 글자는 비움
+        changes.append((field, text_of(getattr(order, field)), text_of(value)))  # 바꾸기 전 값
         setattr(order, field, value)
+    log_change(db, company_id, order.id, user_id, changes)  # 같은 트랜잭션, 한 번의 INSERT. 같은 값인 칸은 행이 안 생긴다
     db.flush()
     return order
 
@@ -193,12 +215,15 @@ TRANSITIONS = {
 }
 
 
-def change_status(company_id: int, db: Session, user_id: int, order_id: int, action: str) -> PurchaseOrder:
+def change_status(company_id: int, db: Session, user_id: int, order_id: int, action: str,
+                  reason: str | None = None) -> PurchaseOrder:
     """POST /purchase-orders/{id}/approve·order·cancel. 발주서 행을 잠근 뒤 현재 상태를 읽고 한 단계만 바꾼다.
 
     잠금 덕분에 같은 발주서에 승인·취소가 동시에 와도 두 번째 요청은 첫 요청의 결과(바뀐 상태)를 보고 409 가 된다.
     입고(#35)도 발주서를 먼저 잠그므로 취소와 입고가 겹치지 않는다(잠금 순서: 회사 → 발주서 → 품목).
+    상태 변경은 변경 이력에 status 한 행으로 남긴다(#181). reason 은 취소 사유: 발주함(ORDERED) 취소는 필수, 그 전 취소는 선택.
     """
+    reason = (reason or "").strip() or None  # 공백뿐인 사유는 없는 것으로
     order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # 발주서 잠금. 다른 회사·없는 id 는 404
     sources, target = TRANSITIONS[action]  # 이 동작이 출발할 수 있는 상태, 도착 상태
     if order.status not in sources:  # 예) DRAFT 에서 바로 order, RECEIVED·CANCELLED 에서 cancel
@@ -211,7 +236,12 @@ def change_status(company_id: int, db: Session, user_id: int, order_id: int, act
     else:
         if orders_with_receipts(company_id, db, [order.id]):  # 전량 정정한 입고도 취소를 막는다.
             raise AppError(409, "CANNOT_CANCEL_RECEIVED", "입고 기록이 있는 발주서는 취소할 수 없습니다.")
+        if order.status == "ORDERED" and not reason:  # 공급업체에 이미 발주한 뒤의 취소는 사유를 남긴다
+            raise AppError(422, "VALIDATION_ERROR", "발주함 상태의 발주서를 취소하려면 사유를 입력해 주세요.",
+                           [{"field": "reason", "reason": "required"}])
         order.cancelled_at = func.now()  # 취소 시각
+    log_change(db, company_id, order.id, user_id, [("status", order.status, target)],
+               reason if action == "cancel" else None)  # 바꾸기 전 상태 → 새 상태
     order.status = target  # 한 단계만 바꾼다
     db.flush()  # DB 에 보낸다 (확정은 API 가 요청 끝에)
     db.refresh(order)  # func.now() 로 넣은 시각을 실제 값으로 다시 읽는다
@@ -340,6 +370,7 @@ def receive_order(company_id: int, db: Session, user_id: int, order_id: int, dat
         )
         received[item.id] = received.get(item.id, 0) + quantity  # 누적 갱신
     if all(received.get(i.id, 0) >= i.quantity for i in items.values()):  # ④ 모든 줄이 다 찼으면
+        log_change(db, company_id, order.id, user_id, [("status", order.status, "RECEIVED")])  # 변경 이력 (#181)
         order.status = "RECEIVED"  # 전량 입고 (부분이면 ORDERED 그대로)
         last = db.scalar(select(func.max(InventoryMovement.movement_date)).join(
             PurchaseOrderItem, PurchaseOrderItem.id == InventoryMovement.purchase_order_item_id).where(

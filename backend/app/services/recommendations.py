@@ -21,6 +21,7 @@ from app.models import (  # 표
 )
 from app.schemas.common import MAX_ORDER_LINES  # 발주서 한 장의 줄 수 상한
 from app.schemas.recommendations import DraftCreate  # 초안 만들기 요청 모양
+from app.services.po_change_log import describe_line, log_change  # 변경 이력 (#181)
 from app.services.products import (
     filter_product_search,  # 재고 목록과 품목 목록이 같은 이름·SKU 검색을 쓴다
 )
@@ -215,6 +216,8 @@ def create_drafts(company_id: int, db: Session, user_id: int, today: date, data:
                 raise AppError(409, "DUPLICATE_ITEM",
                                f"작성 중인 발주서({order.po_number})에 이미 있는 품목입니다({', '.join(dup)}). 그 발주서에서 수량을 고치세요.",
                                {"purchase_order_id": order.id, "po_number": order.po_number, "skus": dup})
+        if not created:  # 있던 DRAFT 에 줄을 더하는 것은 수정이므로 이력에 남긴다(새 발주서 생성은 남기지 않는다, #181). 줄 수와 무관하게 INSERT 한 번
+            log_change(db, company_id, order.id, user_id, [(f"items[{p.sku}]", None, describe_line(values)) for p, _, values in lines])
         db.add_all(PurchaseOrderItem(
             company_id=company_id, purchase_order_id=order.id, product_id=p.id,
             **values,  # 환산한 발주 수량·단가와 필요한 경우 박스 정보

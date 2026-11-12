@@ -6,6 +6,8 @@ import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react"; /
 
 import { Field } from "../lib/field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { api, ApiError } from "../lib/api"; // 공통 API 호출 함수
+import { Me, NOTICE_KEY } from "../lib/me"; // 로그인 응답 모양, 유예 안내를 넘겨 줄 저장 키
+import { Challenge, OtpStep } from "./otp-step"; // 메일 인증코드 입력 단계
 import { S } from "../lib/styles"; // 화면 공통 스타일
 
 // 왼쪽 소개에 쓰는 세 가지 (실제로 있는 기능만 쓴다)
@@ -45,6 +47,8 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false); // 요청 중이면 버튼을 잠근다 (두 번 누르기 방지)
   const [showPassword, setShowPassword] = useState(false); // 비밀번호를 글자로 보여 줄지
   const [capsOn, setCapsOn] = useState(false); // Caps Lock 이 켜져 있는지
+  const [challenge, setChallenge] = useState<Challenge | null>(null); // 값이 있으면 비밀번호 단계를 통과해 메일 인증코드 단계 중 (새로고침하면 사라져 처음 단계로 돌아간다)
+  const [restarted, setRestarted] = useState(false); // 코드 단계에서 돌아왔으면 비밀번호 칸에 포커스를 준다
   const busyRef = useRef(false); // 상태 갱신 전에 연달아 들어오는 제출을 막는 즉시 표시
   const passwordRef = useRef<HTMLInputElement>(null); // 실패 후 비밀번호 칸에 포커스를 주려고 잡아 둔다
 
@@ -58,6 +62,21 @@ export default function LoginPage() {
     setCapsOn(event.getModifierState("CapsLock")); // 브라우저가 알려 주는 Caps Lock 켜짐 여부
   }
 
+  // 로그인이 끝났을 때: 유예 안내가 있으면 레이아웃 배너가 읽도록 남기고 대시보드로 간다
+  function finish(me: Me) {
+    try {
+      if (me.otp_notice) window.sessionStorage.setItem(NOTICE_KEY, me.otp_notice); // 날짜 문장뿐이다 (코드·토큰·이메일은 저장하지 않는다)
+    } catch { /* 저장소를 못 쓰면(비공개 창 등) 안내만 생략한다 */ }
+    router.replace("/dashboard"); // 뒤로 가기로 로그인 화면에 돌아오지 않게 replace
+  }
+
+  // 코드 단계에서 비밀번호 단계로 돌아온다 (서버 안내가 있으면 오류 칸에 보여 준다)
+  function restart(message: string) {
+    setChallenge(null);
+    setError(message);
+    setRestarted(true);
+  }
+
   async function onSubmit(event: FormEvent) {
     event.preventDefault(); // 브라우저 기본 동작(페이지 새로고침)을 막는다
     if (busyRef.current) return; // 이미 요청 중이면 무시
@@ -66,12 +85,13 @@ export default function LoginPage() {
     setError(""); // 이전 오류 지우기
     try {
       // 서버가 토큰을 httpOnly 쿠키로 내려준다. 화면 코드는 토큰을 직접 다루지 않는다
-      await api("/auth/login", { method: "POST", body: { email, password }, redirectOn401: false });
+      const result = await api<Me | Challenge>("/auth/login", { method: "POST", body: { email, password }, redirectOn401: false });
       setPassword(""); // 로그아웃 뒤 다시 열린 로그인 화면(Next.js 가 상태를 그대로 보관한다)에 이전 비밀번호가 남지 않게 비운다
       setShowPassword(false); // 같은 이유로 "표시" 상태도 되돌린다
       busyRef.current = false; // 같은 이유로 잠금도 풀어 둔다 (안 풀면 로그아웃 후 "로그인 중…" 으로 멈춘다)
       setBusy(false); // 버튼 잠금 해제
-      router.replace("/dashboard"); // 성공: 대시보드로 (뒤로 가기로 로그인 화면에 돌아오지 않게 replace)
+      if ("otp_required" in result) setChallenge(result); // 관리자: 아직 로그인 전이다. 메일 인증코드 단계로
+      else finish(result); // 직원·유예 중 관리자: 바로 로그인 완료 (기존과 같다)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "로그인하지 못했습니다."); // 서버가 준 문장을 그대로 보여준다
       setPassword(""); // 실패하면 비밀번호만 비운다 (이메일은 그대로)
@@ -100,6 +120,10 @@ export default function LoginPage() {
       <section className="login-card-pane">
         <div style={S.loginCard}>
           <h1>로그인</h1>
+          {challenge ? (
+            <OtpStep challenge={challenge} onSuccess={finish} onRestart={restart} />
+          ) : (
+          <>
           <form className="field-form field-stack" onSubmit={onSubmit} style={S.formStack}>
             {/* 입력칸을 세로로 쌓는다 */}
             {error && (
@@ -109,11 +133,11 @@ export default function LoginPage() {
               </p>
             )}
             {/* 실패 메시지는 폼 맨 위 한 곳에만. role="alert" 는 화면 낭독기가 바로 읽게 한다 */}
-            <Field label="이메일"><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus autoComplete="username" style={S.blockFull} />
+            <Field label="이메일"><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus={!restarted} autoComplete="username" style={S.blockFull} />
             </Field>
             <Field label="비밀번호">
               <span style={S.passwordWrap}>
-                <input ref={passwordRef} type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={checkCaps} onKeyUp={checkCaps} onBlur={() => setCapsOn(false)} required autoComplete="current-password" style={{ ...S.blockFull, paddingRight: 40 }} />
+                <input ref={passwordRef} autoFocus={restarted} type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={checkCaps} onKeyUp={checkCaps} onBlur={() => setCapsOn(false)} required autoComplete="current-password" style={{ ...S.blockFull, paddingRight: 40 }} />
                 {/* 오른쪽 40px 은 표시/숨김 버튼 자리 */}
                 <button type="button" onClick={() => setShowPassword((v) => !v)} aria-label={showPassword ? "비밀번호 숨기기" : "비밀번호 표시"} aria-pressed={showPassword} style={S.passwordToggle}>
                   <EyeIcon hidden={showPassword} />
@@ -129,6 +153,8 @@ export default function LoginPage() {
           <p style={{ ...S.hint, fontSize: "var(--text-xs)", marginTop: "var(--space-md)" }}><Link href="/forgot-password">비밀번호를 잊으셨나요?</Link></p>
           {/* 비밀번호 재설정 메일 요청 화면으로 */}
           <p style={{ ...S.hint, fontSize: "var(--text-xs)", marginTop: "var(--space-md)" }}>계정은 회사 관리자가 만들어 줍니다.</p>
+          </>
+          )}
         </div>
       </section>
     </main>

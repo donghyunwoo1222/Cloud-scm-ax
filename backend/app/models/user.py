@@ -1,6 +1,12 @@
 from datetime import datetime  # 만료 시각 칸의 파이썬 타입
 
-from sqlalchemy import CheckConstraint, DateTime, false, true  # CHECK 제약, DB의 참(true) 값
+from sqlalchemy import (  # CHECK 제약, DB의 참(true) 값, 기본값 글자
+    CheckConstraint,
+    DateTime,
+    false,
+    text,
+    true,
+)
 from sqlalchemy.orm import Mapped, mapped_column  # 칸 정의 도구
 
 from app.models.base import Base, CompanyMixin  # 공통 부모와 회사 칸
@@ -21,4 +27,10 @@ class User(CompanyMixin, Base):
     must_change_password: Mapped[bool] = mapped_column(server_default=false())  # 참이면 비밀번호를 바꾸기 전에는 다른 기능을 못 쓴다 (관리자가 만든 임시 비밀번호, #169)
     reset_token_hash: Mapped[str | None] = mapped_column(index=True)  # 재설정 링크 토큰의 해시 (원본은 저장하지 않는다, #170). 사용하면 비우고 새로 요청하면 덮어쓴다
     reset_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 링크 만료 시각
+    # 관리자 로그인 메일 인증코드(#179). 사용자당 살아 있는 코드는 하나뿐이고, 새로 보내면 덮어써 이전 코드는 무효가 된다
+    otp_code_hash: Mapped[str | None]  # 코드의 HMAC-SHA256 (원문은 저장하지 않는다). 맞히거나 5번 틀리면 비운다
+    otp_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 마지막 코드 발송 시각. 만료 = 이 시각 + 10분
+    otp_attempts: Mapped[int] = mapped_column(server_default=text("0"))  # 지금 코드에 틀린 횟수 (5번이면 폐기)
+    otp_resends: Mapped[int] = mapped_column(server_default=text("0"))  # 이번 로그인에서 재발송한 횟수 (최대 3번)
+    otp_grace_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 이 시각 전까지는 코드 없이 로그인 (기존 관리자 유예). 비어 있으면 유예 없음
     is_active: Mapped[bool] = mapped_column(server_default=true())  # 기본 참, 거짓이면 로그인 불가

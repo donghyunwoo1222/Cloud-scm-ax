@@ -37,6 +37,7 @@
 | --- | --- | --- | --- |
 | F1 회사·사용자 | POST /companies | 회사와 처음 관리자 계정 등록 | 누구나(로그인 전) |
 | F1 | POST /auth/login, POST /auth/logout | 로그인·로그아웃 | 누구나 |
+| F1 | POST /auth/otp/verify, POST /auth/otp/resend | 관리자 로그인 메일 인증코드 확인·재발송. 임시 토큰은 otp_pending 쿠키(브라우저가 이 경로에만 자동으로 보냄) (#179) | 비밀번호 단계를 통과한 관리자 |
 | F1 | GET /me | 내 정보·회사·역할 | 둘 다 |
 | 자동화 회사 정보 | GET /company, PATCH /company | 우리 회사 정보(사업자번호·대표자·주소·연락처) 조회·수정. 경로·본문에 회사 번호가 없고 토큰의 회사만 쓴다 (#156) | 조회 둘 다, 수정 관리자 |
 | F1 | GET /users, POST /users, PATCH /users/{id} | 직원 목록, 이메일·임시 비밀번호로 계정 생성, 역할·비활성 변경 | 관리자 |
@@ -47,9 +48,9 @@
 | F4 입출고 | POST /inventory-movements | 직접 입고, 출고(판매·폐기·기타), 재고 조정 등록. movement\_type으로 구분 | 둘 다 |
 | F4 | POST /inventory-movements/{id}/corrections | 잘못 넣은 이력 {id}를 정정(CORRECTION 등록) | 둘 다 |
 | F4 | GET /inventory-movements | 이력 조회(품목·유형(여러 개 가능)·기간 필터, 정렬: 입출고일순 또는 등록순) | 둘 다 |
-| 자동화 판매 가져오기 | POST /sales-imports/inspect, POST /sales-imports/preview, POST /sales-imports | 주문 파일(CSV·.xlsx) 열 확인, 미리보기, SALE 이력 일괄 반영 (#154, MVP 이후) | 둘 다 |
-| 자동화 품목·입고 가져오기 | POST /receipt-imports/inspect, POST /receipt-imports/preview, POST /receipt-imports | 입고·품목 파일로 새 품목 등록 + 직접 입고 일괄 반영 (#155, MVP 이후) | 둘 다 |
-| 자동화 품목 마스터 가져오기 | POST /product-imports/inspect, POST /product-imports/preview, POST /product-imports | 품목 파일로 신규 등록·기존 품목 수정(재고 이동은 만들지 않음, #189) | 둘 다 |
+| 자동화 판매 가져오기 | POST /sales-imports/inspect, POST /sales-imports/suggest, POST /sales-imports/preview, POST /sales-imports | 주문 파일(CSV·.xlsx) 열 확인, 미리보기, SALE 이력 일괄 반영 (#154, MVP 이후) | 둘 다 |
+| 자동화 품목·입고 가져오기 | POST /receipt-imports/inspect, POST /receipt-imports/suggest, POST /receipt-imports/preview, POST /receipt-imports | 입고·품목 파일로 새 품목 등록 + 직접 입고 일괄 반영 (#155, MVP 이후) | 둘 다 |
+| 자동화 품목 마스터 가져오기 | POST /product-imports/inspect, POST /product-imports/suggest, POST /product-imports/preview, POST /product-imports | 품목 파일로 신규 등록·기존 품목 수정(재고 이동은 만들지 않음, #189) | 둘 다 |
 | 자동화 템플릿 | GET /import-templates/{products\|sales}.{xlsx\|csv} | 머리글 + 예시 한 줄이 든 가져오기 템플릿 내려받기(#189). 그 밖의 이름은 404 | 둘 다 |
 | F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 안전재고. 발주 진행 중 수량(`in_transit`), 상태(`status`: 가용재고 ≤ 재주문점이면 SHORTAGE, 추천 제외 품목은 UNKNOWN + `status_reason`, 비활성은 null, 추천과 같은 계산, #76). `q`(최대 100자)는 공백을 다듬어 SKU·품목명 부분 일치 검색에 사용한다(대소문자 무시, `%`·`_`는 글자 그대로). `status`와 함께 주면 두 조건으로 거른 뒤 쪽을 나눈다. | 둘 다 |
 | F5 재고 추이 | GET /stock/{product\_id}/trend | 서울 기준 오늘 포함 30일의 품목별 마감 재고와 입고 기록 (#126) | 둘 다 |
@@ -60,7 +61,8 @@
 | F6 | POST /purchase-orders/{id}/approve | DRAFT → APPROVED | 관리자 |
 | F6 | POST /purchase-orders/{id}/order | APPROVED → ORDERED(공급업체에 발주했음 표시) | 둘 다 |
 | F6 | POST /purchase-orders/{id}/receipts | 발주 품목 입고(부분 가능). 이력 등록 + 상태 갱신을 한 번에 | 둘 다 |
-| F6 | POST /purchase-orders/{id}/cancel | 입고 이력이 없는 발주만 취소 | 둘 다 |
+| F6 | POST /purchase-orders/{id}/cancel | 입고 이력이 없는 발주만 취소. 선택 본문 `{"reason": "사유(500자 이하)"}`, 발주함(ORDERED) 취소는 사유 필수(없거나 공백이면 422) | 둘 다 |
+| F6 | GET /purchase-orders/{id}/change-log | 발주서 변경 이력(#181): DRAFT 수정·상태 변경의 변경 전·후 값, 수정자 이름(이메일 없음), 시각, 사유. 최신순, 쪽 나누기. 다른 회사 404. 수정·삭제 API는 없다 | 둘 다 |
 | F7 대시보드 | GET /dashboard | 부족·과잉·장기재고·진행 중 발주·이번 달 입출고 요약. 입고 예정과 월 입출고는 각각 `incoming_by_unit`, `in_by_unit`, `out_by_unit`에 재고 단위별 합계를 반환한다. | 둘 다 |
 | F8 발주 추천 | GET /recommendations | 현재 시점 추천 목록 계산·반환 | 둘 다 |
 | F8 | POST /recommendations/drafts | 선택한 품목으로 공급업체별 DRAFT 발주서 생성·품목 추가 | 둘 다 |
@@ -186,6 +188,7 @@
 - `POST /receipt-imports/preview` (`file`, `options` JSON): `options`는 `product_col`(필수), 선택 `quantity_col`(없으면 품목만 등록)·`date_col`(수량 열이 있으면 필수)·`ref_col`(없으면 `날짜|SKU|수량|n번째`로 번호를 만든다), 새 품목용 `name_col`·`unit_col`·`cost_col`·`safety_col`(비면 0), `supplier_col`(섞임 확인용), `default_supplier_id`, `exclude_problems`. 열은 서로 달라야 한다. 응답은 `new_product_count`·`new_products`(앞 200개), `apply_count`, `skipped`(`ALREADY_IMPORTED`·`PRODUCT_EXISTS`·`SAME_SKU_ABOVE`), `date_from`·`date_to`, `total_quantity`, `problem_count`, `problems`, `warnings`(새로 넣을 입고와 같은 날·같은 SKU의 RECEIPT가 이미 있으면 `sku`·`date`·`existing_quantity`. 막지 않고 알린다). `default_supplier_id`가 다른 회사면 404, 비활성이면 409. `supplier_col`을 골랐고 새 품목 행의 업체 값(빈 칸 제외)이 2곳 이상이면 422 `MULTIPLE_SUPPLIERS`(반영도 같음).
 - `POST /receipt-imports` (201): 품목을 번호순으로 잠근 뒤 다시 계산하고, 새 품목을 만든 다음 RECEIPT를 날짜순으로 쓴다(한 트랜잭션). 새 품목이 있는데 공급업체가 없으면 422, 문제 행이 있으면 409 `IMPORT_HAS_PROBLEMS`, 할 일이 없으면 409 `NOTHING_TO_IMPORT`, 같은 SKU·번호가 동시에 들어오면 409 `IMPORT_CONFLICT`.
 - `POST /product-imports/inspect|preview` + `POST /product-imports` (#189): 같은 틀(파일은 저장하지 않고 매번 다시 받음). `options`는 필수 열 `product_col`·`name_col`·`unit_col`·`cost_col`, 선택 열 `safety_col`·`order_unit_col`·`factor_col`(환산계수)·`box_cost_col`(발주단위 단가)·`moq_col`·`color_col`·`size_col`·`spec_col`·`group_col`, `default_supplier_id`(새 품목이 있을 때 반영에 필수), `exclude_problems`, 선택 `expected_new_count`·`expected_update_count`. SKU(공백 제거·대문자)로 우리 회사 품목과 맞춰 있으면 수정, 없으면 신규. 빈 칸은 "변경 없음"(비우는 기능 없음), 기존 품목의 `is_active`·기본 공급업체는 그대로. 신규는 품목명·기본단위·구매단가 필수. 환산계수·발주단위 단가는 기존 값과 합쳐 함께 있어야 하고 발주단위 이름은 환산계수가 있을 때만(어기면 `BOX_SETTINGS_INCOMPLETE`). 미리보기 응답: `new_count`·`update_count`·`unchanged_count`, `new_products`·`updates`(칸별 이전→새 값, 각 앞 200개), `problem_count`·`problems`. 반영 응답: `created_count`·`updated_count`·`unchanged_count`·`problem_count`·`preview_changed`·`message`(그 사이 다른 사용자가 같은 SKU를 먼저 등록하면 신규가 수정으로 바뀌고, `expected_*`와 건수가 다르면 `preview_changed: true`). 문제 사유: `MISSING_SKU`·`DUPLICATE_SKU_IN_FILE`·`INVALID_VALUE`(틀린 칸 이름을 문장에 담음)·`MISSING_REQUIRED`·`BOX_SETTINGS_INCOMPLETE`. 오류는 `IMPORT_HAS_PROBLEMS`·`NOTHING_TO_IMPORT`·`IMPORT_CONFLICT`(409), 공급업체 없음 422.
+- `POST /{sales|receipt|product}-imports/suggest` (`file`, #193): LLM 열 매핑 제안(읽기만, 저장·자동 반영 없음). 항상 200이고 `source`·`reason`·`mapping`(inspect의 `suggested`와 같은 칸→열 번호)·`confidence`(칸→`high`|`low`)·`samples`(짝지어진 칸만, 앞쪽 값 5개·30자)를 준다. `source`는 `template`(템플릿과 머리글이 같아 LLM을 부르지 않음, 품목·판매만), `llm`(검증 통과), `rules`(그 밖: `mapping`·`confidence`·`samples`는 null, 화면은 inspect의 `suggested`로 기존 열 지정). `reason`은 코드 값만: #180 래퍼의 `DISABLED`·`DAILY_LIMIT`·`BUDGET`·`TIMEOUT`·`UPSTREAM`·`BAD_OUTPUT`·`TOO_LARGE`, 또는 `TOO_MANY_COLUMNS`(60열 초과, LLM 안 부름)·`INVALID_MAPPING`(없는 열·중복·필수 칸 누락·각 가져오기의 열 규칙 위반이면 답 전체를 버림). LLM에는 머리글(제어문자 제거·40자, 숫자가 절반 이상이면 모양으로)과 열마다 앞쪽 5행의 값 모양 최대 3개(숫자→9, 한글→가, 영문→A/a, 그 밖→?, 20자)만 보낸다. 실제 값·회사 번호·파일 이름은 보내지 않는다. 파일을 읽을 수 없으면 inspect와 같은 422.
 - 문제 행 사유: `MISSING_SKU`(비었거나 50자 초과), `INVALID_QUANTITY`, `INVALID_DATE`, `FUTURE_DATE`, `MISSING_REF`, `DUPLICATE_REF_IN_FILE`, `INVALID_PRODUCT_INFO`(새 SKU의 첫 행 값이 품목 등록 규칙에 어긋남, 그 SKU의 모든 행).
 
 ### 품목별 재고 추이 (#126)
@@ -214,6 +217,13 @@
 ```
 
 직접 입출고·정정·발주 입고 POST는 선택 헤더 `Idempotency-Key`(1~100자, 화면이 요청마다 새로 만든다)를 받는다. 같은 회사·경로·키로 다시 오면 새로 저장하지 않고 첫 응답을 상태 코드까지 그대로 돌려준다(24시간 유지). 같은 키에 다른 내용은 422 `IDEMPOTENCY_KEY_REUSED`. 지문에서 `confirm_warnings`는 빼므로 "409 → 확인 후 같은 키로 재전송"은 같은 요청이다. 실패한 요청(4xx·5xx)은 키를 남기지 않는다. 헤더가 없으면 이전과 같다. 동시에 같은 키가 오면 두 번째는 첫 요청이 끝날 때까지 기다린 뒤 첫 응답을 받는다(잠금 순서: 키 → 회사 → 발주서 → 품목, 키 테이블은 erd.md). 발주서 작성(`POST /purchase-orders`)은 대상이 아니다. 화면(`app/lib/confirmed-post.ts`)은 보낼 본문(키 순서 고정, `confirm_warnings` 제외)이 직전과 같으면 같은 키, 다르면 새 `crypto.randomUUID()`, 성공하면 키를 버리고, 409면 경고를 `window.confirm` 문장으로 보여 확인 시 같은 키로 다시 보낸다(취소하면 보내지 않고 입력 유지).
+
+### 관리자 로그인 메일 인증코드 화면 흐름 (#179)
+
+- 로그인 응답에 `otp_required: true`(+ `code_sent, message, expires_in, resend_after`)가 오면 화면은 로그인 화면 안에서 코드 입력 단계로 바꾼다. 이 응답이 없으면(직원, 유예 중 관리자) 기존처럼 바로 대시보드다.
+- 코드 확인·재발송 요청은 401이어도 로그인 화면으로 새로고침하지 않고(`redirectOn401: false`) 서버 문장을 그대로 보여 준다. 틀린 코드(`OTP_INVALID`)·만료(`OTP_EXPIRED`)는 코드 단계에 머물고, `OTP_RESTART`·`UNAUTHENTICATED`·`TOO_MANY_ATTEMPTS`는 비밀번호 단계로 돌아간다.
+- 재발송 카운트다운은 `resend_after`(또는 `OTP_RESEND_WAIT`의 `details.retry_after`)로 마감 시각을 정해 현재 시각과의 차이로 계산한다. 코드 단계는 화면 상태일 뿐이라 새로고침하면 처음 단계로 돌아간다(60초 안에 다시 로그인하면 서버가 새 메일 없이 기존 코드를 살려 준다).
+- 유예 중 관리자는 로그인 응답의 `otp_notice`를 받는다. 화면은 이 날짜 문장만 sessionStorage에 남겨 레이아웃 상단 배너로 보여 주고, 닫으면 지운다(코드·토큰·이메일은 저장하지 않는다).
 
 ### 3) 발주 입고: POST /purchase-orders/{id}/receipts
 

@@ -18,7 +18,10 @@ from tests.concurrency import (  # 진짜 commit 하는 준비·정리 (committe
     delete_companies,
     run_in_new_session,
 )
-from tests.helpers import PASSWORD  # 테스트 사용자 공통 비밀번호
+from tests.helpers import (  # 테스트 사용자 공통 비밀번호, 관리자 유예 종료 시각
+    GRACE_UNTIL,
+    PASSWORD,
+)
 
 # 테스트 전용 DB. 개발용 DB(scm)와 이름을 나눠, 테스트가 개발 데이터를 지우지 않게 한다
 TEST_DATABASE_URL = os.environ.get(
@@ -114,6 +117,7 @@ def world(session):
             user = User(
                 company_id=company.id, name=f"{key}-{role}", email=f"{role.lower()}@{key}.test",  # 예) admin@a.test
                 password_hash=hash_password(PASSWORD), role=role,
+                otp_grace_until=GRACE_UNTIL,  # 유예 중: 지금처럼 비밀번호만으로 로그인 (#179). 직원은 무시되고 관리자로 승격된 뒤에만 쓰인다
             )
             session.add(user)
             out[f"{key}_{role.lower()}"] = user  # 예) out["a_admin"]

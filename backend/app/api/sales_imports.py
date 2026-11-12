@@ -12,6 +12,7 @@ from app.auth.deps import CurrentUser  # 로그인 사용자
 from app.db import DB  # 요청마다 DB 세션
 from app.errors import AppError  # 공통 오류
 from app.schemas.sales_import import SalesImportOptions  # 열 지정·옵션
+from app.services import import_mapping  # LLM 열 매핑 제안 (#193)
 from app.services import sales_import as service  # 가져오기 업무 규칙
 
 router = APIRouter(prefix="/sales-imports")
@@ -38,6 +39,11 @@ def inspect(
 ) -> dict:
     name, content = read_upload(file)
     return {"data": service.inspect_file(name, content, status_col)}
+
+
+@router.post("/suggest")  # 1-1단계(#193): LLM 열 매핑 제안. 실패해도 200 + source "rules" (읽기만)
+def suggest(user: CurrentUser, file: Annotated[UploadFile, File()]) -> dict:
+    return {"data": import_mapping.suggest(user.company_id, "sales", *read_upload(file))}  # 회사는 토큰에서만
 
 
 @router.post("/preview")  # 2단계: 반영 N건·건너뜀·문제 행 (읽기만, 아무것도 쓰지 않는다)

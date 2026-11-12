@@ -29,6 +29,7 @@ export const S = {
   passwordWrap: { position: "relative", display: "block" }, // 비밀번호 입력칸 오른쪽 안쪽에 버튼을 겹쳐 놓는 상자
   passwordToggle: { position: "absolute", top: 0, right: 0, bottom: 0, display: "grid", placeItems: "center", width: 40, minHeight: 0, padding: 0, border: 0, background: "none", color: "var(--color-muted-foreground)" }, // 표시/숨김 아이콘 버튼 (입력칸 높이 전체를 차지해 누르기 쉽다)
   loginAlert: { display: "flex", gap: "var(--space-sm)", alignItems: "flex-start", color: "var(--color-destructive)", background: "var(--color-destructive-bg)", border: "1px solid var(--color-destructive)", borderRadius: "var(--radius-sm)", padding: "var(--space-sm)", fontSize: "var(--text-sm)" }, // 오류 상자: 아이콘 + 글자 (색만으로 구분하지 않는다)
+  otpNotice: { display: "flex", gap: "var(--space-sm)", alignItems: "center", justifyContent: "space-between", color: "var(--color-info)", background: "var(--color-info-bg)", border: "1px solid var(--color-info)", padding: "var(--space-sm) var(--page-pad)", fontSize: "var(--text-sm)" }, // 유예 안내 배너: 글자 + 닫기 버튼
   loginSubmit: { width: "100%" }, // 로그인 버튼은 폭을 꽉 채운다
 
   // 카드·제목·안내

@@ -42,6 +42,7 @@ class MeOut(BaseModel):
     role: str  # ADMIN / STAFF
     company: CompanyOut  # 소속 회사
     must_change_password: bool  # 참이면 화면이 비밀번호 변경 화면으로 보낸다
+    otp_notice: str | None = None  # 유예 중 관리자에게 보여 줄 메일 인증코드 안내 (#179)
 
 
 class PasswordChange(BaseModel):
@@ -56,3 +57,7 @@ class ResetRequest(BaseModel):
 class ResetConfirm(BaseModel):
     token: str = Field(min_length=1, max_length=200)  # 메일 링크의 토큰
     new_password: str  # 새 비밀번호 (길이 규칙은 validate_password 한 곳에서 검사)
+
+
+class OtpVerify(BaseModel):
+    code: str = Field(pattern=r"^[0-9]{6}$")  # 메일로 받은 6자리 숫자 (#179)
