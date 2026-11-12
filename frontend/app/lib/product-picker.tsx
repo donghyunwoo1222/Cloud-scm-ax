@@ -14,12 +14,13 @@ export type ProductOption = {
   min_order_units?: number | null; // 최소 주문량(발주단위 수, #194)
 };
 
-export function ProductPicker({ label, value, onSelect, includeInactive = false, disabled = false }: {
+export function ProductPicker({ label, value, onSelect, includeInactive = false, disabled = false, pickedIds }: {
   label: string;
   value?: ProductOption;
   onSelect: (product: ProductOption) => void;
   includeInactive?: boolean;
   disabled?: boolean;
+  pickedIds?: Set<number>; // 이미 발주서에 담은 품목 번호들 (결과에 "이미 담음"으로 표시만 하고 고를 수는 있다)
 }) {
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
@@ -148,7 +149,9 @@ export function ProductPicker({ label, value, onSelect, includeInactive = false,
               <button key={product.id} id={`${id}-${product.id}`} type="button" role="option" tabIndex={-1}
                 aria-selected={index === active}
                 onMouseDown={(event) => event.preventDefault()} onClick={() => choose(product)}>
-                {product.name}<span style={S.sub}>{skuWithOptions(product.sku, product)}{product.is_active ? "" : " · 비활성"}</span>
+                {product.name}<span style={S.sub}>{skuWithOptions(product.sku, product)}
+                  {product.units_per_box != null ? ` · 발주단위 ${product.order_unit ?? "박스"}(${product.units_per_box}${product.unit})` : ""}{/* 예) 발주단위 BOX(100EA) */}
+                  {product.is_active ? "" : " · 비활성"}{pickedIds?.has(product.id) ? " · 이미 담음" : ""}</span>
               </button>
             ))}
           </div>
