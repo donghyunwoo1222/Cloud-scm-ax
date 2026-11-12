@@ -7,7 +7,8 @@ import { FormEvent, useEffect, useRef, useState } from "react"; // 폼 제출, �
 import { api, ApiError, apiList } from "./api"; // 공통 API 호출 함수, 서버 오류
 import { Field } from "./field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { ErrorText } from "./list"; // 서버 오류 표시
-import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PurchaseOrder, quantityLabel } from "./po"; // 발주서와 박스 환산 표시
+import { optionSummary } from "./options"; // 고른 품목의 옵션 요약
+import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PurchaseOrder, unitConversion } from "./po"; // 발주서와 발주단위 환산 표시
 import { ProductOption, ProductPicker } from "./product-picker"; // 발주 줄에서 품목을 검색해 바로 선택한다
 import { S } from "./styles"; // 화면 공통 스타일
 
@@ -47,6 +48,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   // 선택 상자의 품목: 활성 품목 + (수정일 때) 이미 든 품목이 지금 비활성이어도 이름이 보이게 함께 넣는다
   const options = new Map<number, ProductOption>((order?.items ?? []).map((i) => [i.product_id, {
     id: i.product_id, sku: i.product_sku, name: i.product_name, unit_cost: i.unit_price, unit: i.unit, is_active: false,
+    color: i.color, size: i.size, spec: i.spec,
   }]));
   Object.values(pickedProducts).forEach((p) => options.set(p.id, p)); // 앞선 검색에서 고른 품목
 
@@ -57,6 +59,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       locked, product,
       units: saved?.units_per_box ?? product?.units_per_box,
       price: saved?.box_unit_price ?? product?.box_unit_cost,
+      orderUnit: (locked ? saved?.order_unit : product?.order_unit) ?? "박스", // 기존 박스 줄은 발주 당시 이름
     };
   }
 
@@ -127,34 +130,31 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         </thead>
         <tbody>
           {lines.map((line, index) => {
-            const { locked, product, units, price } = packingFor(line.product_id);
+            const { product, units, price, orderUnit } = packingFor(line.product_id);
             const unit = product?.unit;
             const count = Number(line.quantity);
-            const suffix = line.box ? "박스 수" : unit ? `${unit} 수량` : "수량";
+            const suffix = line.box ? `${orderUnit} 수` : unit ? `${unit} 수량` : "수량";
+            const summary = product ? optionSummary(product) : ""; // 옵션이 없으면 빈 글자
             return (
             <tr key={line.key}>
               <td style={{ minWidth: 220 }}>
                 <ProductPicker label={`품목 ${index + 1}`} value={product} onSelect={(picked) => pickProduct(index, picked)} />
+                {(summary || line.box) && <span style={S.sub}>{[summary, line.box && `발주단위 ${orderUnit}`].filter(Boolean).join(" · ")}</span>}
+                {/* 고른 품목의 옵션과 발주단위를 자동으로 보여 준다 (단위는 품목 설정을 따르고 고를 수 없다) */}
               </td>
               <td style={S.num}>
-                {units != null && !locked && (
-                  <select value={line.box ? "box" : "stock"} aria-label={`${index + 1}번 줄 발주 단위`}
-                    onChange={(e) => setLine(index, { box: e.target.value === "box", quantity: "" })}>
-                    <option value="box">박스</option>
-                    <option value="stock">재고 단위 ({unit})</option>
-                  </select>
-                )}{" "}
                 <input type="number" inputMode="numeric" required min={1} step={1} max={line.box && units != null ? boxLimit(units) : MAX_ORDER_QUANTITY}
                   style={S.numInput} value={line.quantity} onChange={(e) => setLine(index, { quantity: e.target.value })}
                   aria-label={`${index + 1}번 줄 ${suffix}`} />
+                {line.box && <> {orderUnit}</>}{/* 단위 이름은 입력이 아니라 표시만 한다 */}
                 {!line.box && unit && <span style={S.sub}>재고 단위 ({unit})</span>}
-                {line.box && units != null && (
-                  <span style={S.sub}>{count > 0 ? `${quantityLabel(count, "박스")} · 재고 ${quantityLabel(count * units, unit)}` : `1박스 · 재고 ${quantityLabel(units, unit)}`}</span>
-                )}
+                {line.box && units != null && unit && (
+                  <span style={S.sub}>{unitConversion(count > 0 ? count : 1, orderUnit, units, unit, "=")}</span>
+                )}{/* 입력 즉시 "3BOX = 300EA" (비어 있으면 "1BOX = 100EA") */}
               </td>
               <td style={S.num}>
                 {line.box && price != null ? (
-                  <>{price.toLocaleString("ko-KR")}원/박스
+                  <>{price.toLocaleString("ko-KR")}원/{orderUnit}
                     {count > 0 && <span style={S.sub}>합계 {(count * price).toLocaleString("ko-KR")}원</span>}
                   </>
                 ) : (
