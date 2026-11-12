@@ -10,7 +10,7 @@ from pydantic import (  # 모양 정의·검사 도구
     model_validator,
 )
 
-from app.schemas.common import Id, Quantity  # 번호·수량 칸 (상한 #71)
+from app.schemas.common import MAX_DRAFT_ITEMS, Id, Quantity  # 번호·수량 칸 (상한 #71)
 
 
 class DraftItemIn(BaseModel):
@@ -37,4 +37,4 @@ class DraftItemIn(BaseModel):
 class DraftCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422
 
-    items: Annotated[list[DraftItemIn], Field(min_length=1, max_length=100)]  # 1~100개 (목록 최대 page_size 와 같음, 사용자 결정)
+    items: Annotated[list[DraftItemIn], Field(min_length=1, max_length=MAX_DRAFT_ITEMS)]  # 1~1000개 (서버 보호용, 초과는 422, #184)
