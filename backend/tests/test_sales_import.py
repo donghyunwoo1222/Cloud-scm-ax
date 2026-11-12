@@ -214,3 +214,67 @@ def test_concurrent_same_file_imports_once(engine, committed_company):
         stock_service.current_stock(data["company_id"], s, data["product_id"]),
         s.scalar(select(func.count()).select_from(InventoryMovement).where(InventoryMovement.external_ref == "C1"))))
     assert final == (6, 1)
+
+
+def test_commit_result_is_fixed(client, world, goods, session):
+    """#211 결과 고정: 확정 경로를 바꿔도 응답·생긴 이력·id 순서·재고가 한 글자도 달라지면 안 된다.
+
+    같은 품목 여러 줄, 날짜순 재고 부족, 미등록 SKU, 파일 안 번호 중복, 상태 거르기, 이미 반영된 번호, 잘못된 수량, 옵션 섞임을 한 파일에 넣는다.
+    """
+    login_as(client)
+    a1 = goods["a"]  # 재고 10
+    a2 = Product(company_id=world["a_company"].id, sku="A-2", name="품목2", unit="개", unit_cost=1000,
+                 default_supplier_id=world["a_supplier"].id)
+    session.add(a2)
+    session.flush()
+    stock_service.register_movement(world["a_company"].id, session, world["a_admin"].id, product_id=a2.id,
+                                    movement_type="RECEIPT", direction="IN", quantity=5, movement_date=seoul_today() - timedelta(days=30))
+    session.commit()
+    assert post(client, "", csv_file(row("OLD", days_ago(6), "배송완료", "A-2", 1))).status_code == 201  # 먼저 반영 → A-2 재고 4
+    content = csv_file(
+        row("O1", days_ago(5), "배송완료", "A-1", 6),               # 2행: 10-6=4 반영
+        row("O2", days_ago(4), "배송완료", "A-1", 7),               # 3행: 4-7<0 재고 부족
+        row("O3", days_ago(3), "배송완료", "NOPE", 1),              # 4행: 미등록
+        row("O1", days_ago(3), "배송완료", "A-2", 1),               # 5행: 파일 안 번호 중복
+        row("O5", days_ago(1), "배송완료", "a-2", 2, "빨강"),       # 6행: 4-2=2 반영 (날짜가 가장 늦다)
+        row("O6", days_ago(2), "배송완료", "A-1", 4),               # 7행: 4-4=0 반영
+        row("O7", days_ago(2), "취소", "A-1", 1),                   # 8행: 고르지 않은 상태
+        row("OLD", days_ago(2), "배송완료", "A-2", 1, "파랑"),      # 9행: 이미 반영된 번호
+        row("O8", days_ago(2), "배송완료", "A-2", 0),               # 10행: 수량 0
+    )
+    opts = {"status_col": 2, "statuses": ["배송완료"], "option_col": 4}
+    problems = [
+        {"row": 3, "reason": "INSUFFICIENT_STOCK", "message": "날짜순으로 적용하면 재고가 부족해집니다.", "sku": "A-1"},
+        {"row": 4, "reason": "UNKNOWN_SKU", "message": "등록되지 않은 상품 코드(SKU)입니다.", "sku": "NOPE"},
+        {"row": 5, "reason": "DUPLICATE_REF_IN_FILE", "message": "파일 안에서 주문번호가 앞의 행과 겹칩니다.", "sku": "A-2"},
+        {"row": 10, "reason": "INVALID_QUANTITY", "message": "수량이 1 이상의 정수가 아닙니다.", "sku": "A-2"},
+    ]
+    skipped = [{"reason": "STATUS_NOT_SELECTED", "message": "반영하기로 고르지 않은 상태", "count": 1},
+               {"reason": "ALREADY_IMPORTED", "message": "이미 반영된 주문번호", "count": 1}]
+    assert post(client, "/preview", content, **opts).json() == {"data": {
+        "total_rows": 9, "apply_count": 3, "skipped": skipped, "skipped_count": 2,
+        "date_from": days_ago(5), "date_to": days_ago(1), "total_quantity": 12, "problem_count": 4, "problems": problems,
+        "warnings": [{"sku": "A-2", "option_count": 2, "message": "A-2: 옵션 2종이 하나의 SKU로 합산됩니다."}]}}
+
+    blocked = post(client, "", content, **opts)
+    assert (blocked.status_code, blocked.json()) == (409, {"error": {
+        "code": "IMPORT_HAS_PROBLEMS", "message": "문제 행이 4건 있어 반영할 수 없습니다.", "details": {"problem_count": 4}}})
+
+    done = post(client, "", content, exclude_problems=True, **opts)
+    assert (done.status_code, done.json()) == (201, {"data": {
+        "imported_count": 3, "skipped": skipped, "skipped_count": 2, "problem_count": 4,
+        "date_from": days_ago(5), "date_to": days_ago(1), "total_quantity": 12}})
+    made = session.execute(
+        select(InventoryMovement.external_ref, InventoryMovement.product_id, InventoryMovement.quantity,
+               InventoryMovement.movement_date, InventoryMovement.movement_type, InventoryMovement.direction,
+               InventoryMovement.sales_channel, InventoryMovement.created_by)
+        .where(InventoryMovement.company_id == world["a_company"].id, InventoryMovement.external_ref.is_not(None))
+        .order_by(InventoryMovement.id)).all()  # id 순서 = 저장 순서
+    staff = world["a_staff"].id  # login_as 기본 사용자
+    assert [tuple(m[:3]) + (m[3].isoformat(),) + tuple(m[4:]) for m in made] == [
+        ("OLD", a2.id, 1, days_ago(6), "SALE", "OUT", "SMARTSTORE", staff),
+        ("O1", a1.id, 6, days_ago(5), "SALE", "OUT", "SMARTSTORE", staff),  # (날짜, 행 번호) 순서
+        ("O6", a1.id, 4, days_ago(2), "SALE", "OUT", "SMARTSTORE", staff),
+        ("O5", a2.id, 2, days_ago(1), "SALE", "OUT", "SMARTSTORE", staff),
+    ]
+    assert (stock(session, world["a_company"], a1), stock(session, world["a_company"], a2)) == (0, 2)
