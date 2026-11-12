@@ -349,7 +349,7 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder]) -> list
         p = products[i.product_id]
         box_quantity = i.quantity // i.units_per_box if i.units_per_box is not None else None
         by_order[i.purchase_order_id].append(ItemOut(
-            id=i.id, product_id=i.product_id, product_sku=p.sku, product_name=p.name, unit=p.unit, quantity=i.quantity,
+            id=i.id, product_id=i.product_id, product_sku=p.sku, product_name=p.name, color=p.color, size=p.size, spec=p.spec, group_code=p.group_code, unit=p.unit, quantity=i.quantity,
             unit_price=i.unit_price, recommended_quantity=i.recommended_quantity,
             units_per_box=i.units_per_box, box_unit_price=i.box_unit_price, box_quantity=box_quantity,
             line_total=i.quantity * i.unit_price if box_quantity is None else box_quantity * i.box_unit_price,

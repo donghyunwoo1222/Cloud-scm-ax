@@ -220,7 +220,7 @@ def stock_rows(company_id: int, db: Session, products: list[Product]) -> list[di
         .group_by(InventoryMovement.product_id)
     ).all())  # 품목 id → 현재고
     return [
-        {"product_id": p.id, "sku": p.sku, "name": p.name, "unit": p.unit, "safety_stock": p.safety_stock,
+        {"product_id": p.id, "sku": p.sku, "name": p.name, "unit": p.unit, "color": p.color, "size": p.size, "spec": p.spec, "group_code": p.group_code, "safety_stock": p.safety_stock,
          "is_active": p.is_active, "current_stock": int(sums.get(p.id, 0))}  # 이력이 없으면 0
         for p in products
     ]

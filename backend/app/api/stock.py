@@ -23,9 +23,10 @@ def list_stock(
     include_inactive: Annotated[bool, Query()] = False,  # true 면 비활성 품목 포함 (기본은 숨김)
     status: Annotated[Status | None, Query()] = None,  # 상태로 거르기 (SHORTAGE·NORMAL·UNKNOWN, 그 밖은 422)
     q: Annotated[str | None, Query(max_length=100)] = None,  # 품목 목록과 같은 검색어 상한을 적용한다
+    group_code: Annotated[str | None, Query(max_length=50)] = None,  # 그룹 코드 정확 일치
 ) -> dict:
     rows, meta = inventory_status.list_stock(  # 회사는 토큰에서 읽고 검색어와 상태를 함께 전달한다
-        user.company_id, db, seoul_today(), page, include_inactive, status, q=q,  # 기존 조회 세션을 그대로 쓴다
+        user.company_id, db, seoul_today(), page, include_inactive, status, q=q, group_code=group_code,  # 기존 조회 세션을 그대로 쓴다
     )
     return {"data": [StockOut(**r).model_dump(mode="json") for r in rows], "meta": meta}
 

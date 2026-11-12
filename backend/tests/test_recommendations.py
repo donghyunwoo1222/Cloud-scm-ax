@@ -87,6 +87,7 @@ def test_s1_shortage_recommends_160(client, world, session):
     session.commit()
     assert get(client)["items"] == [{
         "product_id": p.id, "product_sku": "S1", "product_name": "S1 이름",
+        "color": None, "size": None, "spec": None, "group_code": None,  # 옵션이 없는 품목은 null
         "supplier_id": world["a_supplier"].id, "supplier_name": "A업체", "unit": "개",
         "current_stock": 50, "in_transit": 0, "available": 50,
         "avg_daily_sales": 10.0, "lead_time_days": 5, "safety_stock": 20, "reorder_point": 70.0,
@@ -130,6 +131,7 @@ def test_s5_no_sales_excluded(client, world, session):
     add_move(session, world, p, "RECEIPT", "IN", 50, OLD)
     session.commit()
     assert get(client)["excluded"] == [{"product_id": p.id, "product_sku": "S5", "product_name": "S5 이름",
+                                        "color": None, "size": None, "spec": None, "group_code": None,
                                         "code": "NO_SALES_30D", "message": "최근 30일 판매 없음"}]
 
 

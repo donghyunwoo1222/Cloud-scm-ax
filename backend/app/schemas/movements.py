@@ -47,6 +47,10 @@ class MovementOut(BaseModel):
     created_at: datetime  # 등록 시각
     product_sku: str | None = None  # 품목 SKU (이력 조회에서만 채운다)
     product_name: str | None = None  # 품목명 (이력 조회에서만 채운다)
+    product_color: str | None = None  # 품목 옵션: 색상 (이력 조회에서만 채운다)
+    product_size: str | None = None  # 품목 옵션: 사이즈
+    product_spec: str | None = None  # 품목 옵션: 규격
+    product_group_code: str | None = None  # 품목 그룹 코드
 
     product_unit: str | None = None  # 재고 수량의 단위
     purchase_order_id: int | None = None  # 이력에서 발주서로 이동할 때 쓴다.

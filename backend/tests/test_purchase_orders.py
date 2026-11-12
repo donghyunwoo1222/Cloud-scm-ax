@@ -232,7 +232,7 @@ def test_item_unit_in_create_patch_get_and_old_fields_kept(client, world, data, 
     assert units(client.get(f"{URL}/{created['id']}").json()["data"]) == {"P2": "박스"}
     assert units(client.get(URL).json()["data"][0]) == {"P2": "박스"}
     item = patched["items"][0]
-    assert set(item) == OLD_FIELDS | {"unit", "units_per_box", "box_unit_price", "box_quantity", "line_total"}
+    assert set(item) == OLD_FIELDS | {"unit", "units_per_box", "box_unit_price", "box_quantity", "line_total", "color", "size", "spec", "group_code"}
     assert item["box_quantity"] is None and item["line_total"] == item["quantity"] * item["unit_price"]
     assert (item["quantity"], item["unit_price"], item["received_quantity"], item["recommended_quantity"]) == (7, 800, 0, None)  # 값도 그대로
 

@@ -23,6 +23,7 @@
 | 오류 응답 | `{"error": {"code": "…", "message": "…", "details": …}}`. code는 영문 대문자 이름, message는 화면에 그대로 보여줄 한국어 | 임시 확정 |
 | 날짜·시간 | ISO 8601 문자열. "최근 30일" 같은 날짜 경계는 회사 시간대(기본 Asia/Seoul) 기준 | 임시 확정 |
 | 목록 | `page`, `page_size`(기본 20, 최대 100), `q`(검색어)와 필터를 쿼리로 받는다. 정렬은 최신순. 비활성 행은 기본으로 숨기고 `include_inactive=true`일 때 포함한다(#24) | 임시 확정 |
+| sku_id·sku_code | `sku_id`는 `products.id`이고 재고·입출고·발주·추천은 이 번호로만 연결한다. `sku_code`는 `products.sku`이고 검색·표시용이다. 옵션(color·size·spec)·group_code는 속성이며, `q` 검색은 품목명·SKU·group_code·옵션에 걸리고 `group_code` 파라미터는 정확 일치로 거른다(/products·/stock, #178) | 확정 |
 | SKU | 앞뒤 공백을 지우고 대문자로 바꿔 저장·비교한다(`ts-bk-m`과 `TS-BK-M`은 같은 품목, #26) | 임시 확정 |
 | 공급업체명 | 앞뒤 공백만 지우고 대소문자는 구분한다(한글 이름이 대부분이라 바꾸지 않음, #26) | 임시 확정 |
 

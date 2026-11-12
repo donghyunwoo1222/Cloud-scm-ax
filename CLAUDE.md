@@ -40,6 +40,8 @@ MVP 완료 기준: F1~F8 이슈 충족, 대표 시나리오 통과, 데이터 �
 8. 공급업체·품목은 삭제하지 않고 항상 비활성(`is_active`)으로 바꾼다. 삭제 기능은 없다. 비활성은 새 발주(새 발주서 작성·품목 추가·추천 목록·초안 생성)에만 안 나오고, 비활성이 든 DRAFT는 승인 때 막는다. 출고·조정·정정, 이미 ORDERED인 발주의 입고, 직접 입고(반품 등)도 허용한다.
 9. 직원 계정은 관리자가 직접 만든다(이메일 + 임시 비밀번호).
 
+`sku_id`는 `products.id`이고 재고·입출고·발주·추천은 이 번호로만 연결한다. `sku_code`는 `products.sku`로 사람이 읽는 코드이며 검색·표시에만 쓴다. 색·사이즈·규격(color·size·spec)과 group_code는 구분용 속성이다.
+
 표 7개: companies, users, suppliers, products, purchase_orders, purchase_order_items, inventory_movements. 재고 표, 추천 결과 표, 상태 이력 표는 두지 않는다. 자세한 구조는 `docs/06-system-design/erd.md`를 따른다.
 
 ## 5. 발주 추천 공식 (AX 1차 버전)
