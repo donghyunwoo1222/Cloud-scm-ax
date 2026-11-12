@@ -1,7 +1,7 @@
 "use client"; // 파일 선택·열 지정 등 브라우저에서 동작하는 화면
 
 import { useEffect, useRef, useState } from "react";
-import { api, apiList } from "../../lib/api"; // 서버 호출
+import { api, apiListAll } from "../../lib/api"; // 서버 호출
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
 import { S } from "../../lib/styles"; // 공통 스타일
 import { InfoTip } from "../../lib/tip"; // 보조 설명 말풍선
@@ -46,8 +46,8 @@ export default function Page() {
   }, [preview]);
   const sending = useRef(false); // 더블클릭 방지
 
-  // shortcut: 공급업체는 100개까지만 불러온다 (다른 선택 상자와 같은 한계), 넘으면 검색형으로 바꾼다
-  useEffect(() => { apiList<{ id: number; name: string }>("/suppliers?page_size=100").then((r) => setSuppliers(r.data)).catch(setError); }, []);
+  // 공급업체를 100개씩 끝까지 읽는다 (1,000곳 이상이면 검색형으로 바꾸는 것은 후속)
+  useEffect(() => { apiListAll<{ id: number; name: string }>("/suppliers").then(setSuppliers).catch(setError); }, []);
 
   async function run(job: () => Promise<void>) {
     if (sending.current) return;
