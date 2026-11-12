@@ -245,8 +245,8 @@ def test_change_log_other_company_is_404(client, world, session):
 
 
 def test_no_route_can_modify_or_delete_logs():
-    routes = [r for r in app.routes if "change-log" in getattr(r, "path", "")]
-    assert [(r.path, sorted(r.methods)) for r in routes] == [("/api/v1/purchase-orders/{order_id}/change-log", ["GET"])]
+    paths = {p: sorted(ops) for p, ops in app.openapi()["paths"].items() if "change-log" in p}  # 앱이 등록한 모든 경로와 방법
+    assert paths == {"/api/v1/purchase-orders/{order_id}/change-log": ["get"]}
 
 
 def test_modify_methods_rejected(client, world, session):
@@ -349,16 +349,17 @@ def test_update_1000_lines_log_insert_does_not_grow_with_lines(client, world, se
 
 
 def test_recommendation_draft_1000_lines_log_insert_does_not_grow(client, world, session):
-    products = recommended_products(session, world, 1101, "DR-")
+    ids = [p.id for p in recommended_products(session, world, 1101, "DR-")]  # 품목 번호를 숫자로 먼저 뽑아 둔다
     session.commit()
     login_as(client)
 
-    def add(chunk):
-        return lambda: client.post(DRAFTS, json={"items": [{"product_id": p.id, "quantity": 160} for p in chunk]})
+    def body(chunk):  # 측정 구간 밖에서 만든다: commit 뒤 만료된 객체를 읽으면 줄마다 지연 조회가 측정에 섞인다
+        return {"items": [{"product_id": pid, "quantity": 160} for pid in chunk]}
 
-    assert client.post(DRAFTS, json={"items": [{"product_id": products[0].id, "quantity": 160}]}).status_code == 201  # 처음 1줄로 DRAFT 생성
-    small, r1 = record(session, add(products[1:101]))  # 기존 DRAFT 에 100줄 추가
-    big, r2 = record(session, add(products[101:]))  # 1000줄 추가
+    assert client.post(DRAFTS, json=body(ids[:1])).status_code == 201  # 처음 1줄로 DRAFT 생성
+    small_body, big_body = body(ids[1:101]), body(ids[101:])
+    small, r1 = record(session, lambda: client.post(DRAFTS, json=small_body))  # 기존 DRAFT 에 100줄 추가
+    big, r2 = record(session, lambda: client.post(DRAFTS, json=big_body))  # 1000줄 추가
     assert r1.status_code == r2.status_code == 201, (r1.json(), r2.json())
     assert session.scalar(select(func.count()).select_from(PoChangeLog)) == 1100
     print(f"\n[추천 초안 쿼리 수] 100줄 추가: 전체 {len(small)}, 이력 INSERT {log_inserts(small)} / 1000줄 추가: 전체 {len(big)}, 이력 INSERT {log_inserts(big)}")
