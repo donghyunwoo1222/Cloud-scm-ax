@@ -6,6 +6,7 @@ import { Suspense, useEffect, useState } from "react"; // 처음 한 번 실행,
 
 import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, Pager, useList } from "../../../lib/list"; // 목록 공통 부품
+import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
 import { fmtDate, formatOrderUnitPrice, PurchaseOrder, STATUS_LABEL } from "../../../lib/po"; // 발주서 모양·상태 이름·날짜·단가 표시
 import { StatusBadge } from "../../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
@@ -72,7 +73,7 @@ function Detail() {
                 {/* 발주서 첫 줄에만 구분선·발주 정보를 보인다 (단가는 줄마다 다르다) */}
                 <td>{index === 0 ? <Link href={`/purchase-orders/${o.id}`}>{o.po_number}</Link> : ""}</td>
                 <td>{index === 0 ? (o.status === "ORDERED" && o.items.some((i) => i.received_quantity > 0) ? "부분 입고" : STATUS_LABEL[o.status]) : ""}</td>
-                <td><span style={S.nowrap}>{i.product_sku}</span> · {i.product_name}</td>
+                <td><span style={S.nowrap}>{skuWithOptions(i.product_sku, i)}</span> · {i.product_name}</td>
                 <td style={S.num}>{i.quantity}</td>
                 <td style={S.num}>{formatOrderUnitPrice(i)}</td>
                 <td style={S.nowrap}>{index === 0 ? (o.due_date ?? "-") : ""}</td>

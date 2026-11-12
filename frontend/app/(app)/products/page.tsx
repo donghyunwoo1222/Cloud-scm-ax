@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useRef, useState } from "react"; // 폼 제출, �
 import { api, apiList } from "../../lib/api"; // 공통 API 호출 함수
 import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸치는 입력 항목
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
+import { optionSummary } from "../../lib/options"; // 옵션 요약 ("검정 / M")
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
@@ -15,6 +16,8 @@ type Product = {
   sku: string; // 품목 코드 (서버가 대문자로 저장)
   name: string; // 품목명
   unit: string; // 단위
+  color: string | null; size: string | null; spec: string | null; // 옵션 (없으면 null)
+  group_code: string | null; // 그룹 코드 (서버가 대문자로 저장)
   unit_cost: number; // 단가(원)
   units_per_box: number | null; // 박스 한 개의 재고 단위 수량
   box_unit_cost: number | null; // 박스당 구매 단가
@@ -25,11 +28,11 @@ type Product = {
 type SupplierOption = { id: number; name: string; lead_time_days: number; is_active: boolean }; // 활성·비활성 공급업체 선택지
 
 // 폼 입력값 (모두 글자로 다루고 보낼 때 바꾼다)
-const EMPTY = { sku: "", name: "", unit: "", unit_cost: "", safety_stock: "0", default_supplier_id: "", units_per_box: "", box_unit_cost: "" };
+const EMPTY = { sku: "", name: "", unit: "", color: "", size: "", spec: "", group_code: "", unit_cost: "", safety_stock: "0", default_supplier_id: "", units_per_box: "", box_unit_cost: "" };
 type Form = typeof EMPTY;
 
 // 오류 details 의 칸 이름 → 화면 이름
-const LABELS = { sku: "SKU", name: "품목명", unit: "재고 단위", unit_cost: "재고 단위 단가", safety_stock: "안전재고", default_supplier_id: "기본 공급업체", units_per_box: "박스 입수", box_unit_cost: "박스당 구매 단가" };
+const LABELS = { sku: "SKU", name: "품목명", unit: "재고 단위", color: "색상", size: "사이즈", spec: "규격", group_code: "그룹 코드", unit_cost: "재고 단위 단가", safety_stock: "안전재고", default_supplier_id: "기본 공급업체", units_per_box: "박스 입수", box_unit_cost: "박스당 구매 단가" };
 
 // 폼 값 → 서버로 보낼 본문 (숫자 칸은 숫자로, 비우면 null → 서버가 422. 0 이상 정수 검사는 서버가 한다)
 function toBody(form: Form) {
@@ -38,6 +41,10 @@ function toBody(form: Form) {
     sku: form.sku, // 공백 제거·대문자는 서버가 한다 (ts-bk-m → TS-BK-M)
     name: form.name,
     unit: form.unit,
+    color: form.color, // 공백 제거·빈 글자 → null 은 서버가 한다
+    size: form.size,
+    spec: form.spec,
+    group_code: form.group_code, // 대문자 변환도 서버가 한다
     unit_cost: num(form.unit_cost),
     safety_stock: num(form.safety_stock),
     default_supplier_id: num(form.default_supplier_id),
@@ -90,6 +97,7 @@ export default function ProductsPage() {
   function formOf(p: Product): Form {
     return {
       sku: p.sku, name: p.name, unit: p.unit, unit_cost: String(p.unit_cost),
+      color: p.color ?? "", size: p.size ?? "", spec: p.spec ?? "", group_code: p.group_code ?? "", // 옵션이 없으면 빈 칸
       safety_stock: String(p.safety_stock), default_supplier_id: String(p.default_supplier.id),
       units_per_box: p.units_per_box == null ? "" : String(p.units_per_box),
       box_unit_cost: p.box_unit_cost == null ? "" : String(p.box_unit_cost),
@@ -162,6 +170,11 @@ export default function ProductsPage() {
         {/* 등록·수정 폼. 모바일에서는 짧은 항목을 두 칸씩 묶고 박스 설정은 접는다(값이 하나라도 있으면 펼친다) */}
         <Field label="SKU*" className="field-half fld-sku"><input value={form.sku} onChange={(e) => set("sku", e.target.value)} /></Field>
         <Field label="품목명*" className="fld-name"><input value={form.name} onChange={(e) => set("name", e.target.value)} /></Field>
+        <Field label="색상" className="field-half"><input value={form.color} onChange={(e) => set("color", e.target.value)} maxLength={50} placeholder="검정" /></Field>
+        <Field label="사이즈" className="field-half"><input value={form.size} onChange={(e) => set("size", e.target.value)} maxLength={50} placeholder="M" /></Field>
+        <Field label="규격" className="field-half"><input value={form.spec} onChange={(e) => set("spec", e.target.value)} maxLength={50} placeholder="2L, 30롤" /></Field>
+        <Field label="그룹 코드" className="field-half"><input value={form.group_code} onChange={(e) => set("group_code", e.target.value)} maxLength={50} placeholder="같은 상품끼리 묶는 코드" /></Field>
+        {/* 옵션 4칸은 모두 선택. 같은 상품의 색·사이즈·규격마다 SKU 를 따로 만들고 그룹 코드로 묶는다 */}
         <Field label="재고 단위*" className="field-half fld-unit"><input value={form.unit} onChange={(e) => set("unit", e.target.value)} placeholder="개, 병" /></Field>
         <Field label="재고 단위 단가(원)*" short="단가(원)*" className="field-half fld-cost"><input type="number" inputMode="numeric" value={form.unit_cost} onChange={(e) => set("unit_cost", e.target.value)} /></Field>
         <Field label="안전재고" className="field-half fld-safety"><input type="number" inputMode="numeric" value={form.safety_stock} onChange={(e) => set("safety_stock", e.target.value)} /></Field>
@@ -193,7 +206,7 @@ export default function ProductsPage() {
       <ErrorText error={error} labels={LABELS} />
 
       {/* 검색·기본 공급업체·비활성 포함을 표 위 한 줄에 묶는다. */}
-      <ListControls placeholder="SKU·품목명 검색" includeInactive={list.includeInactive} onSearch={list.search} onToggleInactive={list.toggleInactive}
+      <ListControls placeholder="품목명·SKU·옵션 검색" includeInactive={list.includeInactive} onSearch={list.search} onToggleInactive={list.toggleInactive}
         tableFilter={(
           // 업체를 바꾸면 첫 쪽으로 이동해 새 조건의 결과를 표시한다.
           <select aria-label="기본 공급업체 필터" style={{ maxWidth: "100%" }} value={supplierId} onChange={(event) => { setSupplierId(event.target.value); list.setPage(1); }}>
@@ -207,7 +220,7 @@ export default function ProductsPage() {
       <table style={{ ...S.table, marginTop: 0 }}>
         <thead>
           <tr style={S.headRow}>
-            <th>SKU</th><th>품목명</th><th>단위</th><th style={S.num}>단가</th><th style={S.num}>안전재고</th><th>기본 공급업체</th><th style={S.num}>리드타임</th><th>상태</th>
+            <th>SKU</th><th>품목명</th><th>옵션</th><th>단위</th><th style={S.num}>단가</th><th style={S.num}>안전재고</th><th>기본 공급업체</th><th style={S.num}>리드타임</th><th>상태</th>
           </tr>
         </thead>
         <tbody>
@@ -217,6 +230,8 @@ export default function ProductsPage() {
               <td style={S.nowrap}>{p.sku}</td>
               <td><button type="button" className="text-button" aria-label={`${p.name} 수정`} onClick={() => startEdit(p)}>{p.name}</button></td>
               {/* 품목 이름을 누르면 위 수정 폼이 열린다(줄마다 수정·비활성 버튼 칸을 두지 않는다) */}
+              <td>{optionSummary(p)}{p.group_code && <span style={S.sub}>그룹 {p.group_code}</span>}</td>
+              {/* 옵션이 없으면 빈 칸 */}
               <td>{p.unit}</td>
               <td style={S.num}>
                 {p.unit_cost.toLocaleString("ko-KR")}원

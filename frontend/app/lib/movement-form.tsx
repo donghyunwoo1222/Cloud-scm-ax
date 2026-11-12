@@ -6,6 +6,7 @@ import { FormEvent, useCallback, useEffect, useId, useRef, useState } from "reac
 import { api, apiList } from "./api"; // 공통 API 호출 함수
 import { Field } from "./field"; // 모바일에서 라벨이 테두리에 걸치는 입력 항목
 import { ErrorText } from "./list"; // 서버 오류 표시
+import { movementOptions, skuWithOptions } from "./options"; // 품목 옵션 요약
 import { ShipmentTypeBadge, StatusBadge } from "./status-badge"; // 출고 유형과 발주 입고 배지
 import { ProductOption, ProductPicker } from "./product-picker"; // 전체 품목에서 검색해 바로 선택한다
 import { quantityLabel } from "./po"; // 품목 단위로 재고·수량을 표시한다.
@@ -162,6 +163,7 @@ type Recent = {
   id: number; // 이력 번호 (표의 줄 구분용)
   product_id: number; // 품목 번호 (지금 재고를 찾는 데 쓴다)
   product_sku: string | null; product_name: string | null; // 품목 SKU·이름 (이력 조회가 채워 준다)
+  product_color?: string | null; product_size?: string | null; product_spec?: string | null; // 품목 옵션
   movement_type: string; direction: "IN" | "OUT"; // 유형, 늘림·줄임
   quantity: number; movement_date: string; // 수량, 입출고일
   sales_channel: string | null; reason: string | null; memo: string | null; // 판매 채널, 조정 사유, 메모
@@ -229,7 +231,7 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
               {rows.map((m) => (
                 <tr key={m.id} style={S.row}>
                   <td style={S.nowrap}>{m.movement_date}</td>
-                  <td>{m.product_name}<span style={S.sub}>{m.product_sku}</span></td>
+                  <td>{m.product_name}<span style={S.sub}>{skuWithOptions(m.product_sku, movementOptions(m))}</span></td>
                   {!isReceipt && (
                     <td style={S.nowrap}>
                       <ShipmentTypeBadge type={m.movement_type}>{TYPE_LABEL[m.movement_type] ?? m.movement_type}</ShipmentTypeBadge>
@@ -263,7 +265,7 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
                 {/* 1줄: 품목과 수량 (늘면 +, 줄면 −) */}
               </div>
               <div className="compact-sub">
-                <span>{m.product_sku}</span>
+                <span>{skuWithOptions(m.product_sku, movementOptions(m))}</span>
                 {!isReceipt && <span><ShipmentTypeBadge type={m.movement_type}>{TYPE_LABEL[m.movement_type] ?? m.movement_type}</ShipmentTypeBadge></span>}
                 {m.sales_channel && <span>{CHANNEL_LABEL[m.sales_channel] ?? m.sales_channel}</span>}
                 <span>{m.movement_date}</span>

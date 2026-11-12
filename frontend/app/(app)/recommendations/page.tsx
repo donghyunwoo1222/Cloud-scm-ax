@@ -6,6 +6,7 @@ import { Fragment, Suspense, useCallback, useEffect, useRef, useState } from "re
 
 import { ApiError, api, apiList } from "../../lib/api"; // 공통 API 호출 함수·오류 종류
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
+import { Options, skuWithOptions } from "../../lib/options"; // 품목 옵션 요약
 import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PoItem, PurchaseOrder, quantityLabel } from "../../lib/po"; // 발주서와 박스 환산 표시
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S } from "../../lib/styles"; // 화면 공통 스타일
@@ -14,13 +15,14 @@ import styles from "./page.module.css"; // 추천 화면 근거 버튼 스타일
 // GET /api/v1/recommendations 응답의 추천 한 줄 (backend/app/services/recommendations.py)
 type Item = {
   product_id: number; product_sku: string; product_name: string; // 품목
+  color?: string | null; size?: string | null; spec?: string | null; // 품목 옵션
   supplier_id: number; supplier_name: string; unit: string; // 기본 공급업체
   current_stock: number; in_transit: number; available: number; // 현재고, 발주 진행 중, 가용재고(= 둘의 합)
   avg_daily_sales: number; lead_time_days: number; safety_stock: number; // 일평균(소수), 리드타임, 안전재고
   reorder_point: number; recommended_quantity: number; reason: string; // 재주문점(소수), 추천 수량, 이유 문구
   units_per_box: number | null; recommended_box_quantity: number | null; // 현재 입수와 서버가 올림한 기본 박스 수
 };
-type Excluded = { product_id: number; product_sku: string; product_name: string; message: string }; // 서버가 제외 사유 문장까지 내려준다
+type Excluded = Options & { product_id: number; product_sku: string; product_name: string; message: string }; // 서버가 제외 사유 문장까지 내려준다
 type Draft = { id: number; po_number: string } & Pick<PoItem, "quantity" | "box_quantity" | "unit">;
 type Created = PurchaseOrder & { created: boolean }; // 초안 만들기 응답 한 장 (created: 새로 만들었는지)
 
@@ -208,7 +210,7 @@ function Recommendations({ productId }: { productId: number | null }) {
                         )}
                       </td>
                       <td style={cell}>
-                        {i.product_name}<span style={S.sub}>{i.product_sku}</span>
+                        {i.product_name}<span style={S.sub}>{skuWithOptions(i.product_sku, i)}</span>
                         {/* 접힌 상태에서도 서버가 준 두 숫자로 짧은 판단 근거를 보여 준다 */}
                         <button type="button" className={styles.evidenceToggle} aria-expanded={open} aria-controls={evidenceId}
                           onClick={() => setExpandedId(open ? null : i.product_id)}>{/* 다른 품목을 열면 이전 근거는 닫힌다 */}
@@ -294,7 +296,7 @@ function Recommendations({ productId }: { productId: number | null }) {
           <tbody>
             {excluded.map((e) => (
               <tr key={e.product_id} style={S.row}>
-                <td>{e.product_name}<span style={S.sub}>{e.product_sku}</span></td>
+                <td>{e.product_name}<span style={S.sub}>{skuWithOptions(e.product_sku, e)}</span></td>
                 <td style={S.nowrap}><StatusBadge kind="unknown">판단 불가</StatusBadge></td>
                 <td>{e.message}</td>{/* 제외 사유는 서버 문장을 그대로 보여 준다 */}
               </tr>

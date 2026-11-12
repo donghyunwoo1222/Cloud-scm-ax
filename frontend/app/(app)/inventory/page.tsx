@@ -13,9 +13,10 @@ import { InfoTip, Tip } from "../../lib/tip"; // 상태 이유·보조 설명 �
 import { quantityLabel } from "../../lib/po"; // 입출고 이력에도 실제 단위를 붙인다.
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 import { StockTrend } from "./stock-trend"; // 선택한 품목의 30일 마감 재고
+import { movementOptions, Options, optionSummary, skuWithOptions } from "../../lib/options"; // 품목 옵션 요약
 
 // GET /api/v1/stock 의 한 행 (상태는 추천 계산과 같은 기준, #76)
-type Stock = {
+type Stock = Options & {
   product_id: number; sku: string; name: string; unit: string; safety_stock: number; is_active: boolean; current_stock: number;
   reorder_point: number | null; // 서버의 판정 기준
   in_transit: number; // 발주 진행 중(발주함, 미입고) 수량
@@ -25,7 +26,9 @@ type Stock = {
 const STATUS_LABEL = { SHORTAGE: "부족", NORMAL: "정상", UNKNOWN: "판단 불가" }; // 상태 코드 → 화면 이름
 // GET /api/v1/inventory-movements 의 한 행
 type Movement = {
-  id: number; product_id: number; product_sku: string | null; product_name: string | null; movement_type: string; direction: "IN" | "OUT";
+  id: number; product_id: number; product_sku: string | null; product_name: string | null;
+  product_color?: string | null; product_size?: string | null; product_spec?: string | null; // 품목 옵션
+  movement_type: string; direction: "IN" | "OUT";
   quantity: number; movement_date: string; sales_channel: string | null; reason: string | null; memo: string | null;
   product_unit: string | null; correctable_quantity: number | null; // 정정에 표시할 단위와 원본 기준 잔량
   reverses_movement_id: number | null; created_at: string;
@@ -198,7 +201,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
     <section>
       <div style={S.detailHeader}><h1 ref={inventoryTitle} tabIndex={-1}>재고 현황</h1><Link href="/shipments?type=ADJUSTMENT" style={S.linkButtonGhost}>실사 조정</Link></div>
       {/* 기존 목록 검색창과 비활성 포함을 재고 API에 연결한다. */}
-      <ListControls placeholder="품목명·SKU 검색" onSearch={searchStock} searchInput={{ value: searchText, onChange: setSearchText, maxLength: 100 }}
+      <ListControls placeholder="품목명·SKU·옵션 검색" onSearch={searchStock} searchInput={{ value: searchText, onChange: setSearchText, maxLength: 100 }}
         includeInactive={stock.includeInactive} onToggleInactive={stock.toggleInactive}
         tableFilter={(
           <select aria-label="재고 상태" value={status} onChange={(e) => { setStatus(e.target.value); stock.setPage(1); }} style={{ maxWidth: "100%" }}>
@@ -222,7 +225,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
                 <button ref={selected ? selectedHistoryButton : undefined} type="button" className="text-button" aria-expanded={selected}
                   aria-label={`${s.name} 추이·이력 ${selected ? "닫기" : "보기"}`} onClick={() => toggleHistory(s)}>{s.name}</button>{!s.is_active && " (비활성)"}
               </td>
-              <td style={S.nowrap}>{s.sku}</td>
+              <td style={S.nowrap}>{s.sku}{optionSummary(s) && <span style={S.sub}>{optionSummary(s)}</span>}</td>
               <td style={S.num}>{s.current_stock} {s.unit}</td>
               <td style={S.num}>{quantityLabel(s.in_transit, s.unit)}</td>
               <td style={S.num}>{quantityLabel(s.safety_stock, s.unit)}</td>
@@ -307,7 +310,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
             <tr key={m.id} style={S.row}>
               <td>#{m.id}</td>
               <td style={S.nowrap}>{m.movement_date}</td>
-              <td>{m.product_name} <span style={S.nowrap}>({m.product_sku})</span></td>
+              <td>{m.product_name} <span style={S.nowrap}>({skuWithOptions(m.product_sku, movementOptions(m))})</span></td>
               <td>{TYPE_LABEL[m.movement_type] ?? m.movement_type}{m.reverses_movement_id !== null && ` (#${m.reverses_movement_id})`}</td>
               {/* 정정 행은 어떤 이력을 바로잡았는지 번호로 보인다 (예: 정정 (#2)) */}
               <td style={S.num}>{m.direction === "IN" ? "+" : "−"}{quantityLabel(m.quantity, m.product_unit ?? undefined)}</td>
@@ -330,7 +333,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
               </div>
               <div className="compact-sub">
                 <span>#{m.id}</span>
-                <span>{m.product_sku}</span>
+                <span>{skuWithOptions(m.product_sku, movementOptions(m))}</span>
                 <span>{TYPE_LABEL[m.movement_type] ?? m.movement_type}{m.reverses_movement_id !== null && ` (#${m.reverses_movement_id})`}</span>
                 <span>{m.movement_date}</span>
                 {/* 2줄: 번호 · SKU · 유형(정정은 바로잡은 번호) · 날짜 */}
