@@ -6,6 +6,7 @@ import { Suspense, FormEvent, useCallback, useEffect, useRef, useState } from "r
 
 import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
+import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
 import { useMe } from "../../../lib/me"; // 내 역할 (승인 버튼은 관리자에게만)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
 import { boxLimit, fmtDate, fmtTime, formatOrderUnitPrice, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, PoItemSort, PurchaseOrder, quantityLabel, remainingQuantity, totalAmount, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
@@ -233,7 +234,7 @@ function Detail() {
               return (
                 <li key={item.id} className={styles.receiptRow} data-entered={Boolean(entry?.value)}>
                   <div className={styles.receiptProduct}>
-                    <strong>{item.product_name}</strong><span style={S.sub}>{item.product_sku}</span>
+                    <strong>{item.product_name}</strong><span style={S.sub}>{skuWithOptions(item.product_sku, item)}</span>
                   </div>
                   <div className={styles.receiptRemaining}>
                     <span>남은 수량 </span><strong>{quantityLabel(remaining, item.unit)}</strong>
@@ -334,7 +335,7 @@ function Detail() {
             const ordered = i.quantity.toLocaleString("ko-KR"); // 발주 수량과 입고 현황에 같은 쉼표 표기를 쓴다
             return (
               <tr key={i.id} style={S.row}>
-                <td style={S.nowrap}>{i.product_sku}</td>
+                <td style={S.nowrap}>{skuWithOptions(i.product_sku, i)}</td>
                 <td style={S.midCol}>{i.product_name}</td>
                 {/* 발주서에 저장된 단가로 이 줄의 발주 금액을 표시한다. */}
                 <td style={S.num}>{formatOrderUnitPrice(i)}</td>
@@ -381,7 +382,7 @@ function Detail() {
                   {/* 1줄: 품목과 발주 수량 (박스 발주는 박스 수와 재고 수량) */}
                 </div>
                 <div className="compact-sub">
-                  <span>{i.product_sku}</span>
+                  <span>{skuWithOptions(i.product_sku, i)}</span>
                   <span>{remaining === 0 ? "전량 입고" : `${i.received_quantity.toLocaleString("ko-KR")} / ${ordered}${i.unit} 입고 · ${remaining.toLocaleString("ko-KR")}${i.unit} 남음`}</span>
                   <span>금액 {lineAmount(i).toLocaleString("ko-KR")}원</span>
                   {/* 2줄: SKU · 입고 현황 · 금액 (단가는 표에서) */}

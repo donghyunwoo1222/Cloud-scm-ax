@@ -6,6 +6,7 @@ export type PoItem = {
   product_id: number; // 품목 번호
   product_sku: string; // 품목 SKU
   product_name: string; // 품목명
+  color?: string | null; size?: string | null; spec?: string | null; // 품목 옵션 (품목 마스터의 현재 값)
   unit: string; // 입고 현황에 붙일 품목 단위 (예: 개, 박스)
   quantity: number; // 발주 수량
   unit_price: number; // 발주 단가(원)

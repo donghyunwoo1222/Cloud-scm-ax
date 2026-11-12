@@ -3,10 +3,12 @@
 import { KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 import { ErrorText, Pager, useList } from "./list";
+import { skuWithOptions } from "./options";
 import { S } from "./styles";
 
 export type ProductOption = {
   id: number; sku: string; name: string; unit: string; unit_cost: number;
+  color?: string | null; size?: string | null; spec?: string | null; // 품목 옵션
   is_active: boolean; units_per_box?: number | null; box_unit_cost?: number | null;
 };
 
@@ -123,7 +125,7 @@ export function ProductPicker({ label, value, onSelect, includeInactive = false,
     }}>
       <input ref={input} type="text" role="combobox" aria-label={label} aria-autocomplete="list" aria-expanded={visible}
         aria-controls={visible ? listId : undefined} aria-activedescendant={activeId}
-        placeholder="품목명·SKU 검색" autoComplete="off" maxLength={100} required disabled={disabled}
+        placeholder="품목명·SKU·옵션 검색" autoComplete="off" maxLength={100} required disabled={disabled}
         style={S.blockFull} value={query ?? (value ? `${value.name} · ${value.sku}` : "")}
         onFocus={(event) => { setOpen(true); if (query === null) event.currentTarget.select(); }}
         onClick={() => setOpen(true)} onKeyDown={handleKey}
@@ -144,7 +146,7 @@ export function ProductPicker({ label, value, onSelect, includeInactive = false,
               <button key={product.id} id={`${id}-${product.id}`} type="button" role="option" tabIndex={-1}
                 aria-selected={index === active}
                 onMouseDown={(event) => event.preventDefault()} onClick={() => choose(product)}>
-                {product.name}<span style={S.sub}>{product.sku}{product.is_active ? "" : " · 비활성"}</span>
+                {product.name}<span style={S.sub}>{skuWithOptions(product.sku, product)}{product.is_active ? "" : " · 비활성"}</span>
               </button>
             ))}
           </div>
