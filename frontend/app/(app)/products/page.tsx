@@ -7,27 +7,11 @@ import { api, apiListAll } from "../../lib/api"; // 공통 API 호출 함수
 import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸치는 입력 항목
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { optionSummary } from "../../lib/options"; // 옵션 요약 ("검정 / M")
+import { type Product, ProductDetail } from "../../lib/product-detail"; // 품목 한 행 타입과 상세 모달 (#225)
 import { unitConversion } from "../../lib/po"; // 발주단위 환산 미리보기
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
-// GET /api/v1/products 의 한 행 (재고 숫자는 없다, #31)
-type Product = {
-  id: number; // 번호
-  sku: string; // 품목 코드 (서버가 대문자로 저장)
-  name: string; // 품목명
-  unit: string; // 단위
-  color: string | null; size: string | null; spec: string | null; // 옵션 (없으면 null)
-  group_code: string | null; // 그룹 코드 (서버가 대문자로 저장)
-  unit_cost: number; // 단가(원)
-  units_per_box: number | null; // 박스 한 개의 재고 단위 수량
-  box_unit_cost: number | null; // 박스당 구매 단가
-  order_unit: string; // 발주단위 이름 (박스 설정이 없으면 재고 단위)
-  min_order_units: number | null; // 최소 주문량(발주단위 수), 없으면 제한 없음 (#194)
-  safety_stock: number; // 안전재고
-  is_active: boolean; // 활성 여부
-  default_supplier: { id: number; name: string; lead_time_days: number }; // 기본 공급업체 요약
-};
 type SupplierOption = { id: number; name: string; lead_time_days: number; is_active: boolean }; // 활성·비활성 공급업체 선택지
 
 // 폼 입력값 (모두 글자로 다루고 보낼 때 바꾼다)
@@ -77,6 +61,9 @@ export default function ProductsPage() {
   const [created, setCreated] = useState(false); // 첫 입고로 바로 이어갈 수 있게 한다.
   const [boxOpen, setBoxOpen] = useState(false); // 모바일에서 "박스 발주 설정"을 펼쳤는지 (데스크톱은 항상 보인다)
   const [error, setError] = useState<unknown>(null); // 저장·버튼 오류
+  const [detailId, setDetailId] = useState<number | null>(null); // 상세 모달로 연 품목 번호 (객체 대신 번호만: 목록이 새로고침되면 새 값을 보인다)
+  const detail = list.rows.find((p) => p.id === detailId); // 지금 목록에서 찾는다. 쪽 이동·검색으로 사라지면 undefined 라 모달이 닫힌다
+  if (detailId !== null && !detail) setDetailId(null); // 사라진 품목 번호는 지워 둔다(나중에 그 쪽으로 돌아와도 모달이 저절로 다시 열리지 않게)
 
   useEffect(() => {
     let active = true; // 화면을 닫으면 더 불러오거나 상태를 갱신하지 않는다
@@ -241,8 +228,8 @@ export default function ProductsPage() {
             <tr key={p.id} style={bodyRow(p.is_active)}>
               {/* 비활성 행은 흐리게 */}
               <td style={S.nowrap}>{p.sku}</td>
-              <td><button type="button" className="text-button" aria-label={`${p.name} 수정`} onClick={() => startEdit(p)}>{p.name}</button></td>
-              {/* 품목 이름을 누르면 위 수정 폼이 열린다(줄마다 수정·비활성 버튼 칸을 두지 않는다) */}
+              <td><button type="button" className="text-button" aria-label={`${p.name} 상세 보기`} aria-haspopup="dialog" onClick={() => setDetailId(p.id)}>{p.name}</button></td>
+              {/* 품목 이름을 누르면 상세 모달이 열리고, 수정은 모달의 "수정" 버튼으로 위 폼을 연다(#225) */}
               <td>{optionSummary(p)}{p.group_code && <span style={S.sub}>그룹 {p.group_code}</span>}</td>
               {/* 옵션이 없으면 빈 칸 */}
               <td>{p.unit}</td>
@@ -264,6 +251,7 @@ export default function ProductsPage() {
       </div>
       {list.meta?.total === 0 && <p style={S.empty}>조건에 맞는 품목이 없습니다.</p>}{/* 검색이나 필터 결과가 없을 때 안내한다. */}
       <Pager meta={list.meta} onPage={list.setPage} />
+      {detail && <ProductDetail key={detail.id} product={detail} onClose={() => setDetailId(null)} onEdit={startEdit} />}
     </section>
   );
 }
