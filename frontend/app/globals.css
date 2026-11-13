@@ -160,6 +160,41 @@ button.text-button:hover:not(:disabled) {
   text-decoration: underline;
 }
 
+/* 품목 상세 모달(#225): 브라우저 기본 <dialog>. 여백·테두리를 0 으로 두고 안쪽 div 가 전부를 덮어, dialog 자신이 눌리면 바깥 클릭이다 */
+dialog.product-detail {
+  width: min(560px, calc(100vw - 32px)); /* 360px 폭이면 328px, 좌우 16px 씩 남는다 */
+  max-width: none; /* 브라우저 기본 max-width 대신 위 너비를 쓴다 */
+  max-height: calc(100dvh - 32px); /* 키가 작은 화면에서도 위아래가 잘리지 않고 안에서 스크롤 */
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+  color: var(--color-foreground);
+  box-shadow: 0 8px 32px rgb(30 41 59 / 24%);
+  overflow: auto;
+}
+
+dialog.product-detail::backdrop {
+  background: rgb(15 23 42 / 45%); /* 뒤 화면을 어둡게 */
+}
+
+.product-detail-body {
+  padding: var(--space-md);
+}
+
+/* 사진 자리: 지금은 "사진 없음"만. 나중에 <img> 를 이 안에 넣는다 */
+.photo-slot {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  max-height: 40dvh; /* 가로 화면에서 사진칸이 모달을 다 차지하지 않게 */
+  margin-top: var(--space-md);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-hover);
+  color: var(--color-muted-foreground);
+}
+
 /* 재고 상태 배지 말풍선(#149): 버튼 모양은 지우고 배지만 보인다. 말풍선은 popover(맨 위 층)라 표 상자에 잘리지 않는다 */
 button.status-tip {
   min-height: 24px;
