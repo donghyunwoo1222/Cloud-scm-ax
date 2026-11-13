@@ -40,6 +40,34 @@ GUARD = (
 
 log = logging.getLogger(__name__)  # 이 파일의 로그
 
+# 로그에는 아래 허용 목록의 단어와 HTTP 상태 숫자만 남긴다. 목록에 없는 값(응답이 지어낸 글자 포함)은 "UNKNOWN" 이 된다 (#231)
+_CAUSES = frozenset({"http", "connection", "too_large", "bad_shape"})  # 어댑터가 정하는 UPSTREAM 원인
+_FINISH = frozenset({"STOP", "MAX_TOKENS", "SAFETY", "RECITATION", "LANGUAGE", "OTHER", "BLOCKLIST",
+                     "PROHIBITED_CONTENT", "SPII", "MALFORMED_FUNCTION_CALL", "FINISH_REASON_UNSPECIFIED"})
+
+
+def _safe_http(value) -> str:
+    """HTTP 상태: 100~599 정수만 숫자로, 아니면 "-". bool 은 정수의 한 종류라 type() 으로 걸러낸다."""
+    return str(value) if type(value) is int and 100 <= value <= 599 else "-"
+
+
+def _safe_cause(value) -> str:
+    return value if isinstance(value, str) and value in _CAUSES else "-"
+
+
+def _safe_finish(value) -> str:
+    """finishReason: 없거나 빈 글자면 "-", 문자열이 아니거나 허용 목록 밖이면 "UNKNOWN"."""
+    if value is None or value == "":
+        return "-"
+    return value if isinstance(value, str) and value in _FINISH else "UNKNOWN"
+
+
+def _bad_kind(text: str, exc: ValidationError) -> str:
+    """BAD_OUTPUT 세부 사유: EMPTY(빈 글자) / NOT_JSON(JSON 아님·잘림) / SCHEMA(스키마 위반). pydantic 의 error type 만 본다(입력·loc 은 읽지 않는다)."""
+    if not text.strip():
+        return "EMPTY"
+    return "NOT_JSON" if exc.errors()[0]["type"] == "json_invalid" else "SCHEMA"
+
 
 class LLMOutput(BaseModel):
     """모든 LLM 출력 스키마의 부모. 스키마에 없는 칸이 오면 실패로 본다."""
@@ -51,10 +79,18 @@ class LLMOutput(BaseModel):
 class LLMReply:
     text: str  # 모델이 낸 글자 (JSON 이어야 한다)
     cost_usd: float  # 이번 호출 비용. 어댑터가 응답의 토큰 수 × 자기 모델 단가로 계산한다
+    finish_reason: object = None  # 모델이 멈춘 이유(STOP·MAX_TOKENS 등). 로그 전에 _safe_finish 로 거른다 (#231)
 
 
 class LLMRetryable(Exception):
-    """잠깐 뒤 다시 하면 될 수 있는 오류(제공자 과부하 429·5xx, 연결 끊김). 시간 초과는 TimeoutError 로 던진다."""
+    """잠깐 뒤 다시 하면 될 수 있는 오류(제공자 과부하 429·5xx, 연결 끊김). 시간 초과는 TimeoutError 로 던진다.
+
+    status(HTTP 상태 숫자)·cause(고정 단어)는 로그용이다(#231). 모두 기본값이 있어 LLMRetryable() 로 만들어도 된다.
+    """
+
+    def __init__(self, message: str = "", *, status: int | None = None, cause: str | None = None):
+        super().__init__(message)
+        self.status, self.cause, self.finish = status, cause, None  # finish: 재시도 오류는 응답을 못 받아 항상 없다
 
 
 class LLMClient(Protocol):
@@ -131,6 +167,7 @@ def ask(company_id: int, purpose: str, data, schema: type[LLMOutput]) -> LLMOutp
     instruction = PROMPTS[purpose]  # 등록 안 된 목적은 코드 실수라 KeyError 로 바로 드러낸다
     started = now()
     attempts, cost, outcome, error = 0, 0.0, "OK", "-"  # error: 마지막 오류의 종류 이름만 (문장은 남기지 않는다)
+    http, cause, finish, bad = "-", "-", "-", "-"  # #231: 마지막 시도의 상태 숫자·원인·멈춘 이유·BAD_OUTPUT 사유. 허용된 값만 담는다
     try:
         if not _enabled():
             raise LLMUnavailable("DISABLED")
@@ -153,6 +190,7 @@ def ask(company_id: int, purpose: str, data, schema: type[LLMOutput]) -> LLMOutp
                 reply = client.complete(system, user, timeout=min(settings.llm_timeout_seconds, remaining))
             except (TimeoutError, LLMRetryable) as exc:  # 다시 해 볼 만한 오류
                 error = type(exc).__name__
+                http, cause = _safe_http(getattr(exc, "status", None)), _safe_cause(getattr(exc, "cause", None))
                 reason = "TIMEOUT" if isinstance(exc, TimeoutError) else "UPSTREAM"
                 if attempts > len(waits):
                     raise LLMUnavailable(reason) from None  # 재시도를 다 썼다
@@ -163,14 +201,19 @@ def ask(company_id: int, purpose: str, data, schema: type[LLMOutput]) -> LLMOutp
                 continue
             except Exception as exc:  # noqa: BLE001  인증 실패·잘못된 요청 등: 다시 해도 같으므로 바로 실패
                 error = type(exc).__name__
+                http, cause = _safe_http(getattr(exc, "status", None)), _safe_cause(getattr(exc, "cause", None))
+                finish = _safe_finish(getattr(exc, "finish", None))  # 차단(SAFETY)된 응답은 후보만 있고 내용이 없다
                 # from None: 제공자 오류 원문(입력이 섞일 수 있다)이 추적 정보로 따라가지 않게 한다
                 raise LLMUnavailable("UPSTREAM") from None
             cost += reply.cost_usd
             _add_cost(reply.cost_usd)
+            http = cause = "-"  # 응답을 받았으니 앞선 시도의 오류 정보는 지운다
+            finish = _safe_finish(reply.finish_reason)
             try:
                 return schema.model_validate_json(reply.text)  # 스키마를 통과한 값만 돌려준다
             except ValidationError as exc:  # 형식 오류는 재시도하지 않는다(비용, 인젝션으로 틀린 출력을 "운 좋게" 통과시키지 않게)
                 error = type(exc).__name__  # ValidationError 문장에는 모델 출력이 그대로 들어 있어 이름만 쓴다
+                bad = _bad_kind(reply.text, exc)
                 raise LLMUnavailable("BAD_OUTPUT") from None
     except LLMUnavailable as exc:
         outcome = exc.reason
@@ -179,8 +222,8 @@ def ask(company_id: int, purpose: str, data, schema: type[LLMOutput]) -> LLMOutp
         # 한 줄만 남긴다. 데이터·프롬프트·모델 출력·예외 문장·이메일·키·토큰은 남기지 않는다
         # 실패는 WARNING: 로그 설정이 없는 기본 상태(WARNING 이상만 출력)에서도 보이게 한다. 성공은 INFO
         log.log(logging.INFO if outcome == "OK" else logging.WARNING,
-                "llm purpose=%s company_id=%s attempts=%d latency_ms=%d outcome=%s error=%s cost_usd=%.6f",
-                purpose, company_id, attempts, (now() - started) * 1000, outcome, error, cost)
+                "llm purpose=%s company_id=%s attempts=%d latency_ms=%d outcome=%s error=%s http=%s cause=%s finish=%s bad=%s cost_usd=%.6f",
+                purpose, company_id, attempts, (now() - started) * 1000, outcome, error, http, cause, finish, bad, cost)
 
 
 def default_client() -> LLMClient | None:

@@ -181,3 +181,101 @@ def test_ask_auth_error_is_not_retried(through_ask, monkeypatch):
     with pytest.raises(LLMUnavailable):
         llm.ask(1, "test", {}, Pick)
     assert len(fake.requests) == 1
+
+
+# ---- #231: 실패 원인 로그 (http·cause·finish·bad). 가짜 응답만 쓰고 실제 Gemini 는 부르지 않는다 ----
+SAMPLE = "SAMPLE-값-9931"  # 요청·응답에 섞어 넣고 로그에 없는지 보는 견본
+
+
+def log_line(caplog, expect_reason, steps, monkeypatch):
+    """가짜 응답 순서로 ask 를 한 번 부르고 남은 로그 한 줄을 돌려준다. 호출은 expect_reason(None 이면 성공)으로 끝나야 한다."""
+    use(monkeypatch, steps)
+    with caplog.at_level(logging.INFO, logger="app.services.llm"):
+        if expect_reason is None:
+            llm.ask(1, "test", {"headers": [SAMPLE]}, Pick)
+        else:
+            with pytest.raises(LLMUnavailable) as info:
+                llm.ask(1, "test", {"headers": [SAMPLE]}, Pick)
+            assert info.value.details == {"reason": expect_reason}  # 사용자에게 보이는 reason 은 그대로
+    lines = [r.getMessage() for r in caplog.records if r.name == "app.services.llm"]
+    assert len(lines) == 1  # 호출 1번에 한 줄
+    for secret in (FAKE_KEY, SAMPLE):  # 키·요청 값·응답 값은 로그에 없다
+        assert secret not in caplog.text
+    return lines[0]
+
+
+def resp(finish="STOP", text='{"column": "B"}'):
+    return json.dumps({"candidates": [{"content": {"parts": [{"text": text}]}, "finishReason": finish}]}).encode()
+
+
+@pytest.mark.parametrize("steps,reason,attempts,expected", [
+    ([http_error(429)], "UPSTREAM", 3, "error=LLMRetryable http=429 cause=http finish=- bad=-"),
+    ([http_error(500)], "UPSTREAM", 3, "error=LLMRetryable http=500 cause=http finish=- bad=-"),
+    ([http_error(429), http_error(429), http_error(503)], "UPSTREAM", 3, "http=503 cause=http"),  # 마지막 시도의 값만
+    ([urllib.error.URLError(ConnectionRefusedError("refused"))], "UPSTREAM", 3, "http=- cause=connection finish=- bad=-"),
+    ([ConnectionResetError("reset")], "UPSTREAM", 3, "http=- cause=connection"),
+    ([http_error(401)], "UPSTREAM", 1, "error=GeminiError http=401 cause=http"),
+    ([b"x" * 20_000], "UPSTREAM", 1, "http=- cause=too_large"),
+    ([b"not json"], "UPSTREAM", 1, "cause=bad_shape finish=-"),
+    ([resp(text="not json")], "BAD_OUTPUT", 1, "error=ValidationError http=- cause=- finish=STOP bad=NOT_JSON"),
+    ([resp(text='{"column": 1, "x": 2}')], "BAD_OUTPUT", 1, "finish=STOP bad=SCHEMA"),
+    ([resp(text="")], "BAD_OUTPUT", 1, "finish=STOP bad=EMPTY"),
+    ([resp(finish="MAX_TOKENS", text='{"column": "B')], "BAD_OUTPUT", 1, "finish=MAX_TOKENS bad=NOT_JSON"),
+    ([resp(finish="SAFETY", text="")], "BAD_OUTPUT", 1, "finish=SAFETY bad=EMPTY"),
+    ([resp()], None, 1, "outcome=OK error=- http=- cause=- finish=STOP bad=-"),
+])
+def test_failure_log_keys(through_ask, monkeypatch, caplog, steps, reason, attempts, expected):
+    line = log_line(caplog, reason, steps, monkeypatch)
+    assert expected in line and f"attempts={attempts} " in line
+
+
+def test_retry_then_bad_output_clears_old_http(through_ask, monkeypatch, caplog):
+    """429 뒤에 받은 응답이 BAD_OUTPUT 이면 앞 시도의 http=429 는 남지 않는다."""
+    line = log_line(caplog, "BAD_OUTPUT", [http_error(429), resp(text="not json")], monkeypatch)
+    assert "attempts=2 " in line and "http=- cause=- finish=STOP bad=NOT_JSON" in line
+
+
+def test_max_tokens_cost_still_counted(through_ask, monkeypatch, caplog):
+    """BAD_OUTPUT 이어도 응답을 받았으므로 비용이 더해진다 (한도 계산은 그대로)."""
+    monkeypatch.setattr(settings, "llm_price_output_usd_per_mtok", 1_000_000.0)
+    body = json.loads(resp(finish="MAX_TOKENS", text='{"column": "B'))
+    body["usageMetadata"] = {"candidatesTokenCount": 2}
+    line = log_line(caplog, "BAD_OUTPUT", [json.dumps(body).encode()], monkeypatch)
+    assert "cost_usd=2.000000" in line
+
+
+@pytest.mark.parametrize("candidates,reason,expected", [
+    ([], "UPSTREAM", "cause=bad_shape finish=-"),  # 후보 없음
+    (None, "UPSTREAM", "cause=bad_shape finish=-"),  # candidates: null
+    ([{"finishReason": "SAFETY"}], "UPSTREAM", "cause=bad_shape finish=SAFETY"),  # content 없음
+    ([{"content": {}, "finishReason": "SAFETY"}], "UPSTREAM", "cause=bad_shape finish=SAFETY"),
+    ([{"content": {"parts": [{"text": '{"column": "B"}'}]}}], None, "outcome=OK error=- http=- cause=- finish=-"),  # finishReason 없음
+    ([{"content": {"parts": [{"text": '{"column": "B"}'}]}, "finishReason": ""}], None, "finish=-"),  # 빈 글자
+    ([{"content": {"parts": [{"text": '{"column": "B"}'}]}, "finishReason": 7}], None, "finish=UNKNOWN"),  # 숫자
+    ([{"content": {"parts": [{"text": '{"column": "B"}'}]}, "finishReason": {"x": SAMPLE}}], None, "finish=UNKNOWN"),  # 객체
+    ([{"content": {"parts": [{"text": '{"column": "B"}'}]}, "finishReason": [SAMPLE]}], None, "finish=UNKNOWN"),  # 목록
+    ([{"content": {"parts": [{"text": '{"column": "B"}'}]}, "finishReason": f"{FAKE_KEY}"}], None, "finish=UNKNOWN"),  # 목록 밖 글자
+    ([{"content": {}, "finishReason": {"x": SAMPLE}}], "UPSTREAM", "cause=bad_shape finish=UNKNOWN"),  # 모양 이상 + 객체
+    (["not-an-object"], "UPSTREAM", "cause=bad_shape finish=-"),  # 후보가 객체가 아님
+])
+def test_odd_response_shapes_log_safe_values(through_ask, monkeypatch, caplog, candidates, reason, expected):
+    raw = json.dumps({"candidates": candidates}).encode()
+    line = log_line(caplog, reason, [raw], monkeypatch)
+    assert expected in line
+
+
+def test_non_object_json_top_level(through_ask, monkeypatch, caplog):
+    line = log_line(caplog, "UPSTREAM", [b"[1, 2]"], monkeypatch)
+    assert "cause=bad_shape finish=-" in line
+
+
+@pytest.mark.parametrize("value,expected", [(429, "429"), (99, "-"), (600, "-"), (True, "-"), ("429", "-"), (None, "-"), (4.5, "-")])
+def test_safe_http(value, expected):
+    assert llm._safe_http(value) == expected
+
+
+def test_new_attributes_have_defaults():
+    """인자 없이 만드는 기존 코드가 깨지지 않는다."""
+    for error in (LLMRetryable(), GeminiError()):
+        assert (error.status, error.cause, error.finish) == (None, None, None)
+    assert llm.LLMReply(text="x", cost_usd=0.0).finish_reason is None

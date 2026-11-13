@@ -22,7 +22,14 @@ BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"  # Gemini A
 
 
 class GeminiError(Exception):
-    """다시 시도해도 같은 오류. 문장에는 상태 코드 같은 짧은 설명만 넣는다(키·본문 금지)."""
+    """다시 시도해도 같은 오류. 문장에는 상태 코드 같은 짧은 설명만 넣는다(키·본문 금지).
+
+    status·cause·finish 는 로그용(#231)이며 모두 기본값이 있다. llm.ask 가 허용 목록으로 걸러서 남긴다.
+    """
+
+    def __init__(self, message: str = "", *, status: int | None = None, cause: str | None = None, finish=None):
+        super().__init__(message)
+        self.status, self.cause, self.finish = status, cause, finish
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -60,27 +67,29 @@ class GeminiClient:
         except urllib.error.HTTPError as exc:  # 서버가 오류 상태로 답함
             exc.close()  # 오류 응답 본문은 읽지 않고 닫는다
             if exc.code == 429 or exc.code >= 500:  # 호출 한도 초과·서버 과부하: 잠깐 뒤 될 수 있다
-                raise LLMRetryable(f"HTTP {exc.code}") from None
-            raise GeminiError(f"HTTP {exc.code}") from None  # 400·401·403·404·3xx: 다시 해도 같다
+                raise LLMRetryable(f"HTTP {exc.code}", status=exc.code, cause="http") from None
+            raise GeminiError(f"HTTP {exc.code}", status=exc.code, cause="http") from None  # 400·401·403·404·3xx: 다시 해도 같다
         except TimeoutError:  # 시간 초과 (socket.timeout 도 TimeoutError)
             raise TimeoutError("timeout") from None
         except urllib.error.URLError as exc:  # 연결 실패 (이유가 시간 초과일 수도 있다)
             if isinstance(exc.reason, TimeoutError):
                 raise TimeoutError("timeout") from None
-            raise LLMRetryable("connection") from None
+            raise LLMRetryable("connection", cause="connection") from None
         except OSError:  # 연결이 중간에 끊김 등
-            raise LLMRetryable("connection") from None
+            raise LLMRetryable("connection", cause="connection") from None
         if len(raw) > limit:
-            raise GeminiError("response too large")
+            raise GeminiError("response too large", cause="too_large")
+        finish = None  # 멈춘 이유. 내용 해석보다 먼저 읽어, 차단된 응답도 이유가 로그에 남게 한다
         try:
             data = json.loads(raw)
+            finish = data["candidates"][0].get("finishReason")  # 모양이 다르면 아래 except 가 받는다
             text = "".join(part.get("text", "") for part in data["candidates"][0]["content"]["parts"])
             usage = data.get("usageMetadata") or {}
             tokens_in = int(usage.get("promptTokenCount", 0))
             # 생각(thinking) 토큰도 출력 요금으로 센다고 보고 더한다 (shortcut: 유료 전환 때 요금표로 확인)
             tokens_out = int(usage.get("candidatesTokenCount", 0)) + int(usage.get("thoughtsTokenCount", 0))
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
-            raise GeminiError("unexpected response") from None  # 후보가 없음(차단 등)·모양이 다름
+            raise GeminiError("unexpected response", cause="bad_shape", finish=finish) from None  # 후보가 없음(차단 등)·모양이 다름
         cost = (tokens_in * settings.llm_price_input_usd_per_mtok
                 + tokens_out * settings.llm_price_output_usd_per_mtok) / 1_000_000  # 예) 입력 1,000·단가 0.1 → $0.0001
-        return LLMReply(text=text, cost_usd=cost)
+        return LLMReply(text=text, cost_usd=cost, finish_reason=finish)
