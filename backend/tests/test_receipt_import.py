@@ -4,10 +4,12 @@ import json  # options 글자
 from datetime import timedelta  # 날짜 빼기
 
 import pytest  # 테스트 도구
-from sqlalchemy import func, select  # 개수 세기
+from sqlalchemy import event, func, select  # 쿼리 세기, 개수 세기
 
 from app.clock import seoul_today  # 서울 기준 오늘
 from app.models import InventoryMovement, Product
+from app.schemas.receipt_import import ReceiptImportOptions  # 열 지정
+from app.services import receipt_import as service  # 확정 함수를 직접 불러 쿼리를 센다
 from app.services import stock as stock_service  # 재고 계산
 from tests.helpers import login_as  # 공통 로그인
 
@@ -268,3 +270,35 @@ def test_commit_result_is_fixed(client, world, existing, session):
     assert b_only.name == "B" and stock(session, world["b_company"], "B-ONLY") == 0  # 다른 회사 품목은 그대로
     assert session.scalar(select(func.count()).select_from(InventoryMovement)
                           .where(InventoryMovement.company_id == world["b_company"].id)) == 0
+
+
+def test_commit_query_count_does_not_grow_with_rows(engine, world, existing, session):
+    """#222 확정 쿼리 수는 행 수·새 품목 수와 상관없다 (이전에는 입고 줄마다 3개).
+
+    기존 품목만 10행·300행이 같고, 새 품목 1개·50개가 섞여도 같으며, 모두 15개 이하.
+    """
+    company, user = world["a_company"].id, world["a_staff"].id  # 측정 전에 꺼내 둔다 (만료된 객체 지연 조회 방지)
+    opts = ReceiptImportOptions(**COLS, default_supplier_id=world["a_supplier"].id)
+    files = {
+        "기존 10행": csv_file(*[f"{day(1)},OLD-1,,,,{1 + i}," for i in range(10)]),
+        "기존 300행": csv_file(*[f"{day(2)},OLD-1,,,,{1 + i}," for i in range(300)]),
+        "새 품목 1개": csv_file(f"{day(3)},OLD-1,,,,1,", f"{day(3)},Q-1,새것,개,100,1,"),
+        "새 품목 50개": csv_file(f"{day(4)},OLD-1,,,,1,", *[f"{day(4)},Q-{n},새것,개,100,1," for n in range(100, 150)]),
+    }
+    counts = {}
+    for name, content in files.items():
+        statements: list[str] = []
+
+        def listener(conn, cursor, statement, *rest, statements=statements):  # before_cursor_execute
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", listener)
+        try:
+            assert service.commit(company, session, user, "in.csv", content, opts)["imported_count"] > 0
+        finally:
+            event.remove(engine, "before_cursor_execute", listener)
+        counts[name] = sum(not s.startswith(("SAVEPOINT", "RELEASE")) for s in statements)  # 세이브포인트는 테스트 틀이 넣는 문장
+    assert counts["기존 10행"] == counts["기존 300행"], counts
+    assert counts["새 품목 1개"] == counts["새 품목 50개"], counts
+    assert max(counts.values()) <= 15, counts
+    assert stock(session, world["a_company"], "OLD-1") == sum(range(1, 11)) + sum(range(1, 301)) + 2
