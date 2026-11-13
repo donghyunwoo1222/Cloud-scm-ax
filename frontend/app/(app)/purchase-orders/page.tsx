@@ -96,7 +96,7 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
       <ErrorText error={error} />
       <ErrorText error={list.error} />
 
-      <div style={S.tableBox}>
+      <div className="table-box">
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}><th>발주번호</th><th>공급업체</th><th>상태</th><th style={S.num}>품목 수</th><th style={S.num} scope="col">입고 남은 품목</th><th>약속 납기</th></tr>

@@ -11,6 +11,7 @@ import { optionSummary } from "./options"; // 고른 품목의 옵션 요약
 import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PurchaseOrder, unitConversion } from "./po"; // 발주서와 발주단위 환산 표시
 import { ProductOption, ProductPicker } from "./product-picker"; // 발주 줄에서 품목을 검색해 바로 선택한다
 import { S } from "./styles"; // 화면 공통 스타일
+import { useToast } from "./toast"; // 성공 알림 토스트
 
 type Option = { id: number; name: string }; // 공급업체 선택지
 type Line = { key: number; product_id: string; quantity: string; unit_price: string; box: boolean }; // 줄 번호와 입력값
@@ -21,6 +22,7 @@ const num = (v: string) => (v === "" ? null : Number(v)); // "10" → 10, 비우
 // 발주서 작성·수정 폼 하나. order 가 있으면 수정(DRAFT 의 items 전체 교체), 없으면 새 작성
 export function PoForm({ order }: { order?: PurchaseOrder }) {
   const router = useRouter(); // 저장 후 이동
+  const toast = useToast(); // 성공 알림 토스트
   const [suppliers, setSuppliers] = useState<Option[]>([]); // 활성 공급업체 (작성할 때만 고른다)
   const [pickedProducts, setPickedProducts] = useState<Record<number, ProductOption>>({}); // 검색이 바뀌어도 고른 품목과 입수를 유지한다.
   const [supplierId, setSupplierId] = useState(""); // 고른 공급업체
@@ -151,6 +153,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       const saved = order
         ? await api<PurchaseOrder>(`/purchase-orders/${order.id}`, { method: "PATCH", body: { due_date: dueDate || null, memo: memo || null, delivery_address: deliveryAddress || null, payment_terms: paymentTerms || null, items } }) // 수정: items 전체 교체
         : await api<PurchaseOrder>("/purchase-orders", { method: "POST", body: { supplier_id: num(supplierId), due_date: dueDate || null, memo: memo || null, delivery_address: deliveryAddress || null, payment_terms: paymentTerms || null, items } }); // 작성
+      toast(order ? "발주서를 수정했어요" : "발주서를 만들었어요");
       router.push(`/purchase-orders/${saved.id}`); // 저장되면 상세 화면으로 (화면을 떠나므로 잠금은 풀지 않는다: 이동 중 클릭으로 한 장 더 생기지 않게)
     } catch (e) {
       setError(e); // 서버 문장 그대로 보여주고 입력값은 그대로 둔다
@@ -188,7 +191,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         <Field label="메모"><input value={memo} onChange={(e) => setMemo(e.target.value)} /></Field>
       </div>
 
-      <div style={S.tableBox}>
+      <div className="table-box">
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}><th>품목*</th><th style={S.num}>수량*</th><th style={S.num}>단가(원)*</th><th></th></tr>

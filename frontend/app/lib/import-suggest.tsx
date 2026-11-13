@@ -37,7 +37,7 @@ export function ReadingConfirm<K extends string>({ fields, mapping, samples, con
     <div style={S.sectionCard}>
       <h2 style={{ marginTop: 0 }}>2. 이렇게 읽었어요. 맞나요?</h2>
       <p style={S.hint}>파일의 열이 어떤 칸으로 읽혔는지와 그 열의 앞쪽 값을 보여줍니다. 값이 이상하면 &quot;다르게 읽혔어요&quot;를 누르세요.</p>
-      <div style={S.tableBox}>
+      <div className="table-box">
         <table style={S.table}>
           <thead><tr style={S.headRow}><th>파일의 열</th><th>읽은 칸</th><th>값 예시</th></tr></thead>
           <tbody>

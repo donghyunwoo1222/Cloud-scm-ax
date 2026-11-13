@@ -285,7 +285,7 @@ export default function Page() {
           {preview.problem_count > 0 && (
             <>
               <h3 style={{ ...SUB, color: "var(--color-destructive)" }}>문제 행 {preview.problem_count}건 {preview.problem_count > preview.problems.length && <span style={{ ...S.hint, fontWeight: 400 }}>(앞 {preview.problems.length}건만 표시)</span>}</h3>
-              <div style={S.tableBox}>
+              <div className="table-box">
                 <table style={S.table}>
                   <thead><tr style={S.headRow}><th style={S.num}>파일 줄</th><th>상품 코드</th><th>사유</th></tr></thead>
                   <tbody>

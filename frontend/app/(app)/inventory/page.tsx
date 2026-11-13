@@ -10,6 +10,7 @@ import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리�
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
 import { STOCK_BADGE, StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
+import { useToast } from "../../lib/toast"; // 성공 알림 토스트
 import { InfoTip, Tip } from "../../lib/tip"; // 상태 이유·보조 설명 말풍선
 import { quantityLabel } from "../../lib/po"; // 입출고 이력에도 실제 단위를 붙인다.
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
@@ -98,7 +99,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
   const [cQty, setCQty] = useState(""); // 정정 수량
   const [cReason, setCReason] = useState(""); // 정정 사유
   const [cError, setCError] = useState<unknown>(null); // 정정 오류
-  const [notice, setNotice] = useState(""); // 정정 성공 안내
+  const toast = useToast(); // 성공 알림 토스트
   const [busy, setBusy] = useState(false); // 정정 등록 중이면 버튼을 잠근다
   const post = useConfirmedPost(); // 같은 내용 재전송은 같은 키
   const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
@@ -175,7 +176,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
   }
 
   function startCorrect(m: Movement) {
-    setCorrecting(m); setCQty(""); setCReason(""); setCError(null); setNotice(""); // 폼 열기 (이전 입력 비움)
+    setCorrecting(m); setCQty(""); setCReason(""); setCError(null); // 폼 열기 (이전 입력 비움)
   }
 
   async function correct(event: FormEvent) {
@@ -187,7 +188,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
       const r = await post<{ stock_after: number }>(`/inventory-movements/${correcting.id}/corrections`,
         { quantity: cQty === "" ? null : Number(cQty), reason: cReason }); // 1 이상 정수·사유 필수 검사는 서버가
       if (r === null) return; // 확인창에서 취소 (정정은 서버가 경고하지 않아 실제로는 오지 않는다)
-      setNotice(`정정했습니다. 현재고는 ${quantityLabel(r.stock_after, correcting.product_unit ?? undefined)}입니다.`);
+      toast(`정정했어요. 현재고는 ${quantityLabel(r.stock_after, correcting.product_unit ?? undefined)}예요.`);
       setCorrecting(null); // 폼 닫기
       setTrendRevision((revision) => revision + 1);
       await Promise.all([reloadMovements(), stock.reload()]); // 이력·재고 숫자 다시 불러오기
@@ -212,7 +213,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
           </select>
         )} />
       {stockReady && <ErrorText error={stock.error} />}{/* 현재 조건에서 난 오류만 보여준다. */}
-      <div style={S.tableBox}>
+      <div className="table-box">
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}><th>품목명</th><th>SKU</th><th style={S.num}>현재고</th><th style={S.num}>발주 진행 중</th><th style={S.num}>안전재고</th><th>상태</th></tr>
@@ -276,7 +277,6 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
       </div>
       {productId && <StockTrend key={`${productId}:${trendRevision}`} productId={productId} />}
       <ErrorText error={error} />
-      {notice && <p role="status" style={S.ok}>{notice}</p>}
 
       {correcting && (
         <form onSubmit={correct} className="correction-form" style={S.panel}>
@@ -302,7 +302,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
         </form>
       )}
 
-      <div className="table-view" style={S.tableBox}>
+      <div className="table-box table-view">
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}><th>번호</th><th>입출고일</th><th>품목</th><th>유형</th><th style={S.num}>수량</th><th>사유·채널·메모</th><th></th></tr>

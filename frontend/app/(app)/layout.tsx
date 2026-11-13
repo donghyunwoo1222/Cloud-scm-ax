@@ -7,6 +7,7 @@ import { ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "r
 import { ApiError, api } from "../lib/api"; // 공통 API 호출 함수·오류 종류
 import { Me, MeContext, NOTICE_KEY, ROLE_LABEL } from "../lib/me"; // 내 정보 모양·공유 상자·역할 이름
 import { S } from "../lib/styles"; // 화면 공통 스타일
+import { ToastProvider } from "../lib/toast"; // 성공 알림 토스트 (화면 어디서나 useToast 로 부른다)
 
 // 사이드 메뉴를 업무별 그룹으로 나눈다. title 이 없는 그룹(대시보드)은 제목 없이 맨 위에 놓인다.
 // adminOnly 는 관리자에게만 그룹째 "보이게" 하는 표시일 뿐이다.
@@ -150,6 +151,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   }
 
   return (
+    <ToastProvider>
     <MeContext.Provider value={me}>
       {/* 아래 화면들이 useMe() 로 내 정보를 꺼내 쓸 수 있게 (확인 전에는 null) */}
       {!me && !failed && <p style={S.pad2}>불러오는 중…</p>}
@@ -230,6 +232,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </div>
       </div>
     </MeContext.Provider>
+    </ToastProvider>
   );
 }
 

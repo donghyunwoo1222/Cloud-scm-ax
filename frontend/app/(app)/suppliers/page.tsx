@@ -7,6 +7,7 @@ import { api } from "../../lib/api"; // 공통 API 호출 함수
 import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
+import { useToast } from "../../lib/toast"; // 성공 알림 토스트
 import { InfoTip } from "../../lib/tip"; // 보조 설명 말풍선
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
@@ -77,12 +78,15 @@ export default function SuppliersPage() {
     setForm(EMPTY); // 폼 비우기
   }
 
+  const toast = useToast(); // 성공 알림 토스트
+
   async function save(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
     try {
       if (editingId === null) await api("/suppliers", { method: "POST", body: toBody(form) }); // 등록
       else await api(`/suppliers/${editingId}`, { method: "PATCH", body: toBody(form) }); // 수정
       setCreated(editingId === null);
+      if (editingId !== null) toast("공급업체를 수정했어요"); // 등록은 아래 링크 문구가 알린다
       reset(); // 성공하면 폼 비우기
       if (registration.current) registration.current.open = false;
       setError(null);
@@ -120,7 +124,7 @@ export default function SuppliersPage() {
 
       <ListControls placeholder="업체명 검색" includeInactive={list.includeInactive} onSearch={list.search} onToggleInactive={list.toggleInactive} />
       <ErrorText error={list.error} />
-      <div style={S.tableBox}>
+      <div className="table-box">
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}>

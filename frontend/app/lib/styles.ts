@@ -3,6 +3,9 @@
 // 버튼·입력칸·표 칸·제목의 기본 모양은 globals.css 가 태그 단위로 입힌다(화면마다 style 을 달지 않아도 된다).
 import type { CSSProperties } from "react"; // 인라인 스타일 객체의 타입
 
+// 카드 안의 표는 오른쪽 끝 그림자(.table-box)가 카드 바탕색과 같은 색으로 가려져야 한다. 카드가 바탕색을 자손에게 알려 준다
+const cardSurface = { "--table-surface": "var(--color-card)" } as CSSProperties;
+
 // 상태 배지의 공통 틀 (색은 아래 badge* 에서 고른다). 배지에는 항상 글자를 넣는다(색만으로 구분하지 않기)
 const badgeBase: CSSProperties = {
   display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", padding: "2px var(--space-sm)",
@@ -33,8 +36,8 @@ export const S = {
   loginSubmit: { width: "100%" }, // 로그인 버튼은 폭을 꽉 채운다
 
   // 카드·제목·안내
-  card: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--card-pad)" }, // 흰 카드 상자
-  sectionCard: { background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--card-pad)", marginTop: "var(--space-md)" }, // 화면 안에서 항목마다 쌓는 흰 카드 (대시보드)
+  card: { ...cardSurface, background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--card-pad)" }, // 흰 카드 상자
+  sectionCard: { ...cardSurface, background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", padding: "var(--card-pad)", marginTop: "var(--space-md)" }, // 화면 안에서 항목마다 쌓는 흰 카드 (대시보드)
   sectionTitle: { marginTop: "var(--section-gap)" }, // 화면 안의 두 번째 제목
   detailHeader: { display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "var(--space-sm)", marginBottom: "var(--space-md)" }, // 상세 제목과 목록 링크를 양쪽에 두고 좁으면 줄바꿈
   detailTitle: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-sm)" }, // 발주번호와 상태 배지를 같이 읽도록 배치
@@ -66,7 +69,6 @@ export const S = {
   // 표
   table: { width: "100%", minWidth: 640, borderCollapse: "collapse" }, // 최소 폭 640px: 이보다 좁으면 칸을 짜부라뜨리지 않고 가로 스크롤 상자 안에서 스크롤된다
   tableWide: { width: "100%", minWidth: 1180, borderCollapse: "collapse" }, // 칸이 12개인 추천 표 등: 최소 폭 1180px // 표: 가로 꽉 채우고 칸 사이 틈 없앰 (칸 모양은 globals.css 의 th·td)
-  tableBox: { overflowX: "auto" }, // 표가 화면보다 넓으면 이 상자 안에서만 가로 스크롤
   headRow: { textAlign: "left" }, // 표 머리 줄: 글자 열은 왼쪽 정렬
   row: {}, // 표 본문 줄 (구분선은 globals.css 의 td 가 그린다)
   num: { textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }, // 숫자 칸: 오른쪽 정렬 + 숫자 폭 같게 (머리 칸에도 같이 쓴다)

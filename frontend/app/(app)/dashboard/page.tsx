@@ -154,7 +154,7 @@ export default function Page() {
           )
         ) : (
           <>
-            <div style={S.tableBox}>
+            <div className="table-box">
               <table className="plain-table" style={{ ...S.table, minWidth: 520 }}>{/* 대시보드는 칸선 없이 막대로 한눈에 보인다 */}
                 <thead>
                   <tr style={S.headRow}>
