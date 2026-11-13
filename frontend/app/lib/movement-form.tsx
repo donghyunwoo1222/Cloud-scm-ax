@@ -9,6 +9,7 @@ import { Field } from "./field"; // 모바일에서 라벨이 테두리에 걸�
 import { ErrorText } from "./list"; // 서버 오류 표시
 import { movementOptions, skuWithOptions } from "./options"; // 품목 옵션 요약
 import { ShipmentTypeBadge, StatusBadge } from "./status-badge"; // 출고 유형과 발주 입고 배지
+import { useToast } from "./toast"; // 성공 알림 토스트
 import { ProductOption, ProductPicker } from "./product-picker"; // 전체 품목에서 검색해 바로 선택한다
 import { quantityLabel } from "./po"; // 품목 단위로 재고·수량을 표시한다.
 import { S } from "./styles"; // 화면 공통 스타일
@@ -41,7 +42,7 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
   const [stock, setStock] = useState<number | "loading" | "unavailable">("loading"); // 0도 조회된 현재고로 표시한다
   const stockStatusId = useId();
   const stockRequest = useRef(0); // 품목 변경이나 저장보다 먼저 시작한 조회는 버린다
-  const [done, setDone] = useState(""); // 성공 안내 문장
+  const toast = useToast(); // 성공 알림 토스트
   const [error, setError] = useState<unknown>(null); // 등록 오류
   const [busy, setBusy] = useState(false); // 등록 중이면 버튼을 잠그고 글자를 바꾼다
   const post = useConfirmedPost(); // 같은 내용 재전송은 같은 키, 409 확인 필요면 확인창
@@ -53,12 +54,6 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 브라우저에서만 알 수 있는 오늘 날짜를 상태에 넣는 것이 이 효과의 목적이다
     setToday(t); setDate(t); // 날짜 상한과 기본값
   }, []);
-
-  useEffect(() => {
-    if (!done) return; // 안내가 없으면 할 일 없음
-    const timer = setTimeout(() => setDone(""), 8000); // 약 8초 뒤 성공 안내를 지운다
-    return () => clearTimeout(timer); // 그 전에 안내가 바뀌거나 화면을 떠나면 이전 타이머는 취소
-  }, [done]);
 
   useEffect(() => {
     if (!productId) return; // 품목을 안 골랐으면 조회하지 않는다 (표시도 아래에서 숨긴다)
@@ -74,7 +69,6 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
     if (sending.current) return; // 이미 등록 중이면 두 번째 제출은 버린다
     sending.current = true; // 즉시 잠금
     setBusy(true); // 버튼 잠금·글자 변경
-    setDone(""); // 다음 등록을 누르면 이전 성공 안내는 지운다
     const label = `${product?.sku ?? ""} ${TYPE_LABEL[type]} ${quantityLabel(Number(quantity), product?.unit)}`; // 예: "KB-101 입고 5개" (유형·수량도 등록 직전 값)
     const body: Record<string, unknown> = {
       product_id: productId ?? null, // 비우면 null → 서버가 422
@@ -89,13 +83,12 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
       const r = await post<{ stock_after: number }>("/inventory-movements", body, product ? { [product.id]: product.name } : {});
       if (r === null) return; // 확인창에서 취소: 아무것도 저장하지 않고 입력을 유지한다
       setError(null);
-      setDone(`${label}를 등록했습니다 · 현재고 ${quantityLabel(r.stock_after, product?.unit)}`); // 예: "KB-101 입고 5개를 등록했습니다 · 현재고 27개" (현재고는 서버가 돌려준 등록 직후 값)
+      toast(`${label}를 등록했어요 · 현재고 ${quantityLabel(r.stock_after, product?.unit)}`); // 예: "KB-101 입고 5개를 등록했어요 · 현재고 27개" (현재고는 서버가 돌려준 등록 직후 값)
       stockRequest.current += 1; // 등록 전에 요청한 재고가 새 수량을 덮지 않도록 한다
       setStock(r.stock_after);
       setQuantity(""); setReason(""); setMemo(""); // 다음 입력을 위해 비운다 (품목·유형·날짜는 유지)
       setSavedCount((n) => n + 1); // 방금 등록한 줄이 최근 이력 맨 위에 보이도록 다시 불러오게 한다
     } catch (e) {
-      setDone("");
       setError(e); // 입력값은 지우지 않는다. 서버 문장 그대로 (재고 부족이면 현재고 숫자 포함)
     } finally {
       sending.current = false; // 성공·실패 모두 다시 누를 수 있게 푼다
@@ -123,7 +116,6 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
             setStock("loading");
           }
           setProduct(picked);
-          setDone("");
         }} />
       </div>
       {types.length > 1 && (
@@ -152,7 +144,6 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
       <button type="submit" disabled={busy}>{busy ? "등록 중…" : "등록"}</button>
       <div style={S.fullRow}>
         <ErrorText error={error} labels={labels} />
-        {done && <p role="status" style={S.ok}>{done}</p>}
       </div>
     </form>
     <RecentMovements types={types} refreshKey={savedCount} />

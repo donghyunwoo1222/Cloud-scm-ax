@@ -3,6 +3,7 @@
 import Link from "next/link"; // 목록·발주서 링크
 import { useParams } from "next/navigation"; // 주소의 [id]
 import { Suspense, useEffect, useState } from "react"; // 처음 한 번 실행, 상태
+import { useToast } from "../../../lib/toast"; // 성공 알림 토스트
 
 import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, Pager, useList } from "../../../lib/list"; // 목록 공통 부품
@@ -26,11 +27,13 @@ function Detail() {
   }, [id]);
 
   // 비활성·다시 활성은 목록 표가 아니라 이 상세 화면에서만 한다 (잘못 누르기 어렵게)
+  const toast = useToast(); // 성공 알림 토스트
   async function setActive(s: Supplier, active: boolean) {
     if (!active && !window.confirm(`${s.name}을 비활성화할까요? 새 발주에서는 제외되며 기존 이력은 남습니다.`)) return;
     try {
       setSupplier(await api<Supplier>(`/suppliers/${s.id}`, { method: "PATCH", body: { is_active: active } })); // 바뀐 업체로 다시 그린다 (삭제는 없다)
       setError(null);
+      toast(active ? "공급업체를 다시 활성화했어요" : "공급업체를 비활성화했어요");
     } catch (e) {
       setError(e);
     }

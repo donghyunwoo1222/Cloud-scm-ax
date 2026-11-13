@@ -8,6 +8,7 @@ import { ErrorText } from "../../lib/list"; // 오류 문장
 import { useMe } from "../../lib/me"; // 내 정보(역할)
 import { InfoTip } from "../../lib/tip"; // 보조 설명 말풍선
 import { S } from "../../lib/styles"; // 화면 공통 스타일
+import { useToast } from "../../lib/toast"; // 성공 알림 토스트
 
 // GET /api/v1/company 응답 (회사는 로그인 토큰으로만 정해진다)
 type Company = { name: string; business_number: string | null; representative: string | null; address: string | null; phone: string | null };
@@ -25,7 +26,6 @@ export default function CompanyPage() {
   const [company, setCompany] = useState<Company | null>(null); // 서버에 저장된 값
   const [form, setForm] = useState<Form>({ business_number: "", representative: "", address: "", phone: "" }); // 입력값
   const [error, setError] = useState<unknown>(null); // 불러오기·저장 오류
-  const [saved, setSaved] = useState(false); // 저장 성공 안내
 
   function fill(c: Company) {
     setCompany(c);
@@ -36,6 +36,8 @@ export default function CompanyPage() {
     api<Company>("/company").then(fill).catch(setError);
   }, []);
 
+  const toast = useToast(); // 성공 알림 토스트
+
   async function save(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
     try {
@@ -43,10 +45,9 @@ export default function CompanyPage() {
       const body = Object.fromEntries(FIELDS.map((f) => [f, form[f].trim() || null]));
       fill(await api<Company>("/company", { method: "PATCH", body }));
       setError(null);
-      setSaved(true);
+      toast("회사 정보를 저장했어요");
     } catch (e) {
       setError(e);
-      setSaved(false);
     }
   }
 
@@ -70,7 +71,6 @@ export default function CompanyPage() {
           {isAdmin && <div className="form-actions" style={S.buttons}><button type="submit">저장</button></div>}
         </form>
       )}
-      {saved && <p role="status" style={S.ok}>회사 정보를 저장했습니다.</p>}
     </section>
   );
 }

@@ -10,6 +10,7 @@ import { optionSummary } from "../../lib/options"; // 옵션 요약 ("검정 / M
 import { type Product, ProductDetail } from "../../lib/product-detail"; // 품목 한 행 타입과 상세 모달 (#225)
 import { unitConversion } from "../../lib/po"; // 발주단위 환산 미리보기
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
+import { useToast } from "../../lib/toast"; // 성공 알림 토스트
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 type SupplierOption = { id: number; name: string; lead_time_days: number; is_active: boolean }; // 활성·비활성 공급업체 선택지
@@ -110,6 +111,8 @@ export default function ProductsPage() {
     setForm(EMPTY); // 폼 비우기
   }
 
+  const toast = useToast(); // 성공 알림 토스트
+
   async function save(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
     try {
@@ -119,6 +122,7 @@ export default function ProductsPage() {
         await api(`/products/${editing.id}`, { method: "PATCH", body }); // 수정
       }
       setCreated(editing === null);
+      if (editing !== null) toast("품목을 수정했어요"); // 등록은 아래 링크 문구가 알린다
       reset(); // 성공하면 폼 비우기
       if (registration.current) registration.current.open = false;
       setError(null);
@@ -132,6 +136,7 @@ export default function ProductsPage() {
     if (!active && !window.confirm(`${p.name}을 비활성화할까요? 새 발주와 추천에서는 제외되며 기존 이력은 남습니다.`)) return;
     try {
       await api(`/products/${p.id}`, { method: "PATCH", body: { is_active: active } }); // 비활성·다시 활성 (삭제는 없다)
+      toast(active ? "품목을 다시 활성화했어요" : "품목을 비활성화했어요");
       setError(null);
       reset(); // 수정 폼 안에서 바꾸므로 폼을 닫는다
       if (registration.current) registration.current.open = false;

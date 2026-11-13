@@ -7,6 +7,7 @@ import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리�
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { Me, ROLE_LABEL, useMe } from "../../lib/me"; // 내 정보·역할 한글 이름
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
+import { useToast } from "../../lib/toast"; // 성공 알림 토스트
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/users 의 한 행 (비밀번호 해시는 서버가 아예 보내지 않는다)
@@ -41,11 +42,14 @@ function UsersAdmin({ me }: { me: Me }) {
     setForm({ ...form, [field]: value }); // 한 칸만 바꾼다
   }
 
+  const toast = useToast(); // 성공 알림 토스트
+
   async function create(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
     try {
       // 비밀번호 8자 규칙·이메일 중복은 서버가 검사한다 (화면은 message 를 보여준다)
       await api("/users", { method: "POST", body: { ...form, role: form.role || null } });
+      toast("사용자를 만들었어요");
       setForm(EMPTY); // 성공하면 폼을 비운다. 임시 비밀번호는 다시 보여주지 않는다 (관리자가 직접 전달)
       setError(null);
       await list.reload(); // 목록 다시 불러오기
@@ -60,6 +64,7 @@ function UsersAdmin({ me }: { me: Me }) {
     try {
       await api(`/users/${user.id}`, { method: "PATCH", body: change });
       setError(null);
+      toast(change.role ? "역할을 바꿨어요" : change.is_active ? "계정을 다시 활성화했어요" : "계정을 비활성화했어요"); // (내 계정이면 아래에서 화면을 새로 열어 알림은 사라진다)
       if (user.email === me.email) {
         // 내 계정을 바꿨으면 메뉴·권한이 달라지므로 화면 전체를 새로 연다 (담당자가 됐으면 이 화면은 안내 문장으로 바뀐다)
         window.location.reload();

@@ -3,6 +3,7 @@
 import Link from "next/link"; // 목록·수정 화면 링크
 import { useParams } from "next/navigation"; // 주소의 [id]
 import { Suspense, FormEvent, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 연결용 ID, 상태
+import { useToast } from "../../../lib/toast"; // 성공 알림 토스트
 
 import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { useConfirmedPost } from "../../../lib/confirmed-post"; // 멱등 키 + 확인 경고 재전송 (#190)
@@ -36,7 +37,7 @@ function Detail() {
   const me = useMe(); // 내 정보 (확인 전 null)
   const [order, setOrder] = useState<PurchaseOrder | null>(null); // 불러온 발주서
   const [error, setError] = useState<unknown>(null); // 불러오기·버튼·입고 오류
-  const [notice, setNotice] = useState(""); // 성공 안내 문장
+  const toast = useToast(); // 성공 알림 토스트
   const [receiving, setReceiving] = useState(false); // 입고 등록 폼을 열었는지
   const [busy, setBusy] = useState(false); // 입고 등록 중이면 버튼을 잠근다
   const post = useConfirmedPost(); // 같은 입고 재전송은 같은 키, 큰 수량이면 확인창
@@ -90,7 +91,7 @@ function Detail() {
     try {
       setOrder(await api<PurchaseOrder>(`/purchase-orders/${id}/${action}`, { method: "POST" })); // 서버가 한 단계만 바꾼다
       setError(null); // 이전 오류 지우기
-      setNotice("");
+      toast(action === "approve" ? "발주서를 승인했어요" : action === "order" ? "주문 완료로 표시했어요" : "처리했어요");
       setReceiving(false);
       setQty({});
       setLogKey((k) => k + 1); // 상태가 바뀌었으니 이력도 다시
@@ -111,6 +112,7 @@ function Detail() {
       setError(null);
       setCancelling(false);
       setCancelReason(""); // 성공했을 때만 비운다
+      toast("발주서를 취소했어요");
       setLogKey((k) => k + 1); // 취소 사유가 든 이력을 다시 불러온다
     } catch (e) {
       setError(e); // 422·409 문장 그대로. 사유 입력은 그대로 둔다
@@ -139,7 +141,7 @@ function Detail() {
       setError(null);
       setQty({}); // 성공했을 때만 입력값을 비운다
       setReceiving(false);
-      setNotice("입고했습니다. 입고한 수량만큼 현재고가 늘었습니다.");
+      toast("입고했어요. 입고한 수량만큼 현재고가 늘었어요.");
       setLogKey((k) => k + 1); // 전량 입고면 상태 이력이 생긴다
     } catch (e) {
       setError(e); // 서버 문장 그대로 (OVER_RECEIPT 는 남은 수량이 들어 있다). 입력값은 지우지 않는다
@@ -234,7 +236,7 @@ function Detail() {
         {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving || cancelOpen || busy}
           className={action === "cancel" ? undefined : "primary-action"} onClick={() => (action === "cancel" ? setCancelling(true) : act(action))}>{label}</button>)}
         {orderedStatus && !receiving && <button ref={receiptButton} className="primary-action" type="button" disabled={cancelOpen}
-          onClick={() => { setError(null); setNotice(""); setReceiving(true); }}>입고 등록</button>}
+          onClick={() => { setError(null); setReceiving(true); }}>입고 등록</button>}
       </div>
       {cancelOpen && (
         <form style={S.sectionCard} aria-labelledby="cancel-heading" onSubmit={(e) => { e.preventDefault(); if (!busy && (!reasonRequired || cancelReason.trim())) cancelOrder(); }}>
@@ -444,7 +446,6 @@ function Detail() {
       </>
       )}
 
-      {notice && <p role="status" style={S.ok}>{notice}</p>}
       {!receiving && !cancelOpen && <ErrorText error={error} labels={PO_LABELS} />}
       {!receiving && <ChangeLogSection orderId={id} refreshKey={logKey} />}
     </section>
