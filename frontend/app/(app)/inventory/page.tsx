@@ -213,7 +213,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
           </select>
         )} />
       {stockReady && <ErrorText error={stock.error} />}{/* 현재 조건에서 난 오류만 보여준다. */}
-      <div style={S.tableBox}>
+      <div className="table-box">
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}><th>품목명</th><th>SKU</th><th style={S.num}>현재고</th><th style={S.num}>발주 진행 중</th><th style={S.num}>안전재고</th><th>상태</th></tr>
@@ -302,7 +302,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
         </form>
       )}
 
-      <div className="table-view" style={S.tableBox}>
+      <div className="table-box table-view">
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}><th>번호</th><th>입출고일</th><th>품목</th><th>유형</th><th style={S.num}>수량</th><th>사유·채널·메모</th><th></th></tr>

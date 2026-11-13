@@ -211,7 +211,7 @@ function RecentMovements({ types, refreshKey }: { types: MovementType[]; refresh
         <>
         <p style={S.hint}>현재고(지금) 열은 각 줄 등록 후 재고가 아니라 지금 재고입니다.</p>
         {/* 오해를 막는 설명을 표 바로 위에 늘 보이게 둔다 (마우스를 올려야 보이는 방식은 쓰지 않는다) */}
-        <div className="table-view" style={S.tableBox}>
+        <div className="table-box table-view">
           {/* 730px 미만에서는 이 표를 숨기고 아래 압축 행 목록을 보여 준다 */}
           <table style={S.table}>
             <thead>

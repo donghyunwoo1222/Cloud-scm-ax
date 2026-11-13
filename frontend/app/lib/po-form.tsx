@@ -191,7 +191,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         <Field label="메모"><input value={memo} onChange={(e) => setMemo(e.target.value)} /></Field>
       </div>
 
-      <div style={S.tableBox}>
+      <div className="table-box">
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}><th>품목*</th><th style={S.num}>수량*</th><th style={S.num}>단가(원)*</th><th></th></tr>

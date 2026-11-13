@@ -124,7 +124,7 @@ export default function SuppliersPage() {
 
       <ListControls placeholder="업체명 검색" includeInactive={list.includeInactive} onSearch={list.search} onToggleInactive={list.toggleInactive} />
       <ErrorText error={list.error} />
-      <div style={S.tableBox}>
+      <div className="table-box">
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}>

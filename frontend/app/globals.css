@@ -1327,3 +1327,28 @@ details.reason > p {
   .toast { animation: toast-in 160ms ease-out; }
   @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 }
+
+/* 표 감싸개(#226): 표가 옆으로 넘칠 때 스크롤바를 늘 보이게 하고(Chrome·Safari 계열), 아직 넘길 칸이 남았으면 오른쪽 끝에 그림자를 둔다.
+   그림자: 위 층(local)은 "다 넘겼을 때" 면 색으로 그림자를 덮고, 아래 층(scroll)은 상자 오른쪽에 붙어 있어서 남은 칸이 있을 때만 드러난다.
+   덮는 색은 카드 안에서는 카드 바탕(--table-surface, styles.ts), 그 밖에서는 화면 바탕이다. 머리 칸(th)은 불투명이라 그림자가 본문 줄에서만 보인다 */
+.table-box {
+  overflow-x: auto;
+  background:
+    linear-gradient(to left, var(--table-surface, var(--color-background)), var(--table-surface, var(--color-background))) right center / 20px 100% no-repeat local,
+    linear-gradient(to left, rgb(15 23 42 / 18%), transparent) right center / 10px 100% no-repeat scroll;
+}
+
+.table-box::-webkit-scrollbar,
+.po-paper .po-scroll::-webkit-scrollbar { height: 12px; }
+
+.table-box::-webkit-scrollbar-track,
+.po-paper .po-scroll::-webkit-scrollbar-track { background: var(--color-hover); }
+
+.table-box::-webkit-scrollbar-thumb,
+.po-paper .po-scroll::-webkit-scrollbar-thumb { background: var(--color-muted-foreground); border: 2px solid var(--color-hover); border-radius: var(--radius-full); }
+
+/* scrollbar-color 를 쓰면 Chrome 121+ 는 위 ::-webkit-scrollbar 모양을 무시한다. 그래서 ::-webkit-scrollbar 를 모르는 브라우저(Firefox)에만 준다 */
+@supports not selector(::-webkit-scrollbar) {
+  .table-box,
+  .po-paper .po-scroll { scrollbar-color: var(--color-muted-foreground) var(--color-hover); }
+}

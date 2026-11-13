@@ -168,7 +168,7 @@ function Recommendations({ productId }: { productId: number | null }) {
       )}
 
       {items.length === 0 ? <p style={S.empty}>{productId === null ? "지금 발주가 필요한 품목이 없습니다." : "선택한 품목은 현재 발주 추천 대상이 아닙니다."}</p> : (
-        <div style={S.tableBox}>
+        <div className="table-box">
           {/* 좁은 화면에서는 이 상자 안에서만 가로로 스크롤한다 */}
           <table style={S.table}>
             <thead>
@@ -295,7 +295,7 @@ function Recommendations({ productId }: { productId: number | null }) {
 
       {(productId === null || excluded.length > 0) && <h2 style={S.sectionTitle}>추천에서 제외된 품목</h2>}
       {excluded.length === 0 ? (productId === null && <p style={S.empty}>제외된 품목이 없습니다.</p>) : (
-        <div style={S.tableBox}>
+        <div className="table-box">
         <table style={S.table}>
           <thead><tr style={S.headRow}><th>품목</th><th>상태</th><th>제외 사유</th></tr></thead>
           <tbody>

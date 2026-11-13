@@ -361,7 +361,7 @@ function Detail() {
         {/* 미입고만 볼 때 전체 줄 수와 표시 줄 수를 함께 알린다. */}
         {isFiltered && <p role="status" style={S.detailTableCount}>전체 {order.items.length}품목 중 {shownItems.length}품목 표시</p>}
       </div>
-      <div className="table-view" style={S.tableBox}>
+      <div className="table-box table-view">
       {/* 표 윗여백을 없애 조작부와 붙인다. 730px 미만에서는 이 표 대신 아래 압축 행 목록을 보여 준다 */}
       <table style={{ ...S.table, marginTop: 0 }}>
         <thead>

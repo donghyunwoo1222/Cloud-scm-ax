@@ -221,7 +221,7 @@ export default function ProductsPage() {
         )}
       />
       <ErrorText error={list.error} />
-      <div style={S.tableBox}>
+      <div className="table-box">
       <table style={{ ...S.table, marginTop: 0 }}>
         <thead>
           <tr style={S.headRow}>

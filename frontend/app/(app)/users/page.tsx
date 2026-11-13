@@ -102,7 +102,7 @@ function UsersAdmin({ me }: { me: Me }) {
       <ListControls includeInactive={list.includeInactive} onToggleInactive={list.toggleInactive} />
       {/* 검색창 없이 "비활성 포함"만 */}
       <ErrorText error={list.error} />
-      <div style={S.tableBox}>
+      <div className="table-box">
       <table style={S.table}>
         <thead>
           <tr style={S.headRow}>
