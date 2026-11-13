@@ -18,7 +18,7 @@ from app.clock import date_problem, seoul_today  # 입출고일 공통 검사(�
 from app.errors import AppError  # 공통 오류
 from app.models import InventoryMovement, Product  # 이력, 품목
 from app.schemas.receipt_import import NewProduct, ReceiptImportOptions  # 열 지정, 새 품목 값 규칙
-from app.services import stock as stock_service  # 이력은 register_movement 로만 쓴다
+from app.services import stock as stock_service  # 이력은 register_movements 로만 쓴다
 from app.services.products import (
     check_default_supplier,  # 기본 공급업체 검사 (다른 회사 404, 비활성 409)
 )
@@ -321,12 +321,13 @@ def commit(company_id: int, db: Session, user_id: int, filename: str, content: b
         ids = dict(db.execute(  # SKU → 품목 번호 (방금 만든 품목 포함)
             select(Product.sku, Product.id).where(Product.company_id == company_id, Product.sku.in_({c.sku for c in result["to_apply"]}))
         ).all()) if result["to_apply"] else {}
-        # ④ 날짜순으로 입고를 쓴다 (발주 없는 직접 입고)
-        for c in result["to_apply"]:
-            stock_service.register_movement(
-                company_id, db, user_id, product_id=ids[c.sku], movement_type="RECEIPT", direction="IN",
-                quantity=c.quantity, movement_date=c.day, external_ref=c.ref,
-            )
+        # ④ 날짜순 그대로 한 번에 입고를 쓴다 (발주 없는 직접 입고, #222: 줄마다 잠금·합계·저장 3쿼리 → 품목 잠금·INSERT·재고 확인 3쿼리).
+        #    잠금은 ①과 같은 번호순이라 이미 잡은 품목은 바로 통과하고, 새 품목은 이 트랜잭션이 만든 행이라 기다리지 않는다
+        stock_service.register_movements(
+            company_id, db, user_id, movement_type="RECEIPT",
+            rows=[{"product_id": ids[c.sku], "quantity": c.quantity, "movement_date": c.day, "external_ref": c.ref}
+                  for c in result["to_apply"]],
+        )
     except IntegrityError:  # 같은 파일·같은 새 SKU 가 동시에 반영된 드문 경우: DB 유일 제한이 막는다
         raise AppError(409, "IMPORT_CONFLICT", "같은 품목이나 입고가 동시에 반영되었습니다. 미리보기부터 다시 하세요.") from None
     return {
