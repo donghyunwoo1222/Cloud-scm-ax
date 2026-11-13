@@ -183,3 +183,88 @@ def test_edited_quantity_shows_same_day_warning(client, world, existing, session
     assert preview["apply_count"] == 2  # 막지는 않는다 (같은 날 정말 두 번 들어올 수도 있다)
     assert [(w["sku"], w["date"], w["existing_quantity"]) for w in preview["warnings"]] == [("OLD-1", day(3), 50)]
 
+
+
+def test_commit_result_is_fixed(client, world, existing, session):
+    """#222 결과 고정: 확정 경로를 바꿔도 응답·생긴 품목·이력(id 순서)·재고가 한 글자도 달라지면 안 된다.
+
+    새 품목과 기존 품목, 같은 품목 여러 날짜, 같은 내용 두 줄(번호 1·2), 이미 반영된 줄, 문제 행 3종,
+    다른 회사에만 있는 SKU(우리 회사에 새 품목으로 생긴다)를 한 파일에 넣는다.
+    """
+    login_as(client)
+    session.add(Product(company_id=world["b_company"].id, sku="B-ONLY", name="B", unit="개", unit_cost=1,
+                        default_supplier_id=world["b_supplier"].id))
+    session.commit()
+    assert post(client, "", csv_file(f"{day(4)},OLD-1,,,,9,"), world).status_code == 201  # 먼저 반영 → OLD-1 재고 9
+    content = csv_file(
+        f"{day(3)},NEW-1,새1,개,100,30,5",   # 2행: 새 품목 + 입고
+        f"{day(2)},NEW-2,새2,개,200,7,",     # 3행: 새 품목(안전재고 비면 0) + 입고
+        f"{day(2)},new-1,,,,20,",            # 4행: 같은 새 품목 둘째 줄 (소문자도 같은 SKU)
+        f"{day(3)},OLD-1,,,,4,",             # 5행: 기존 품목
+        f"{day(1)},OLD-1,,,,5,",             # 6행: 같은 내용 두 줄 → 번호 …|1
+        f"{day(1)},OLD-1,,,,5,",             # 7행:                  → 번호 …|2
+        f"{day(4)},OLD-1,,,,9,",             # 8행: 이미 반영된 줄 → 건너뜀
+        f"{day(1)},OLD-1,,,,0,",             # 9행: 수량 0 → 문제
+        f"{day(-1)},NEW-2,,,,1,",            # 10행: 미래 날짜 → 문제
+        f"{day(1)},BAD-1,,개,100,5,",        # 11행: 새 품목 이름 없음 → 문제
+        f"{day(1)},B-ONLY,B복제,개,10,2,",   # 12행: 다른 회사에만 있는 SKU → 우리 회사 새 품목
+        f"{day(1)},NEW-1,,,,1,",             # 13행: 같은 새 품목 셋째 줄
+    )
+    problems = [
+        {"row": 9, "reason": "INVALID_QUANTITY", "message": "수량이 1 이상의 정수가 아닙니다.", "sku": "OLD-1"},
+        {"row": 10, "reason": "FUTURE_DATE", "message": "오늘 이후 날짜입니다.", "sku": "NEW-2"},
+        {"row": 11, "reason": "INVALID_PRODUCT_INFO",
+         "message": "새 품목인데 품목명·단위·단가(0 이상 정수)·안전재고 값이 비었거나 올바르지 않습니다.", "sku": "BAD-1"},
+    ]
+    skipped = [{"reason": "ALREADY_IMPORTED", "message": "이미 반영된 입고", "count": 1}]
+    assert post(client, "/preview", content, world).json() == {"data": {
+        "total_rows": 12, "apply_count": 8, "new_product_count": 3,
+        "new_products": [
+            {"row": 2, "sku": "NEW-1", "name": "새1", "unit": "개", "unit_cost": 100, "safety_stock": 5},
+            {"row": 3, "sku": "NEW-2", "name": "새2", "unit": "개", "unit_cost": 200, "safety_stock": 0},
+            {"row": 12, "sku": "B-ONLY", "name": "B복제", "unit": "개", "unit_cost": 10, "safety_stock": 0},
+        ],
+        "skipped": skipped, "skipped_count": 1, "date_from": day(3), "date_to": day(1), "total_quantity": 74,
+        "problem_count": 3, "problems": problems, "warnings": []}}
+
+    blocked = post(client, "", content, world)
+    assert (blocked.status_code, blocked.json()) == (409, {"error": {
+        "code": "IMPORT_HAS_PROBLEMS", "message": "문제 행이 3건 있어 반영할 수 없습니다.", "details": {"problem_count": 3}}})
+    assert set(products_of(session, world["a_company"])) == {"OLD-1"}  # 막히면 품목도 생기지 않는다
+
+    done = post(client, "", content, world, exclude_problems=True)
+    assert (done.status_code, done.json()) == (201, {"data": {
+        "created_product_count": 3, "imported_count": 8, "total_quantity": 74,
+        "date_from": day(3), "date_to": day(1), "skipped_count": 1, "problem_count": 3}})
+
+    mine = products_of(session, world["a_company"])
+    assert {s: (p.name, p.unit, p.unit_cost, p.safety_stock, p.default_supplier_id, p.is_active) for s, p in mine.items()} == {
+        "OLD-1": ("기존", "개", 500, 0, world["a_supplier"].id, True),
+        "NEW-1": ("새1", "개", 100, 5, world["a_supplier"].id, True),
+        "NEW-2": ("새2", "개", 200, 0, world["a_supplier"].id, True),
+        "B-ONLY": ("B복제", "개", 10, 0, world["a_supplier"].id, True),
+    }
+    sku_of = {p.id: s for s, p in mine.items()}
+    made = session.execute(
+        select(InventoryMovement.product_id, InventoryMovement.quantity, InventoryMovement.movement_date,
+               InventoryMovement.movement_type, InventoryMovement.direction, InventoryMovement.external_ref,
+               InventoryMovement.created_by, InventoryMovement.purchase_order_item_id, InventoryMovement.sales_channel)
+        .where(InventoryMovement.company_id == world["a_company"].id).order_by(InventoryMovement.id)).all()  # id 순서 = 저장 순서
+    staff = world["a_staff"].id  # login_as 기본 사용자
+    got = [(sku_of[m[0]], m[1], m[2].isoformat()) + tuple(m[3:]) for m in made]
+    assert got == [
+        ("OLD-1", 9, day(4), "RECEIPT", "IN", f"{day(4)}|OLD-1|9|1", staff, None, None),  # 먼저 반영한 줄
+        ("NEW-1", 30, day(3), "RECEIPT", "IN", f"{day(3)}|NEW-1|30|1", staff, None, None),  # (날짜, 행 번호) 순서
+        ("OLD-1", 4, day(3), "RECEIPT", "IN", f"{day(3)}|OLD-1|4|1", staff, None, None),
+        ("NEW-2", 7, day(2), "RECEIPT", "IN", f"{day(2)}|NEW-2|7|1", staff, None, None),
+        ("NEW-1", 20, day(2), "RECEIPT", "IN", f"{day(2)}|NEW-1|20|1", staff, None, None),
+        ("OLD-1", 5, day(1), "RECEIPT", "IN", f"{day(1)}|OLD-1|5|1", staff, None, None),
+        ("OLD-1", 5, day(1), "RECEIPT", "IN", f"{day(1)}|OLD-1|5|2", staff, None, None),
+        ("B-ONLY", 2, day(1), "RECEIPT", "IN", f"{day(1)}|B-ONLY|2|1", staff, None, None),
+        ("NEW-1", 1, day(1), "RECEIPT", "IN", f"{day(1)}|NEW-1|1|1", staff, None, None),
+    ]
+    assert {s: stock(session, world["a_company"], s) for s in mine} == {"OLD-1": 23, "NEW-1": 51, "NEW-2": 7, "B-ONLY": 2}
+    b_only = products_of(session, world["b_company"])["B-ONLY"]
+    assert b_only.name == "B" and stock(session, world["b_company"], "B-ONLY") == 0  # 다른 회사 품목은 그대로
+    assert session.scalar(select(func.count()).select_from(InventoryMovement)
+                          .where(InventoryMovement.company_id == world["b_company"].id)) == 0
