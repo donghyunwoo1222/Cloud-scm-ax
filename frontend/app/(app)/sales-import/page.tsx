@@ -11,6 +11,11 @@ import { InfoTip } from "../../lib/tip"; // 보조 설명 말풍선
 
 type Suggested = Record<"product_col" | "quantity_col" | "date_col" | "ref_col" | "status_col" | "option_col", number | null>;
 type Inspect = { headers: string[]; row_count: number; suggested: Suggested; status_values: { value: string; count: number }[] | null };
+// /sales-imports/suggest 응답 (#193). rules 면 mapping·confidence·samples 가 null, reason 은 코드 값(화면에 그대로 보이지 않는다)
+type Suggest = {
+  source: "template" | "llm" | "rules"; reason: string | null; mapping: Suggested | null;
+  confidence: Partial<Record<keyof Suggested, "high" | "low">> | null; samples: Partial<Record<keyof Suggested, string[]>> | null;
+};
 type Problem = { row: number; reason: string; message: string; sku: string | null };
 type Preview = {
   total_rows: number; apply_count: number; skipped_count: number; skipped: { reason: string; message: string; count: number }[];
@@ -21,6 +26,10 @@ type Done = { imported_count: number; skipped_count: number; problem_count: numb
 
 const CHANNELS = [["SMARTSTORE", "스마트스토어"], ["OWN_MALL", "자사몰"], ["OTHER", "기타"]] as const; // 판매 채널 (출고 등록과 같은 값)
 const NONE = ""; // 선택 안 함
+const str = (n: number | null) => (n === null ? NONE : String(n)); // 열 번호 → 선택 상자 값
+// 확인 화면의 칸 순서와 이름 (필수 4칸 먼저)
+const FIELDS = [["product_col", "상품 코드(SKU)"], ["quantity_col", "수량"], ["date_col", "날짜"], ["ref_col", "고유 주문번호"], ["status_col", "상태"], ["option_col", "옵션"]] as const;
+const NO_AI_REASONS = ["DAILY_LIMIT", "BUDGET"]; // 한도 초과일 때만 "AI 추천을 쓸 수 없어요" 안내 (꺼짐·장애는 조용히 기존 화면)
 
 export default function Page() {
   const [file, setFile] = useState<File | null>(null);
@@ -33,6 +42,10 @@ export default function Page() {
   const [done, setDone] = useState<Done | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState(false); // 파일을 읽고 /suggest 답을 기다리는 중
+  const [suggestion, setSuggestion] = useState<Suggest | null>(null); // llm 이 읽은 결과 → "이렇게 읽었어요" 확인 화면
+  const [notice, setNotice] = useState<string | null>(null); // 열 지정 화면 위 한 줄 안내
+  const reqId = useRef(0); // 파일 선택·직접 지정마다 올린다: 늦게 도착한 /suggest 결과가 새 화면을 덮지 못하게 비교한다
   const [inputKey, setInputKey] = useState(0); // 바꾸면 파일 입력칸을 새로 그려 선택한 파일 이름을 지운다
   const previewHeading = useRef<HTMLHeadingElement>(null); // 미리보기 결과가 화면 아래에 생기므로 포커스를 옮겨 알린다
   useEffect(() => {
@@ -59,27 +72,67 @@ export default function Page() {
     return f;
   };
   const num = (v: string) => (v === NONE ? null : Number(v));
-  const options = (excludeProblems: boolean) => JSON.stringify({
-    product_col: num(cols.product), quantity_col: num(cols.quantity), date_col: num(cols.date), ref_col: num(cols.ref),
-    status_col: num(cols.status), statuses: cols.status === NONE ? null : statuses, option_col: num(cols.option),
+  const options = (excludeProblems: boolean, c = cols) => JSON.stringify({
+    product_col: num(c.product), quantity_col: num(c.quantity), date_col: num(c.date), ref_col: num(c.ref),
+    status_col: num(c.status), statuses: c.status === NONE ? null : statuses, option_col: num(c.option),
     sales_channel: channel || null, exclude_problems: excludeProblems,
   });
   const columnsReady = [cols.product, cols.quantity, cols.date, cols.ref].every((v) => v !== NONE);
 
   function reset(next: File | null) {
+    reqId.current++; // 이전 파일의 늦은 /suggest 결과를 버리게 한다
     setFile(next); setInfo(null); setPreview(null); setDone(null); setError(null); setStatuses([]); setExclude(false);
+    setReading(false); setSuggestion(null); setNotice(null);
     setCols({ product: NONE, quantity: NONE, date: NONE, ref: NONE, status: NONE, option: NONE });
   }
 
-  // 1단계: 파일을 올려 머리글을 읽고 비슷한 열을 미리 고른다
+  // 1단계: 파일을 올려 머리글을 읽고 비슷한 열을 미리 고른다. 그다음 /suggest 를 이 파일에 한 번만 부른다
   const inspect = (f: File) => run(async () => {
     reset(f);
-    const data = await api<Inspect>("/sales-imports/inspect", { method: "POST", body: form(undefined, f) });
+    const id = reqId.current;
+    setReading(true);
+    let data: Inspect;
+    try { data = await api<Inspect>("/sales-imports/inspect", { method: "POST", body: form(undefined, f) }); }
+    catch (e) { if (id === reqId.current) setReading(false); throw e; } // inspect 오류만 오류로 보여준다
+    if (id !== reqId.current) return;
     setInfo(data);
     const s = data.suggested;
-    const str = (n: number | null) => (n === null ? NONE : String(n));
     setCols({ product: str(s.product_col), quantity: str(s.quantity_col), date: str(s.date_col), ref: str(s.ref_col), status: NONE, option: str(s.option_col) });
+    void readColumns(f, id); // run 밖에서 기다린다: 기다리는 동안 "직접 지정"·다른 파일 선택이 막히지 않게
   });
+
+  // /suggest 를 부르고 결과에 따라 화면을 정한다. 오류는 모두 삼키고(값은 로그·오류에 남기지 않는다) 기존 열 지정 화면으로 이어간다
+  async function readColumns(f: File, id: number) {
+    let s: Suggest | null = null;
+    try { s = await api<Suggest>("/sales-imports/suggest", { method: "POST", body: form(undefined, f) }); } catch { s = null; }
+    if (id !== reqId.current) return; // 그 사이 다른 파일을 골랐거나 "직접 지정"을 눌렀다
+    if (s?.source === "llm" && s.mapping && s.samples && s.confidence) { setSuggestion(s); setReading(false); return; }
+    if (s?.source === "rules" && s.reason && NO_AI_REASONS.includes(s.reason)) setNotice("오늘은 AI 추천을 쓸 수 없어 기본 추천으로 열었어요.");
+    if (s?.source === "template" && s.mapping) { // 열은 서버가 정확히 알지만 상태 값 선택은 남긴다 (status_col 이 없으면 서버가 상태를 거르지 않는다)
+      const m = s.mapping;
+      try {
+        const st = m.status_col === null ? null : await api<Inspect>("/sales-imports/inspect", { method: "POST", body: form({ status_col: String(m.status_col) }, f) });
+        if (id !== reqId.current) return;
+        setCols({ product: str(m.product_col), quantity: str(m.quantity_col), date: str(m.date_col), ref: str(m.ref_col), status: str(m.status_col), option: str(m.option_col) });
+        if (st) setInfo((i) => i && { ...i, status_values: st.status_values });
+        setNotice("템플릿과 같은 파일이에요. 반영할 상태만 골라 주세요.");
+      } catch (e) { if (id === reqId.current) setError(e); } // 상태 목록 읽기 실패는 /inspect 오류이므로 보여준다 (기존 열 지정 화면으로 이어짐)
+    }
+    if (id === reqId.current) setReading(false);
+  }
+
+  // "기다리지 않고 직접 지정": 이미 채워 둔 inspect 의 suggested 로 열 지정 화면을 바로 연다. 늦게 오는 /suggest 결과는 id 가 달라 버려진다
+  const skipWaiting = () => { reqId.current++; setReading(false); };
+
+  // 확인 화면 "맞아요": 열을 채운다. 상태 칸이 있으면 값 목록을 불러와 열 지정 화면에서 사용자가 직접 체크, 없으면 바로 미리보기
+  const confirmReading = () => {
+    const m = suggestion?.mapping;
+    if (!m) return;
+    const c = { product: str(m.product_col), quantity: str(m.quantity_col), date: str(m.date_col), ref: str(m.ref_col), status: NONE, option: str(m.option_col) };
+    setCols(c); setSuggestion(null);
+    if (m.status_col !== null) void pickStatus(String(m.status_col)); // 기존 방식: /inspect 를 status_col 과 함께 (suggest 는 다시 부르지 않는다)
+    else void runPreview(c);
+  };
 
   // 상태 열을 고르면 그 열의 값 목록을 서버에서 받는다 (다른 열 값은 읽지 않는다)
   const pickStatus = (value: string) => run(async () => {
@@ -89,9 +142,9 @@ export default function Page() {
     setInfo((i) => i && { ...i, status_values: data.status_values });
   });
 
-  const runPreview = () => run(async () => {
+  const runPreview = (c = cols) => run(async () => { // c: "맞아요" 직후에는 아직 반영 안 된 새 열 값을 직접 넘긴다
     setExclude(false);
-    setPreview(await api<Preview>("/sales-imports/preview", { method: "POST", body: form({ options: options(false) }) }));
+    setPreview(await api<Preview>("/sales-imports/preview", { method: "POST", body: form({ options: options(false, c) }) }));
   });
 
   const commit = () => run(async () => {
@@ -136,9 +189,48 @@ export default function Page() {
         </p>
       </div>
 
-      {info && !done && (
+      {reading && (
+        <p role="status" style={S.hint}>
+          열을 읽는 중…{" "}
+          {info && <button type="button" onClick={skipWaiting}>기다리지 않고 직접 지정</button>}
+        </p>
+      )}
+
+      {info && !done && !reading && suggestion?.mapping && suggestion.samples && suggestion.confidence && (
+        <div style={S.sectionCard}>
+          <h2 style={{ marginTop: 0 }}>2. 이렇게 읽었어요. 맞나요?</h2>
+          <p style={S.hint}>파일의 열이 어떤 칸으로 읽혔는지와 그 열의 앞쪽 값을 보여줍니다. 값이 이상하면 &quot;다르게 읽혔어요&quot;를 누르세요.</p>
+          <div style={S.tableBox}>
+            <table style={S.table}>
+              <thead><tr style={S.headRow}><th>파일의 열</th><th>읽은 칸</th><th>값 예시</th></tr></thead>
+              <tbody>
+                {FIELDS.map(([k, label]) => {
+                  const col = suggestion.mapping?.[k] ?? null;
+                  if (col === null && (k === "status_col" || k === "option_col")) return null; // 선택 칸은 짝이 없으면 숨긴다
+                  const low = suggestion.confidence?.[k] === "low";
+                  return (
+                    <tr key={k} style={S.row}>
+                      <td>{col === null ? "-" : header(col)}</td>
+                      <td>{label}{col === null && <strong style={{ color: "var(--color-destructive)" }}> 읽지 못함</strong>}
+                        {low && <strong style={{ color: "var(--color-destructive)" }}> 확신 낮음</strong>}</td>
+                      <td style={low ? { fontWeight: 600 } : undefined}>{(suggestion.samples?.[k] ?? []).join(", ") || "-"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={ACTIONS}>
+            <button type="button" className="primary-action" disabled={busy || [suggestion.mapping.product_col, suggestion.mapping.quantity_col, suggestion.mapping.date_col, suggestion.mapping.ref_col].some((v) => v === null)} onClick={confirmReading}>맞아요</button>
+            <button type="button" disabled={busy} onClick={() => setSuggestion(null)}>다르게 읽혔어요</button>
+          </div>
+        </div>
+      )}
+
+      {info && !done && !reading && !suggestion && (
         <div style={S.sectionCard}>
           <h2 style={{ marginTop: 0 }}>2. 열 지정</h2>
+          {notice && <p role="status" style={S.hint}>{notice}</p>}
           <p style={S.hint}>
             머리글이 비슷한 열은 미리 골라 두었습니다. 맞는지 확인하세요{" "}
             <InfoTip detail="날짜 열의 값이 그대로 출고일이 됩니다(시각은 버립니다). 고유 주문번호로 같은 주문이 두 번 반영되지 않게 막습니다." />
