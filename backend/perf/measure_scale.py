@@ -344,5 +344,74 @@ def main(explain_all: bool = False) -> None:
             print(f"\n(문장 {sec * 1000:.0f}ms)\n```\n{text_[:6000]}\n```")
 
 
+N_RECEIPT_NEW = 100  # 입고 가져오기 측정: 실행마다 새 품목 100개(각 1행) + 기존 품목 4,900행
+
+
+def receipt_csv(run: str, day) -> bytes:
+    """입고 파일 5,000행: 번호, SKU, 품목명, 단위, 단가, 수량, 입고일. 번호와 새 SKU 는 실행마다 다르다."""
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["입고번호", "SKU", "품목명", "단위", "단가", "수량", "입고일"])
+    for n in range(5000 - N_RECEIPT_NEW):
+        w.writerow([f"PERF-R-{run}-{n}", f"PF-{1 + n % N_PRODUCTS_X}", "", "", "", 1 + n % 5, day.isoformat()])
+    for n in range(N_RECEIPT_NEW):
+        w.writerow([f"PERF-RN-{run}-{n}", f"PFN-{run}-{n}", f"새 품목 {n}", "개", 1000, 3, day.isoformat()])
+    return out.getvalue().encode("utf-8")
+
+
+def main_receipt_import() -> None:
+    """--only receipt-import (#222): 입고 가져오기 확정 5,000행만 잰다. 품목 3,000개만 만들고 과거 이력은 넣지 않는다.
+
+    전체 측정은 이력 약 37만 건을 만들어 끝의 정리 DELETE 가 약 25분 걸린다. 이 모드는 이력이 측정으로 생긴 1만 5천 건뿐이라 정리가 짧다.
+    """
+    guard()
+    cleanup()
+    before = row_counts()
+    print(f"[시작 행 수] {before}")
+    results: list[Result] = []
+    try:
+        with Session(engine) as s:
+            company = Company(name=f"{PREFIX}receipt")
+            s.add(company)
+            s.flush()
+            s.add(User(company_id=company.id, name="담당자", email="staff-receipt@perf.test", role="STAFF",
+                       password_hash=hash_password(PASSWORD)))
+            supplier = Supplier(company_id=company.id, name="업체", lead_time_days=3)
+            s.add(supplier)
+            s.flush()
+            s.execute(text(  # 기존 품목: SKU PF-<번호> (전체 측정과 같은 이름 규칙)
+                "INSERT INTO products (company_id, sku, name, unit, unit_cost, safety_stock, default_supplier_id, is_active) "
+                "SELECT :c, 'PF-' || i, '품목 ' || i, '개', 1000, 20, :s, true FROM generate_series(1, :n) AS i"),
+                {"c": company.id, "s": supplier.id, "n": N_PRODUCTS_X})
+            s.commit()
+            supplier_id = supplier.id
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.exec_driver_sql("ANALYZE products")
+        opts = json.dumps({"ref_col": 0, "product_col": 1, "name_col": 2, "unit_col": 3, "cost_col": 4, "quantity_col": 5,
+                           "date_col": 6, "default_supplier_id": supplier_id})
+        day = seoul_today() - timedelta(days=1)
+        with TestClient(app) as client:
+            r = client.post("/api/v1/auth/login", json={"email": "staff-receipt@perf.test", "password": PASSWORD})
+            assert r.status_code == 200, r.text
+            measure(f"입고 가져오기 확정(5,000행, 새 품목 {N_RECEIPT_NEW})", f"품목 {N_PRODUCTS_X:,}", lambda i: client.post(
+                "/api/v1/receipt-imports", files={"file": ("receipt.csv", receipt_csv(f"RUN{i}", day), "text/csv")},
+                data={"options": opts}), WRITE_RUNS, results)
+    finally:
+        t0 = time.perf_counter()
+        cleanup()
+        after = row_counts()
+        print(f"[정리 후 행 수] {after} (정리 {time.perf_counter() - t0:.1f}초)")
+        print("시작과 같음" if after == before else f"시작과 다름! 시작 {before}")
+    print("\n| 대상 | 데이터 규모 | 쿼리 수 | 워밍업 | 중앙값 | 최댓값 | 응답 코드 |")
+    print("| --- | --- | ---: | ---: | ---: | ---: | --- |")
+    for r in results:
+        print(f"| {r.name} | {r.scale} | {r.queries} | {r.warmup:.2f}s | {r.median:.2f}s | {r.maximum:.2f}s | {sorted(r.statuses)} |")
+
+
 if __name__ == "__main__":
-    main(explain_all="--explain-all" in sys.argv)
+    if "--only" in sys.argv:  # 지금은 receipt-import 하나만 있다
+        if sys.argv[sys.argv.index("--only") + 1:][:1] != ["receipt-import"]:
+            sys.exit("--only 뒤에는 receipt-import 만 쓸 수 있습니다.")
+        main_receipt_import()
+    else:
+        main(explain_all="--explain-all" in sys.argv)
