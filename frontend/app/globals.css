@@ -1279,12 +1279,12 @@ details.reason > p {
   }
 }
 
-/* 성공 토스트(#226): 화면 아래에 고정. 모바일은 가운데, 730px 이상은 오른쪽 아래. 아래 여백은 기기 안전 영역(홈 바)을 피한다 */
+/* 성공 토스트(#226): 화면 위 가운데(12시 방향)에 고정. 모바일은 앱바(56px) 아래에 놓아 메뉴 버튼을 가리지 않는다 */
 .toast-region {
   position: fixed;
   z-index: 60; /* 모바일 드로어(50)·가림막(40)보다 위 */
   inset-inline: var(--space-md);
-  bottom: max(var(--space-md), env(safe-area-inset-bottom));
+  top: max(var(--space-md), env(safe-area-inset-top));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1319,13 +1319,13 @@ details.reason > p {
   line-height: 1;
 }
 
-@media (min-width: 730px) {
-  .toast-region { inset-inline: auto var(--space-lg); align-items: flex-end; }
+@media (max-width: 729px) {
+  .toast-region { top: calc(var(--app-bar-height) + var(--space-sm)); }
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .toast { animation: toast-in 160ms ease-out; }
-  @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } }
 }
 
 /* 표 감싸개(#226): 표가 옆으로 넘칠 때 스크롤바를 늘 보이게 하고(Chrome·Safari 계열), 아직 넘길 칸이 남았으면 오른쪽 끝에 그림자를 둔다.
