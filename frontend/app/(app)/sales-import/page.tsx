@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../../lib/api"; // 서버 호출
+import { fetchSuggest, NO_AI_NOTICE, NO_AI_REASONS, ReadingConfirm, type Suggest as SuggestOf } from "../../lib/import-suggest"; // "이렇게 읽었어요" 공통 부품 (#193)
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
 import { S } from "../../lib/styles"; // 공통 스타일
 import { InfoTip } from "../../lib/tip"; // 보조 설명 말풍선
@@ -11,11 +12,7 @@ import { InfoTip } from "../../lib/tip"; // 보조 설명 말풍선
 
 type Suggested = Record<"product_col" | "quantity_col" | "date_col" | "ref_col" | "status_col" | "option_col", number | null>;
 type Inspect = { headers: string[]; row_count: number; suggested: Suggested; status_values: { value: string; count: number }[] | null };
-// /sales-imports/suggest 응답 (#193). rules 면 mapping·confidence·samples 가 null, reason 은 코드 값(화면에 그대로 보이지 않는다)
-type Suggest = {
-  source: "template" | "llm" | "rules"; reason: string | null; mapping: Suggested | null;
-  confidence: Partial<Record<keyof Suggested, "high" | "low">> | null; samples: Partial<Record<keyof Suggested, string[]>> | null;
-};
+type Suggest = SuggestOf<keyof Suggested>; // /sales-imports/suggest 응답 (#193)
 type Problem = { row: number; reason: string; message: string; sku: string | null };
 type Preview = {
   total_rows: number; apply_count: number; skipped_count: number; skipped: { reason: string; message: string; count: number }[];
@@ -29,7 +26,8 @@ const NONE = ""; // 선택 안 함
 const str = (n: number | null) => (n === null ? NONE : String(n)); // 열 번호 → 선택 상자 값
 // 확인 화면의 칸 순서와 이름 (필수 4칸 먼저)
 const FIELDS = [["product_col", "상품 코드(SKU)"], ["quantity_col", "수량"], ["date_col", "날짜"], ["ref_col", "고유 주문번호"], ["status_col", "상태"], ["option_col", "옵션"]] as const;
-const NO_AI_REASONS = ["DAILY_LIMIT", "BUDGET"]; // 한도 초과일 때만 "AI 추천을 쓸 수 없어요" 안내 (꺼짐·장애는 조용히 기존 화면)
+const REQUIRED_COLS = [["product", "상품 코드(SKU)"], ["quantity", "수량"], ["date", "날짜(주문일·발송일)"], ["ref", "고유 주문번호"]] as const; // 열 지정 필수 칸
+const REQUIRED_KEYS: (keyof Suggested)[] = ["product_col", "quantity_col", "date_col", "ref_col"]; // 확인 화면에서 짝이 꼭 있어야 하는 칸
 
 export default function Page() {
   const [file, setFile] = useState<File | null>(null);
@@ -77,10 +75,20 @@ export default function Page() {
     status_col: num(c.status), statuses: c.status === NONE ? null : statuses, option_col: num(c.option),
     sales_channel: channel || null, exclude_problems: excludeProblems,
   });
-  const columnsReady = [cols.product, cols.quantity, cols.date, cols.ref].every((v) => v !== NONE);
+  const [missing, setMissing] = useState<string[]>([]); // 미리보기를 눌렀을 때 비어 있던 필수 칸
+  const requiredCols = REQUIRED_COLS;
+  // 필수 칸이 비었으면 버튼을 막는 대신, 첫 빈 칸으로 포커스를 옮기고 빨간 안내를 보여준다
+  const tryPreview = () => {
+    const miss = requiredCols.filter(([k]) => cols[k] === NONE);
+    setMissing(miss.map(([k]) => k));
+    if (miss.length) document.getElementById(`col-${miss[0][0]}`)?.focus();
+    else void runPreview();
+  };
+  const shownMissing = requiredCols.filter(([k]) => missing.includes(k) && cols[k] === NONE); // 채우면 안내가 사라진다
 
   function reset(next: File | null) {
     reqId.current++; // 이전 파일의 늦은 /suggest 결과를 버리게 한다
+    setMissing([]);
     setFile(next); setInfo(null); setPreview(null); setDone(null); setError(null); setStatuses([]); setExclude(false);
     setReading(false); setSuggestion(null); setNotice(null);
     setCols({ product: NONE, quantity: NONE, date: NONE, ref: NONE, status: NONE, option: NONE });
@@ -103,11 +111,10 @@ export default function Page() {
 
   // /suggest 를 부르고 결과에 따라 화면을 정한다. 오류는 모두 삼키고(값은 로그·오류에 남기지 않는다) 기존 열 지정 화면으로 이어간다
   async function readColumns(f: File, id: number) {
-    let s: Suggest | null = null;
-    try { s = await api<Suggest>("/sales-imports/suggest", { method: "POST", body: form(undefined, f) }); } catch { s = null; }
+    const s = await fetchSuggest<keyof Suggested>("/sales-imports/suggest", f); // 오류는 삼켜 null
     if (id !== reqId.current) return; // 그 사이 다른 파일을 골랐거나 "직접 지정"을 눌렀다
     if (s?.source === "llm" && s.mapping && s.samples && s.confidence) { setSuggestion(s); setReading(false); return; }
-    if (s?.source === "rules" && s.reason && NO_AI_REASONS.includes(s.reason)) setNotice("오늘은 AI 추천을 쓸 수 없어 기본 추천으로 열었어요.");
+    if (s?.source === "rules" && s.reason && NO_AI_REASONS.includes(s.reason)) setNotice(NO_AI_NOTICE);
     if (s?.source === "template" && s.mapping) { // 열은 서버가 정확히 알지만 상태 값 선택은 남긴다 (status_col 이 없으면 서버가 상태를 거르지 않는다)
       const m = s.mapping;
       try {
@@ -158,7 +165,7 @@ export default function Page() {
   const colSelect = (label: string, k: keyof typeof cols, optional = false) => (
     <label className="field" key={k}>
       <span className="field-label">{label}{optional ? "" : " *"}</span>
-      <select value={cols[k]} disabled={busy}
+      <select id={`col-${k}`} aria-invalid={shownMissing.some(([m]) => m === k)} value={cols[k]} disabled={busy}
         onChange={(e) => { if (k === "status") void pickStatus(e.target.value); else { setCols({ ...cols, [k]: e.target.value }); setPreview(null); } }}>
         <option value={NONE}>{optional ? "사용 안 함" : "열 선택"}</option>
         {info?.headers.map((h, i) => <option key={i} value={i}>{h || `(${i + 1}번째 열)`}</option>)}
@@ -197,34 +204,9 @@ export default function Page() {
       )}
 
       {info && !done && !reading && suggestion?.mapping && suggestion.samples && suggestion.confidence && (
-        <div style={S.sectionCard}>
-          <h2 style={{ marginTop: 0 }}>2. 이렇게 읽었어요. 맞나요?</h2>
-          <p style={S.hint}>파일의 열이 어떤 칸으로 읽혔는지와 그 열의 앞쪽 값을 보여줍니다. 값이 이상하면 &quot;다르게 읽혔어요&quot;를 누르세요.</p>
-          <div style={S.tableBox}>
-            <table style={S.table}>
-              <thead><tr style={S.headRow}><th>파일의 열</th><th>읽은 칸</th><th>값 예시</th></tr></thead>
-              <tbody>
-                {FIELDS.map(([k, label]) => {
-                  const col = suggestion.mapping?.[k] ?? null;
-                  if (col === null && (k === "status_col" || k === "option_col")) return null; // 선택 칸은 짝이 없으면 숨긴다
-                  const low = suggestion.confidence?.[k] === "low";
-                  return (
-                    <tr key={k} style={S.row}>
-                      <td>{col === null ? "-" : header(col)}</td>
-                      <td>{label}{col === null && <strong style={{ color: "var(--color-destructive)" }}> 읽지 못함</strong>}
-                        {low && <strong style={{ color: "var(--color-destructive)" }}> 확신 낮음</strong>}</td>
-                      <td style={low ? { fontWeight: 600 } : undefined}>{(suggestion.samples?.[k] ?? []).join(", ") || "-"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div style={ACTIONS}>
-            <button type="button" className="primary-action" disabled={busy || [suggestion.mapping.product_col, suggestion.mapping.quantity_col, suggestion.mapping.date_col, suggestion.mapping.ref_col].some((v) => v === null)} onClick={confirmReading}>맞아요</button>
-            <button type="button" disabled={busy} onClick={() => setSuggestion(null)}>다르게 읽혔어요</button>
-          </div>
-        </div>
+        <ReadingConfirm fields={FIELDS} mapping={suggestion.mapping} samples={suggestion.samples} confidence={suggestion.confidence}
+          header={header} required={REQUIRED_KEYS} show={REQUIRED_KEYS} busy={busy}
+          onYes={confirmReading} onNo={() => setSuggestion(null)} />
       )}
 
       {info && !done && !reading && !suggestion && (
@@ -267,9 +249,10 @@ export default function Page() {
           )}
 
           <div style={BLOCK}>
-            <button type="button" className="primary-action" disabled={busy || !columnsReady} onClick={() => void runPreview()}>
+            <button type="button" className="primary-action" disabled={busy} onClick={tryPreview}>
               {busy ? "확인 중…" : "미리보기"}
             </button>
+            {shownMissing.length > 0 && <p role="alert" style={{ ...S.error, margin: "var(--space-sm) 0 0" }}>필수 칸을 골라 주세요: {shownMissing.map(([, l]) => l).join(", ")}</p>}
           </div>
         </div>
       )}

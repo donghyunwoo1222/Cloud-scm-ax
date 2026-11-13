@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, apiListAll } from "../../lib/api"; // 서버 호출
+import { fetchSuggest, NO_AI_NOTICE, NO_AI_REASONS, ReadingConfirm, type Suggest } from "../../lib/import-suggest"; // "이렇게 읽었어요" (#193)
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
 import { S } from "../../lib/styles"; // 공통 스타일
 import { InfoTip } from "../../lib/tip"; // 보조 설명 말풍선
@@ -27,9 +28,19 @@ type Preview = {
 type Done = { created_count: number; updated_count: number; unchanged_count: number; problem_count: number; preview_changed: boolean; message: string | null };
 
 const NONE = ""; // 선택 안 함
+const REQUIRED_COLS = [["product", "SKU"], ["name", "품목명"], ["unit", "기본단위"], ["cost", "구매단가(원)"]] as const; // 열 지정 필수 칸
 const REQUIRED: ColKey[] = ["product", "name", "unit", "cost"]; // 필수 열
 const KEYS: ColKey[] = [...REQUIRED, "safety", "order_unit", "factor", "box_cost", "moq", "color", "size", "spec", "group"];
 const EMPTY = Object.fromEntries(KEYS.map((k) => [k, NONE])) as Record<ColKey, string>;
+type Key = `${ColKey}_col`; // /suggest 의 칸 이름 (inspect 의 suggested 키와 같다)
+const REQUIRED_KEYS: Key[] = ["product_col", "name_col", "unit_col", "cost_col"]; // 확인 화면에서 짝이 꼭 있어야 하는 칸
+const FIELDS: readonly (readonly [Key, string])[] = [ // 확인 화면의 칸 순서와 이름 (열 지정 화면의 이름과 같다)
+  ["product_col", "SKU"], ["name_col", "품목명"], ["unit_col", "기본단위"], ["cost_col", "구매단가(원)"], ["safety_col", "안전재고"],
+  ["order_unit_col", "발주단위 이름"], ["factor_col", "환산계수"], ["box_cost_col", "발주단위 단가"], ["moq_col", "최소 주문량"],
+  ["color_col", "색상"], ["size_col", "사이즈"], ["spec_col", "규격"], ["group_col", "그룹 코드"],
+];
+// 열 번호 → 선택 상자 값 (없으면 NONE)
+const toCols = (m: Record<Key, number | null>) => Object.fromEntries(KEYS.map((k) => [k, m[`${k}_col`] === null ? NONE : String(m[`${k}_col`])])) as Record<ColKey, string>;
 const shown = (v: string | number | null) => (v === null || v === "" ? "없음" : typeof v === "number" ? v.toLocaleString() : v);
 
 export default function Page() {
@@ -43,6 +54,10 @@ export default function Page() {
   const [done, setDone] = useState<Done | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState(false); // 파일을 읽고 /suggest 답을 기다리는 중
+  const [suggestion, setSuggestion] = useState<Suggest<Key> | null>(null); // llm 이 읽은 결과 → "이렇게 읽었어요" 확인 화면
+  const [notice, setNotice] = useState<string | null>(null); // 열 지정 화면 위 한 줄 안내
+  const reqId = useRef(0); // 파일 선택·직접 지정마다 올린다: 늦게 도착한 /suggest 결과가 새 화면을 덮지 못하게 비교한다
   const [inputKey, setInputKey] = useState(0);
   const previewHeading = useRef<HTMLHeadingElement>(null); // 미리보기가 화면 아래에 생기므로 포커스를 옮겨 알린다
   useEffect(() => {
@@ -69,27 +84,75 @@ export default function Page() {
   };
   const num = (v: string) => (v === NONE ? null : Number(v));
   // 확정 때만 expected_* 를 붙인다: 미리보기와 건수가 달라지면 서버가 preview_changed 로 알린다
-  const options = (excludeProblems: boolean, expected?: Preview) => JSON.stringify({
-    ...Object.fromEntries(KEYS.map((k) => [`${k}_col`, num(cols[k])])),
+  const options = (excludeProblems: boolean, expected?: Preview, c = cols) => JSON.stringify({
+    ...Object.fromEntries(KEYS.map((k) => [`${k}_col`, num(c[k])])),
     default_supplier_id: supplier ? Number(supplier) : null, exclude_problems: excludeProblems,
     ...(expected ? { expected_new_count: expected.new_count, expected_update_count: expected.update_count } : {}),
   });
-  const columnsReady = REQUIRED.every((k) => cols[k] !== NONE);
+  const [missing, setMissing] = useState<string[]>([]); // 미리보기를 눌렀을 때 비어 있던 필수 칸
+  const requiredCols = REQUIRED_COLS;
+  // 필수 칸이 비었으면 버튼을 막는 대신, 첫 빈 칸으로 포커스를 옮기고 빨간 안내를 보여준다
+  const tryPreview = () => {
+    const miss = requiredCols.filter(([k]) => cols[k] === NONE);
+    setMissing(miss.map(([k]) => k));
+    if (miss.length) document.getElementById(`col-${miss[0][0]}`)?.focus();
+    else void runPreview();
+  };
+  const shownMissing = requiredCols.filter(([k]) => missing.includes(k) && cols[k] === NONE); // 채우면 안내가 사라진다
 
   function reset(next: File | null) {
+    reqId.current++; // 이전 파일의 늦은 /suggest 결과를 버리게 한다
+    setMissing([]);
     setFile(next); setInfo(null); setPreview(null); setDone(null); setError(null); setExclude(false); setCols(EMPTY);
+    setReading(false); setSuggestion(null); setNotice(null);
   }
 
+  // 1단계: 파일을 올려 머리글을 읽고 비슷한 열을 미리 고른다. 그다음 /suggest 를 이 파일에 한 번만 부른다
   const inspect = (f: File) => run(async () => {
     reset(f);
-    const data = await api<Inspect>("/product-imports/inspect", { method: "POST", body: form(undefined, f) });
+    const id = reqId.current;
+    setReading(true);
+    let data: Inspect;
+    try { data = await api<Inspect>("/product-imports/inspect", { method: "POST", body: form(undefined, f) }); }
+    catch (e) { if (id === reqId.current) setReading(false); throw e; } // inspect 오류만 오류로 보여준다
+    if (id !== reqId.current) return;
     setInfo(data);
-    setCols(Object.fromEntries(KEYS.map((k) => [k, data.suggested[`${k}_col`] === null ? NONE : String(data.suggested[`${k}_col`])])) as Record<ColKey, string>);
+    setCols(toCols(data.suggested));
+    void readColumns(f, id); // run 밖에서 기다린다: 기다리는 동안 "직접 지정"·다른 파일 선택이 막히지 않게
   });
 
-  const runPreview = () => run(async () => {
+  // /suggest 결과에 따라 화면을 정한다 (실패·rules 는 기존 열 지정 화면)
+  async function readColumns(f: File, id: number) {
+    const s = await fetchSuggest<Key>("/product-imports/suggest", f);
+    if (id !== reqId.current) return; // 그 사이 다른 파일을 골랐거나 "직접 지정"을 눌렀다
+    setReading(false);
+    if (s?.source === "llm" && s.mapping && s.samples && s.confidence) { setSuggestion(s); return; }
+    if (s?.source === "template" && s.mapping) { // 템플릿이면 13칸이 모두 정확하다: 열을 채우고 미리보기까지 자동 (공급업체 선택은 미리보기 안에 있다)
+      const c = toCols(s.mapping);
+      setCols(c);
+      // run 이 이미 다른 호출 중이면 자동 미리보기를 버리므로, 그때는 직접 누르라고 알린다
+      if (sending.current) setNotice("템플릿과 같은 파일이에요. 미리보기를 시작하지 못했어요. '미리보기'를 눌러 주세요.");
+      else { setNotice("템플릿과 같은 파일이에요. 미리보기를 자동으로 실행했어요."); void runPreview(c, f); }
+      return;
+    }
+    if (s?.source === "rules" && s.reason && NO_AI_REASONS.includes(s.reason)) setNotice(NO_AI_NOTICE);
+  }
+
+  // "기다리지 않고 직접 지정": 이미 채워 둔 inspect 의 suggested 로 열 지정 화면을 바로 연다. 늦게 오는 /suggest 결과는 id 가 달라 버려진다
+  const skipWaiting = () => { reqId.current++; setReading(false); };
+
+  // 확인 화면 "맞아요": 읽은 열로 바로 미리보기 (필수 4칸이 있을 때만 버튼이 켜진다)
+  const confirmReading = () => {
+    if (!suggestion?.mapping) return;
+    const c = toCols(suggestion.mapping);
+    setCols(c); setSuggestion(null);
+    void runPreview(c);
+  };
+
+  // c·f: 자동 실행은 아직 반영 안 된 새 열 값과 새 파일을 직접 넘긴다 (안 그러면 이전 파일이 간다)
+  const runPreview = (c = cols, f = file) => run(async () => {
     setExclude(false);
-    setPreview(await api<Preview>("/product-imports/preview", { method: "POST", body: form({ options: options(false) }) }));
+    setPreview(await api<Preview>("/product-imports/preview", { method: "POST", body: form({ options: options(false, undefined, c) }, f) }));
   });
 
   const commit = () => run(async () => {
@@ -104,7 +167,7 @@ export default function Page() {
   const colSelect = (label: string, k: ColKey) => (
     <label className="field" key={k}>
       <span className="field-label">{label}{REQUIRED.includes(k) ? " *" : ""}</span>
-      <select value={cols[k]} disabled={busy} onChange={(e) => { setCols({ ...cols, [k]: e.target.value }); setPreview(null); }}>
+      <select id={`col-${k}`} aria-invalid={shownMissing.some(([m]) => m === k)} value={cols[k]} disabled={busy} onChange={(e) => { setCols({ ...cols, [k]: e.target.value }); setPreview(null); }}>
         <option value={NONE}>{REQUIRED.includes(k) ? "열 선택" : "사용 안 함"}</option>
         {info?.headers.map((h, i) => <option key={i} value={i}>{h || `(${i + 1}번째 열)`}</option>)}
       </select>
@@ -138,9 +201,24 @@ export default function Page() {
         </p>
       </div>
 
-      {info && !done && (
+      {reading && (
+        <p role="status" style={S.hint}>
+          열을 읽는 중…{" "}
+          {info && <button type="button" onClick={skipWaiting}>기다리지 않고 직접 지정</button>}
+        </p>
+      )}
+
+      {info && !done && !reading && suggestion?.mapping && suggestion.samples && suggestion.confidence && (
+        <ReadingConfirm fields={FIELDS} mapping={suggestion.mapping} samples={suggestion.samples} confidence={suggestion.confidence}
+          header={(n) => info.headers[n] || `(${n + 1}번째 열)`} required={REQUIRED_KEYS} show={REQUIRED_KEYS} busy={busy}
+          note="표에 없는 칸은 읽지 못했어요. 기존 품목은 그 값이 그대로 유지되고, 새 품목은 그 칸을 비워(안전재고는 0) 등록돼요."
+          onYes={confirmReading} onNo={() => setSuggestion(null)} />
+      )}
+
+      {info && !done && !reading && !suggestion && (
         <div style={S.sectionCard}>
           <h2 style={{ marginTop: 0 }}>2. 열 지정</h2>
+          {notice && <p role="status" style={S.hint}>{notice}</p>}
           <p style={S.hint}>
             머리글이 비슷한 열은 미리 골라 두었습니다. 맞는지 확인하세요{" "}
             <InfoTip detail="환산계수와 발주단위 단가는 함께 있어야 하고, 발주단위 이름은 환산계수가 있을 때만 쓸 수 있습니다. 기존 품목은 파일에 없는 값과 합쳐서 검사합니다." />
@@ -165,9 +243,10 @@ export default function Page() {
             {colSelect("그룹 코드", "group")}
           </div>
           <div style={BLOCK}>
-            <button type="button" className="primary-action" disabled={busy || !columnsReady} onClick={() => void runPreview()}>
+            <button type="button" className="primary-action" disabled={busy} onClick={tryPreview}>
               {busy ? "확인 중…" : "미리보기"}
             </button>
+            {shownMissing.length > 0 && <p role="alert" style={{ ...S.error, margin: "var(--space-sm) 0 0" }}>필수 칸을 골라 주세요: {shownMissing.map(([, l]) => l).join(", ")}</p>}
           </div>
         </div>
       )}
