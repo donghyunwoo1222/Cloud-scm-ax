@@ -81,10 +81,20 @@ export default function Page() {
     default_supplier_id: supplier ? Number(supplier) : null, exclude_problems: excludeProblems,
   });
   const receipts = cols.quantity !== NONE; // 수량 열을 골랐으면 입고 모드
-  const columnsReady = cols.product !== NONE && (!receipts || cols.date !== NONE);
+  const [missing, setMissing] = useState<string[]>([]); // 미리보기를 눌렀을 때 비어 있던 필수 칸
+  const requiredCols: [ColKey, string][] = [["product", "상품 코드(SKU)"], ...(receipts ? [["date", "입고일"] as [ColKey, string]] : [])]; // 수량 열을 골랐으면 입고일도 필수
+  // 필수 칸이 비었으면 버튼을 막는 대신, 첫 빈 칸으로 포커스를 옮기고 빨간 안내를 보여준다
+  const tryPreview = () => {
+    const miss = requiredCols.filter(([k]) => cols[k] === NONE);
+    setMissing(miss.map(([k]) => k));
+    if (miss.length) document.getElementById(`col-${miss[0][0]}`)?.focus();
+    else void runPreview();
+  };
+  const shownMissing = requiredCols.filter(([k]) => missing.includes(k) && cols[k] === NONE); // 채우면 안내가 사라진다
 
   function reset(next: File | null) {
     reqId.current++; // 이전 파일의 늦은 /suggest 결과를 버리게 한다
+    setMissing([]);
     setFile(next); setInfo(null); setPreview(null); setDone(null); setError(null); setExclude(false); setCols(EMPTY);
     setReading(false); setSuggestion(null); setNotice(null);
   }
@@ -140,7 +150,7 @@ export default function Page() {
   const colSelect = (label: string, k: ColKey, required = false) => (
     <label className="field" key={k}>
       <span className="field-label">{label}{required ? " *" : ""}</span>
-      <select value={cols[k]} disabled={busy} onChange={(e) => { setCols({ ...cols, [k]: e.target.value }); setPreview(null); }}>
+      <select id={`col-${k}`} aria-invalid={shownMissing.some(([m]) => m === k)} value={cols[k]} disabled={busy} onChange={(e) => { setCols({ ...cols, [k]: e.target.value }); setPreview(null); }}>
         <option value={NONE}>{required ? "열 선택" : "사용 안 함"}</option>
         {info?.headers.map((h, i) => <option key={i} value={i}>{h || `(${i + 1}번째 열)`}</option>)}
       </select>
@@ -206,9 +216,10 @@ export default function Page() {
             {colSelect("공급업체 (선택, 섞임 확인용)", "supplier")}
           </div>
           <div style={BLOCK}>
-            <button type="button" className="primary-action" disabled={busy || !columnsReady} onClick={() => void runPreview()}>
+            <button type="button" className="primary-action" disabled={busy} onClick={tryPreview}>
               {busy ? "확인 중…" : "미리보기"}
             </button>
+            {shownMissing.length > 0 && <p role="alert" style={{ ...S.error, margin: "var(--space-sm) 0 0" }}>필수 칸을 골라 주세요: {shownMissing.map(([, l]) => l).join(", ")}</p>}
           </div>
         </div>
       )}
