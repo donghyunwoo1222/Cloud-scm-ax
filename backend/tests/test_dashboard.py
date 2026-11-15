@@ -244,3 +244,51 @@ def test_company_isolation(client, world, session):
     session.commit()
     d = get(client)
     assert d["purchase_orders"]["ordered"] == 0 and d["dead_stock"]["count"] == 0 and d["month"]["in_quantity"] == 0
+
+
+def todo_world(session, world):
+    """오늘 할 일 6종이 모두 생기는 데이터: 추천 1, 판단 불가 1, 지연 1, 오늘 입고 1, 초안 1, 승인됨 1 (회사 B 에도 같은 것을 넣어 섞이지 않는지 본다)."""
+    for key in ("a", "b"):
+        short = add_product(session, world, key, f"SHORT-{key}")
+        add_product(session, world, key, f"NODATA-{key}")  # 이력 없음 → 판단 불가
+        add_move(session, world, key, short, "RECEIPT", "IN", 100, 20)
+        add_move(session, world, key, short, "SALE", "OUT", 90, 5)  # 현재고 10, 일평균 3 → 재주문점 15 ≥ 가용 10
+        add_po(session, world, key, f"LATE-{key}", "ORDERED", short, 1, due_date=TODAY - timedelta(days=1))
+        add_po(session, world, key, f"TODAY-{key}", "ORDERED", short, 1, due_date=TODAY)
+        add_po(session, world, key, f"DRAFT-{key}", "DRAFT", short, 1)
+        add_po(session, world, key, f"APPR-{key}", "APPROVED", short, 1)
+    session.commit()
+
+
+def get_todo(client, email):
+    """이 사용자로 로그인해 todo 만 꺼낸다."""
+    login_as(client, email)
+    response = client.get(URL)
+    assert response.status_code == 200, response.json()
+    return response.json()["data"]["todo"]
+
+
+def test_todo_order_and_role(client, world, session):
+    """순서는 지연 → 추천 → 승인(관리자)/보낼 발주(직원) → 오늘 입고 → 판단 불가. 승인 줄은 관리자만, 보낼 발주 줄은 직원만."""
+    todo_world(session, world)
+    admin = get_todo(client, "admin@a.test")
+    assert [t["type"] for t in admin] == [
+        "overdue_receipts", "review_recommendations", "approve_orders", "due_today_receipts", "unknown_stock"]
+    staff = get_todo(client, "staff@a.test")
+    assert [t["type"] for t in staff] == [
+        "overdue_receipts", "review_recommendations", "send_orders", "due_today_receipts", "unknown_stock"]
+    assert all(t["count"] == 1 for t in admin + staff)  # 회사 B 의 같은 데이터가 섞이지 않는다
+    assert {t["type"]: t["href"] for t in admin}["review_recommendations"] == "/recommendations"
+
+
+def test_todo_counts_match_list_screens(client, world, session):
+    """건수는 링크 화면의 목록 건수와 같다: 추천 = /recommendations items, 판단 불가 = /stock?status=UNKNOWN total."""
+    todo_world(session, world)
+    todo = {t["type"]: t["count"] for t in get_todo(client, "staff@a.test")}
+    assert todo["review_recommendations"] == len(client.get("/api/v1/recommendations").json()["data"]["items"])
+    assert todo["unknown_stock"] == client.get("/api/v1/stock", params={"status": "UNKNOWN"}).json()["meta"]["total"]
+
+
+def test_todo_empty_hides_zero_lines(client, world):
+    """할 일이 없으면 빈 목록."""
+    assert get_todo(client, "admin@a.test") == []

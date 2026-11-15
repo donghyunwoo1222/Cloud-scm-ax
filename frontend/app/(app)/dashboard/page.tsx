@@ -1,18 +1,16 @@
 "use client"; // 서버에서 불러온 요약을 상태로 그리는 화면이라 브라우저에서 실행
 
 import Link from "next/link"; // 발주·재고 화면 링크
-import { ReactNode, useEffect, useState } from "react"; // 카드 안 내용 타입, 처음 한 번 실행, 상태
+import { useEffect, useState } from "react"; // 처음 한 번 실행, 상태
 
 import { api, apiList } from "../../lib/api"; // 공통 API 호출 함수 (한 건, 목록)
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
-import { useMe } from "../../lib/me"; // 내 역할 (세 번째 카드가 역할마다 다르다)
 import { seoulToday } from "../../lib/movement-form"; // 이력 링크에 서울 기준 오늘을 쓴다
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
-import styles from "./page.module.css"; // 입고 카드의 전체·세부 목록 링크
+import styles from "./page.module.css"; // 오늘 할 일·재고 점검 모양
 
 // GET /api/v1/dashboard 응답 (backend/app/services/dashboard.py)
 type UnitTotals = Record<string, number>; // 단위별 합계
-const unitTotals = (totals: UnitTotals) => Object.entries(totals).map(([unit, qty]) => qty.toLocaleString("ko-KR") + unit).join(" · ") || "없음";
 
 type Dashboard = {
   purchase_orders: {
@@ -23,6 +21,16 @@ type Dashboard = {
   dead_stock: { days: number; count: number; items: DeadItem[] }; // 장기재고 (기준 일수, 전체 건수, 화면에 보일 줄)
   shortage: { count: number; items: ShortItem[] }; // 부족 품목 (전체 건수, 화면에 보일 20줄)
   overstock: { days: number; count: number; items: OverItem[] }; // 과잉재고 (기준 일수 90, 전체 건수, 20줄)
+  todo?: { type: string; count: number; href: string }[]; // 오늘 할 일 (서버가 순서·역할·0건 숨김을 정해 보낸다, 이전 응답에는 없을 수 있다)
+};
+// 할 일 종류별 행동 문장(건수를 넣어 만든다)과 이동 버튼 이름. 현황("승인할 발주서 1건")이 아니라 할 일("발주서 1건 승인하기")로 쓴다
+const TODO_TEXT: Record<string, [(n: string) => string, string]> = {
+  overdue_receipts: [(n) => `납기 지난 발주서 ${n}건 입고 확인하기`, "지연 발주 열기"],
+  review_recommendations: [(n) => `발주 추천 ${n}품목 검토하기`, "추천 보기"],
+  approve_orders: [(n) => `발주서 ${n}건 승인하기`, "승인할 발주 열기"],
+  send_orders: [(n) => `승인된 발주서 ${n}건 공급업체에 보내기`, "보낼 발주 열기"],
+  due_today_receipts: [(n) => `오늘 들어올 발주 ${n}건 입고 처리하기`, "오늘 입고 열기"],
+  unknown_stock: [(n) => `판단 불가 품목 ${n}개 확인하기`, "재고 현황 열기"],
 };
 type ShortItem = { product_id: number; sku: string; name: string; unit: string; current_stock: number; available: number; reorder_point: number; recommended_quantity: number };
 type OverItem = { product_id: number; sku: string; name: string; unit: string; current_stock: number; avg_daily_sales: number };
@@ -35,27 +43,8 @@ type DeadItem = { product_id: number; sku: string; name: string; unit: string; c
 const stockRatio = (item: ShortItem) => item.reorder_point > 0 ? item.available / item.reorder_point : null;
 const SHORTAGE_PREVIEW_LIMIT = 5; // 첫 화면에 보여 줄 부족 품목 수
 
-// 숫자 카드 하나: 이름 · 큰 숫자 · 보조 글자. href 가 있으면 카드 전체가 링크(사용자 결정)이고 맨 아래에 "… 보기" 를 항상 보여 누를 수 있음을 알린다
-function NumberCard({ label, value, sub, href, more }: { label: string; value: string; sub?: ReactNode; href?: string; more?: string }) {
-  const body = (
-    <>
-      <span style={S.kpiLabel}>{label}</span>
-      {/* 카드 이름 (예: 발주 추천) */}
-      <span style={S.kpiValue}>{value}</span>
-      {/* 큰 숫자 (예: 5건) */}
-      {sub && <span style={S.kpiSub}>{sub}</span>}
-      {/* 보조 설명 (예: 입고 예정 155개) */}
-      {more && <span style={S.kpiMore}>{more}</span>}{/* 카드마다 어디로 가는지 다른 문구로 알린다 */}
-    </>
-  );
-  return href
-    ? <Link href={href} className="kpi-card" style={S.kpiCard}>{body}</Link> // 누르면 걸러진 목록으로 (테두리 강조는 globals.css 의 .kpi-card)
-    : <div style={S.kpiCard}>{body}</div>; // 이동할 곳이 없는 숫자(이번 달 입출고)는 그냥 상자
-}
-
 // 오늘 할 일에서 시작해 재고 점검과 입출고 이력으로 이어진다.
 export default function Page() {
-  const me = useMe(); // 내 정보 (레이아웃이 로그인을 확인하기 전에는 null)
   const [data, setData] = useState<Dashboard | null>(null); // 불러온 요약 (불러오기 전 null)
   const [error, setError] = useState<unknown>(null); // 불러오기 오류
   const [hasSupplier, setHasSupplier] = useState<boolean | null>(null); // 첫 설정에서 가능한 다음 단계를 찾는다.
@@ -87,12 +76,14 @@ export default function Page() {
   if (error) return <section><h1>대시보드</h1><ErrorText error={error} /></section>; // 오류면 문장만
   if (!data) return <section><h1>대시보드</h1><p>불러오는 중…</p></section>; // 불러오기 전
 
-  const { purchase_orders: po, month, dead_stock: dead, shortage, overstock: over } = data; // 이름 줄이기
+  const { month, dead_stock: dead, shortage, overstock: over } = data; // 이름 줄이기
   // 서버가 보낸 품목 안에서 현재고 0을 먼저, 그다음 재주문점에 가장 못 미치는 순으로 보여 준다.
   const shortageItems = [...shortage.items].sort((a, b) =>
     Number(b.current_stock === 0) - Number(a.current_stock === 0) || (stockRatio(a) ?? 1) - (stockRatio(b) ?? 1)
   ).slice(0, SHORTAGE_PREVIEW_LIMIT);
   const won = (n: number) => n.toLocaleString(); // 천 단위 쉼표 (예: 1497 → "1,497")
+  const [first, ...rest] = data.todo ?? []; // 서버 순서의 1번이 "먼저 할 일", 나머지는 2번부터 (이전 응답에 todo 가 없으면 빈 목록)
+  const todoText = (t: { type: string; count: number }) => TODO_TEXT[t.type] ?? [(n: string) => `${t.type} ${n}건`, "열기"]; // 모르는 종류도 깨지지 않게
   const today = seoulToday();
   const stockLimit = showMoreStock ? 20 : 3;
   const overItems = over.items.slice(0, stockLimit);
@@ -114,30 +105,37 @@ export default function Page() {
       )}
       {/* 품목이 하나도 없는 회사: 무엇부터 할지 안내 (빈 화면 대신 다음 행동) */}
 
-      <h2 style={S.sectionTitle}>오늘 확인할 일</h2>
-      <div role="group" aria-label="오늘 확인할 일" style={S.kpiGrid}>
-        <div className={`kpi-card ${styles.receiptCard}`} style={S.kpiCard}>
-          <span style={S.kpiLabel}>입고 대기 발주</span>
-          {po.due_today != null && po.overdue != null && (
-            <div className={styles.receiptLinks}>
-              <Link href="/purchase-orders?status=ORDERED&receipt_due=TODAY"><span>오늘</span>{" "}<strong>{won(po.due_today)}건</strong></Link>
-              <Link href="/purchase-orders?status=ORDERED&receipt_due=OVERDUE"
-                className={po.overdue > 0 ? styles.lateReceipts : undefined}><span>지연</span>{" "}<strong>{won(po.overdue)}건</strong></Link>
-            </div>
-          )}
-          <span style={S.kpiSub}>전체 {won(po.ordered)}건 · 입고 예정 {unitTotals(po.incoming_by_unit)}</span>
-          <Link className={styles.allReceipts} href="/purchase-orders?status=ORDERED" style={S.kpiMore}>입고 대기 발주 보기</Link>
+      <h2 style={S.sectionTitle}>오늘 할 일</h2>
+      {/* 순서·역할별 노출·0건 숨김은 서버(todo)가 정한다. 화면은 1번을 크게, 나머지를 번호 순서로 그린다 */}
+      {!first ? (
+        <div className={styles.firstTodo}>
+          <span className={styles.todoText}>
+            <strong className={styles.todoTitle}>오늘 할 일이 없습니다</strong>
+            {/* 품목이 있을 때만 재고 현황으로 안내한다 (품목 0개면 위 "첫 재고 설정"이 다음 행동, 개수를 모르면 숨김) */}
+            {productTotal ? <span style={S.hint}>아래 재고 현황에서 부족·과잉 품목을 살펴볼 수 있습니다.</span> : null}
+          </span>
         </div>
-        <NumberCard label="발주 검토" value={`${won(shortage.count)}품목`} href="/recommendations" more="발주 추천 보기" />
-        {me?.role === "ADMIN" && (
-          <NumberCard label="승인할 발주" value={`${won(po.draft)}건`} sub="승인 전 초안" href="/purchase-orders?status=DRAFT" more="승인할 발주 보기" />
-        )}
-        {/* 3-관리자: 내가 승인해야 할 발주서 */}
-        {me?.role === "STAFF" && (
-          <NumberCard label="보낼 발주" value={`${won(po.approved)}건`} sub="공급업체에 보낼 승인 발주서" href="/purchase-orders?status=APPROVED" more="보낼 발주 보기" />
-        )}
-        {/* 3-담당자: 승인이 나서 공급업체에 보낼 발주서 */}
-      </div>
+      ) : (
+        <>
+          {/* 고를 필요 없이 바로 하게 1번만 크게 보인다. 지연이면 붉은 테두리에 "지연" 글자도 붙여 색에만 기대지 않는다 */}
+          <Link href={first.href} className={`${styles.firstTodo} ${first.type === "overdue_receipts" ? styles.urgent : ""}`}>
+            <span className={styles.todoText}>
+              <span className={styles.todoKicker}>먼저 할 일{first.type === "overdue_receipts" && <strong> · 지연</strong>}</span>
+              <strong className={styles.todoTitle}>{todoText(first)[0](won(first.count))}</strong>
+            </span>
+            <span style={S.linkButton}>{todoText(first)[1]}</span>
+          </Link>
+          {rest.length > 0 && (
+            <ol className={styles.todoList} start={2} aria-label="그다음 할 일">
+              {rest.map((t) => (
+                <li key={t.type} className={t.type === "unknown_stock" ? styles.todoQuiet : undefined}>
+                  <Link href={t.href}><span>{todoText(t)[0](won(t.count))}</span><span className={styles.todoGo}>{todoText(t)[1]} →</span></Link>
+                </li>
+              ))}
+            </ol>
+          )}
+        </>
+      )}
 
       {/* 항목마다 흰 카드 한 장. 카드 안 제목(h2)은 위 여백을 없앤다 */}
       <div style={S.sectionCard}>
