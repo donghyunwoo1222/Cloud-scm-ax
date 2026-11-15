@@ -63,11 +63,31 @@ def test_ack_comes_before_handle(calls):
     assert calls == [("ack", "env-1"), ("handle", "Ev1")]
 
 
-@pytest.mark.parametrize("kind", ["interactive", "slash_commands"])
-def test_other_types_only_ack(calls, logs, kind):
-    slack_worker.on_request(FakeSocketClient(calls), req(kind))
-    assert calls == [("ack", "env-1")]  # handle_event 는 부르지 않는다
-    assert f"reason=TYPE_{kind}" in logs()
+def test_other_types_only_ack(calls, logs):
+    slack_worker.on_request(FakeSocketClient(calls), req("slash_commands"))
+    assert calls == [("ack", "env-1")]  # handle_event·handle_action 은 부르지 않는다
+    assert "reason=TYPE_slash_commands" in logs()
+
+
+def test_interactive_goes_to_handle_action_after_ack(monkeypatch, calls):
+    monkeypatch.setattr(slack_worker.slack_events, "handle_action", lambda payload, at: calls.append(("action", payload["type"])))
+    slack_worker.on_request(FakeSocketClient(calls), SocketModeRequest(type="interactive", envelope_id="env-2", payload={"type": "block_actions"}))
+    assert calls == [("ack", "env-2"), ("action", "block_actions")]  # ack 가 처리보다 먼저, handle_event 는 부르지 않는다
+
+
+def test_events_api_does_not_call_handle_action(monkeypatch, calls):
+    monkeypatch.setattr(slack_worker.slack_events, "handle_action", lambda payload, at: calls.append(("action",)))
+    slack_worker.on_request(FakeSocketClient(calls), req())
+    assert ("action",) not in calls
+
+
+def test_action_error_does_not_escape(monkeypatch, calls, logs):
+    def boom(payload, at):
+        raise RuntimeError(MESSAGE)
+
+    monkeypatch.setattr(slack_worker.slack_events, "handle_action", boom)
+    slack_worker.on_request(FakeSocketClient(calls), SocketModeRequest(type="interactive", envelope_id="env-3", payload={}))
+    assert calls == [("ack", "env-3")] and "HANDLER_ERROR error=RuntimeError" in logs() and MESSAGE not in logs()
 
 
 def test_handler_error_does_not_escape(monkeypatch, calls, logs):

@@ -15,7 +15,7 @@ from sqlalchemy import select  # 행 조회
 
 from app.config import settings  # SLACK_* 설정
 from app.models import IdempotencyKey, SlackLink  # 멱등 키 표, 슬랙 연결 표
-from app.services import slack_client, slack_events, slack_link  # 검사 대상
+from app.services import chat_order, slack_client, slack_events, slack_link  # 검사 대상
 from tests.helpers import FakeSlackClient, login_as  # 가짜 슬랙, 공통 로그인
 
 URL = "/api/v1/slack/events"
@@ -174,10 +174,10 @@ def test_linked_other_message_and_duplicate(client, session, world, slack_on, fa
     link(client, session, world)
     post(client, dm("A 품목 300개", event_id="Ev2"))
     post(client, dm("A 품목 300개", event_id="Ev2"))  # 재전송
-    assert fake.sent[1:] == [("D1", slack_events.NOT_READY, None)]
+    assert fake.sent[1:] == [("D1", chat_order.MSG_NO_ITEMS, None)]  # 연결된 사용자의 글은 채팅 발주로 간다(추천 품목이 없는 회사)
     keys = session.scalars(select(IdempotencyKey).where(IdempotencyKey.idempotency_key == "Ev2")).all()
     assert [(k.company_id, k.endpoint) for k in keys] == [(world["a_company"].id, "slack:event")]  # 회사는 연결 행에서
-    assert outcomes()[-2:] == ["NOT_READY", "DUPLICATE"]
+    assert outcomes()[-2:] == ["ORDER_NO_PROPOSAL", "DUPLICATE"]
 
 
 def test_linked_user_link_message(client, session, world, slack_on, fake):
@@ -194,7 +194,7 @@ def test_same_event_id_in_two_companies_is_separate(client, session, world, slac
     post(client, dm("안녕", event_id="EvSame", user="U1"))
     slack_events.reset()
     post(client, dm("안녕", event_id="EvSame", user="U2"))
-    assert [s[1] for s in fake.sent[-2:]] == [slack_events.NOT_READY, slack_events.NOT_READY]
+    assert [s[1] for s in fake.sent[-2:]] == [chat_order.MSG_NO_ITEMS, chat_order.MSG_NO_ITEMS]
 
 
 def test_reply_in_thread(client, world, slack_on, fake):

@@ -1,4 +1,4 @@
-"""슬랙 Events API 받는 문 (#197 PR 3, 배포용 HTTP 경로). 로그인 쿠키 대신 슬랙 서명이 유일한 열쇠다.
+"""슬랙 Events API·버튼(interactions) 받는 문 (#197 PR 3·5b, 배포용 HTTP 경로). 로그인 쿠키 대신 슬랙 서명이 유일한 열쇠다.
 
 순서: 꺼져 있으면 404 → 원문 본문으로 서명 검증(실패 401) → url_verification 이면 challenge 반환
       → 그 밖에는 처리를 뒤 작업(BackgroundTasks)에 넣고 바로 200. 슬랙은 3초 안에 답이 없으면 다시 보낸다.
@@ -6,6 +6,7 @@
 
 import json  # 본문 해석 (서명 검증이 끝난 뒤에만)
 import logging  # 서명 실패 한 줄
+from urllib.parse import parse_qs  # 버튼 본문 payload=… 폼 해석
 
 from fastapi import APIRouter, BackgroundTasks, Request  # 라우터, 응답 뒤 작업, 원문 본문
 
@@ -34,4 +35,23 @@ async def receive_event(request: Request, background: BackgroundTasks) -> dict:
     if envelope.get("type") == "url_verification":  # 슬랙 앱 설정에서 주소를 등록할 때 한 번
         return {"challenge": envelope.get("challenge")}
     background.add_task(slack_events.handle_event, envelope, slack_link.now())  # 응답(200)을 보낸 뒤 실행
+    return {}
+
+
+@router.post("/interactions")
+async def receive_interaction(request: Request, background: BackgroundTasks) -> dict:
+    """버튼. 본문은 application/x-www-form-urlencoded 의 payload 칸(JSON). 서명 검증 뒤 바로 200 을 주고 처리는 뒤 작업(별도 DB 세션)에서 한다."""
+    if not slack_link.enabled() or not settings.slack_signing_secret.get_secret_value():
+        raise AppError(404, "NOT_FOUND", "요청한 경로를 찾을 수 없습니다.")
+    body = await request.body()  # 서명은 파싱 전 원문으로 계산한다
+    if not slack_events.verify(body, request.headers):
+        log.warning("slack_action outcome=BAD_SIGNATURE")
+        raise AppError(401, "SLACK_BAD_SIGNATURE", "서명이 올바르지 않습니다.")
+    try:
+        payload = json.loads(parse_qs(body.decode()).get("payload", [""])[0])
+    except ValueError:  # 폼이 깨졌거나 payload 가 없거나 JSON 이 아님
+        raise AppError(400, "BAD_REQUEST", "본문을 읽을 수 없습니다.") from None
+    if not isinstance(payload, dict):
+        raise AppError(400, "BAD_REQUEST", "본문을 읽을 수 없습니다.")
+    background.add_task(slack_events.handle_action, payload, slack_link.now())  # 팀·사용자 검사는 handle_action 이 한다
     return {}

@@ -84,23 +84,25 @@ def test_message_box_draft_escape_and_link():
         item(product_sku="WIP-100", draft={"po_number": "PO-2026-0012"}),
     ], TODAY, "https://scm.example.com/")
     assert f"({TODAY.month}월 {TODAY.day}일)" in msg
-    assert "• A&lt;&amp;&gt;B (WTR-500) — 3 BOX(300개) 추천 · 지금 쓸 수 있는 재고 50개" in msg
+    assert "1. A&lt;&amp;&gt;B (WTR-500) — 3 BOX(300개) 추천 · 지금 쓸 수 있는 재고 50개" in msg
     assert "— 160개 추천" in msg and "작성 중 발주서 PO-2026-0012에 있어요" in msg
-    assert msg.endswith("자세한 이유: https://scm.example.com/recommendations")
+    assert "\n2. 생수 500ml (WIP-100)" in msg  # 줄 번호가 이어진다
+    assert msg.endswith("자세한 이유: https://scm.example.com/recommendations\n답장 예: 1번 3박스")  # 링크 다음 마지막 줄이 답장 안내
 
 
 def test_message_overflow_shows_rest():
     msg = slack_digest.build_message([item(product_sku=f"S{i}") for i in range(12)], TODAY, "https://scm.example.com")
-    assert msg.count("• ") == 10
-    assert msg.endswith("외 2개는 웹에서 확인해 주세요: https://scm.example.com/recommendations")
+    assert [line.split(".")[0] for line in msg.split("\n")[3:13]] == [str(n) for n in range(1, 11)]  # 1. ~ 10.
+    assert "11." not in msg
+    assert msg.endswith("외 2개는 웹에서 확인해 주세요: https://scm.example.com/recommendations\n답장 예: 1번 3박스")
 
 
 @pytest.mark.parametrize("base", ["", "http://localhost:3000", "javascript:alert(1)"])
 def test_message_without_https_has_no_link(base):
     msg = slack_digest.build_message([item()], TODAY, base)
-    assert "http" not in msg.split("\n")[-1] and msg.endswith("웹의 '발주 추천' 화면에서 볼 수 있어요.")
+    assert "http" not in msg.split("\n")[-2] and msg.endswith("웹의 '발주 추천' 화면에서 볼 수 있어요.\n답장 예: 1번 3박스")
     over = slack_digest.build_message([item(product_sku=f"S{i}") for i in range(11)], TODAY, base)
-    assert over.endswith("외 1개는 웹의 '발주 추천' 화면에서 확인해 주세요.")
+    assert over.endswith("외 1개는 웹의 '발주 추천' 화면에서 확인해 주세요.\n답장 예: 1번 3박스")
 
 
 # ----- 보내기 -----
