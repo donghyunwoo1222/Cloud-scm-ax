@@ -72,7 +72,8 @@ def run():
 def item(**over) -> dict:
     """웹 추천 API items 한 줄 모양 (메시지에 쓰는 칸만)."""
     base = {"product_name": "생수 500ml", "product_sku": "WTR-500", "unit": "개", "unit_factor": 1, "order_unit": "개",
-            "recommended_order_units": 160, "recommended_arrival_quantity": 160, "available": 50, "draft": None}
+            "recommended_order_units": 160, "recommended_arrival_quantity": 160, "available": 50, "draft": None,
+            "color": None, "size": None, "spec": None}
     return base | over
 
 
@@ -87,22 +88,34 @@ def test_message_box_draft_escape_and_link():
     assert "1. A&lt;&amp;&gt;B (WTR-500) — 3 BOX(300개) 추천 · 지금 쓸 수 있는 재고 50개" in msg
     assert "— 160개 추천" in msg and "작성 중 발주서 PO-2026-0012에 있어요" in msg
     assert "\n2. 생수 500ml (WIP-100)" in msg  # 줄 번호가 이어진다
-    assert msg.endswith("자세한 이유: https://scm.example.com/recommendations\n답장 예: 1번 3박스")  # 링크 다음 마지막 줄이 답장 안내
+    assert msg.endswith("자세한 이유: https://scm.example.com/recommendations\n답장 예: 1번 3박스 (더 보려면 '도움말')")  # 링크 다음 마지막 줄이 답장 안내
 
 
 def test_message_overflow_shows_rest():
     msg = slack_digest.build_message([item(product_sku=f"S{i}") for i in range(12)], TODAY, "https://scm.example.com")
     assert [line.split(".")[0] for line in msg.split("\n")[3:13]] == [str(n) for n in range(1, 11)]  # 1. ~ 10.
     assert "11." not in msg
-    assert msg.endswith("외 2개는 웹에서 확인해 주세요: https://scm.example.com/recommendations\n답장 예: 1번 3박스")
+    assert msg.endswith("외 2개는 웹에서 확인해 주세요: https://scm.example.com/recommendations\n답장 예: 1번 3박스 (더 보려면 '도움말')")
 
 
 @pytest.mark.parametrize("base", ["", "http://localhost:3000", "javascript:alert(1)"])
 def test_message_without_https_has_no_link(base):
     msg = slack_digest.build_message([item()], TODAY, base)
-    assert "http" not in msg.split("\n")[-2] and msg.endswith("웹의 '발주 추천' 화면에서 볼 수 있어요.\n답장 예: 1번 3박스")
+    assert "http" not in msg.split("\n")[-2] and msg.endswith("웹의 '발주 추천' 화면에서 볼 수 있어요.\n답장 예: 1번 3박스 (더 보려면 '도움말')")
     over = slack_digest.build_message([item(product_sku=f"S{i}") for i in range(11)], TODAY, base)
-    assert over.endswith("외 1개는 웹의 '발주 추천' 화면에서 확인해 주세요.\n답장 예: 1번 3박스")
+    assert over.endswith("외 1개는 웹의 '발주 추천' 화면에서 확인해 주세요.\n답장 예: 1번 3박스 (더 보려면 '도움말')")
+
+
+def test_message_shows_options_and_escapes_them():
+    msg = slack_digest.build_message([
+        item(product_name="기본 티셔츠", product_sku="TS-BK-M", color="검정", size="M"),
+        item(product_name="기본 티셔츠", product_sku="TS-WH-M", color="흰색", size="M"),  # 이름이 같아도 옵션으로 구분
+        item(product_name="물티슈", product_sku="WIP-1", spec="30<롤>&"),
+        item(product_name="생수", product_sku="WTR-1"),  # 옵션 없음: 옵션 부분 생략
+    ], TODAY, "https://scm.example.com/")
+    assert "1. 기본 티셔츠 · 검정 / M (TS-BK-M) — " in msg and "2. 기본 티셔츠 · 흰색 / M (TS-WH-M) — " in msg
+    assert "3. 물티슈 · 30&lt;롤&gt;&amp; (WIP-1) — " in msg and "<롤>" not in msg
+    assert "4. 생수 (WTR-1) — " in msg and "·" not in msg.split("\n4. ")[1].split(" — ")[0]
 
 
 # ----- 보내기 -----

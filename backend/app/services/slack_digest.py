@@ -22,6 +22,7 @@ from app.db import (  # 추천 읽기(한 시점)·키 잡기 전용 세션 (테
 )
 from app.models import SlackLink, User  # 슬랙 연결, 사용자(활성 여부)
 from app.services import idempotency, slack_client, slack_link  # 중복 막기, 보내기, 켜짐 여부
+from app.services.products import product_label  # 품목 표시(옵션 포함)
 from app.services.recommendations import list_recommendations  # 웹 추천 화면과 같은 계산
 
 log = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ ENDPOINT = "slack:digest"  # idempotency_keys 의 endpoint 칸 (웹 경로·slac
 MAX_LINES = 10  # 메시지에 넣는 최대 품목 수. 넘치면 "외 N개"로 웹에 안내
 WEB_PATH = "/recommendations"  # 웹 추천 화면 (frontend/app/(app)/recommendations, (app) 은 주소에 안 붙는 묶음)
 NO_LINK = "웹의 '발주 추천' 화면"
-REPLY_HINT = "답장 예: 1번 3박스"  # 이 DM 에 답장하면 발주 초안 요약이 온다(#197 PR 5b)
+REPLY_HINT = "답장 예: 1번 3박스 (더 보려면 '도움말')"  # 이 DM 에 답장하면 발주 초안 요약이 온다(#197 PR 5b)
 
 
 def _escape(value: str) -> str:
@@ -47,7 +48,8 @@ def _quantity(item: dict) -> str:
 
 
 def _line(n: int, item: dict) -> str:  # n: 줄 번호(1부터). 답장의 "1번"이 가리키는 번호와 같은 순서다
-    text = (f"{n}. {_escape(item['product_name'])} ({_escape(item['product_sku'])}) — {_quantity(item)} 추천"
+    label = product_label(item["product_name"], item["product_sku"], item["color"], item["size"], item["spec"])  # 옵션 포함 공용 표시
+    text = (f"{n}. {_escape(label)} — {_quantity(item)} 추천"
             f" · 지금 쓸 수 있는 재고 {item['available']:,}{_escape(item['unit'])}")
     if item["draft"]:  # 아직 주문 전이라 추천에 남는다. 이미 담았다는 것만 알린다
         text += f" · 작성 중 발주서 {_escape(item['draft']['po_number'])}에 있어요"

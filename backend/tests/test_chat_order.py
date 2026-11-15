@@ -100,7 +100,7 @@ def lines_of(token):
     ([L(2, 480)], {"one": 480}, None),  # 상한 경계: 추천 160 × 3 = 480 은 통과
     ([L(2, 481)], {}, "추천 수량의 3배"),  # 한 개 넘으면 막힘
     ([L(1, 7)], {}, "추천 수량의 3배"),  # 박스: 추천 2 × 3 = 6, 7박스는 막힘
-    ([L(1, 250, "base")], {}, "나누어떨어지지"),  # 250개 ÷ 100 = 2.5박스
+    ([L(1, 250, "base")], {}, "1번 BOX 이름 (BOX): 박스 품목이에요. 3박스처럼 박스 수로 보내 주세요"),  # 250개 ÷ 100 = 2.5박스, 어느 품목인지도 보인다
     ([L(1, 0)], {}, "수량이 올바르지"),
     ([L(1, -3)], {}, "수량이 올바르지"),
     ([L(0), L(3), L(99)], {}, "목록에 없는 번호"),  # 없는 번호
@@ -328,7 +328,7 @@ def test_llm_receives_only_allowed_fields(session, world, shop, ai):
     _, user = ai.calls[0]
     data = json.loads(user.split("\n", 1)[1].rsplit("\n", 1)[0])  # 구분자 사이 JSON
     assert set(data) == {"message", "items"}
-    assert all(set(i) == {"n", "name", "sku", "order_unit", "unit_factor", "recommended_units"} for i in data["items"])
+    assert all(set(i) == {"n", "name", "color", "size", "spec", "sku", "order_unit", "unit_factor", "recommended_units"} for i in data["items"])
     for secret in ("A업체", "staff@a.test", "a-STAFF", "회사A", "1000"):  # 공급업체·사용자·회사·단가는 보내지 않는다
         assert secret not in user
 
@@ -418,3 +418,93 @@ def test_naive_time_is_rejected(session, world, shop, ai):
     with pytest.raises(ValueError):
         co.confirm(session, user.company_id, user.id, token, TODAY, naive)
     assert not ai.calls[1:] and not orders(session, world)
+
+
+# ----- 표시 개선: 결과 문구·옵션·도움말 (#197 후속) -----
+
+def option_product(session, world, sku, name, color=None, size=None, spec=None, **fields):
+    """이름·옵션을 지정한 추천 대상 품목 (add_product 가 이름을 정해 버려서 만든 뒤 바꾼다)."""
+    p = stock_50_sold_300(session, world, sku, color=color, size=size, spec=spec, **fields)
+    p.name = name
+    session.commit()  # propose 가 DB 연결을 돌려주며 rollback 하므로 확정해 둬야 남는다
+    return p
+
+
+def test_result_lists_items_without_price_or_supplier(session, world, shop, ai):
+    result = confirm(session, world, propose(session, world, ai, L(1), L(2)).token)
+    [po] = orders(session, world)
+    assert result.outcome == "OK" and result.po_ids == [po.id]
+    assert result.text == "\n".join([
+        "발주 초안을 만들었어요. 승인된 발주가 아니라 초안이에요.", po.po_number,
+        f"• {shop['box'].name} (BOX) — 2 박스(200개)", f"• {shop['one'].name} (ONE) — 160개",  # 박스는 요약과 같은 표기
+        "승인과 발주는 웹에서 해 주세요."])
+    for secret in ("A업체", "1000", "90,000", "90000", "a.test"):  # 단가·공급업체명·이메일은 없다
+        assert secret not in result.text
+
+
+def test_result_groups_lines_by_purchase_order(session, world, shop, ai):
+    from app.models import Supplier
+
+    other = Supplier(company_id=world["a_company"].id, name="C업체", lead_time_days=5)
+    session.add(other)
+    session.flush()
+    third = stock_50_sold_300(session, world, "THIRD", supplier=other)  # 공급업체가 다른 품목
+    session.commit()
+    result = confirm(session, world, propose(session, world, ai, L(1), L(2), L(3)).token)  # 번호 1 = 최신 품목(THIRD)
+    pos = sorted(orders(session, world), key=lambda o: o.id)
+    assert len(pos) == 2
+    lines = result.text.split("\n")
+    by_po = {po.po_number: [] for po in pos}
+    current = None
+    for line in lines:
+        if line in by_po:
+            current = line
+        elif line.startswith("• "):
+            by_po[current].append(line)
+    sizes = sorted(len(v) for v in by_po.values())
+    assert sizes == [1, 2]  # 같은 공급업체끼리 한 발주서 아래에 묶인다
+    [solo] = [v for v in by_po.values() if len(v) == 1]
+    assert solo == [f"• {third.name} (THIRD) — 160개"]
+    assert "C업체" not in result.text and "A업체" not in result.text
+
+
+def test_result_keeps_every_line_for_20_items(session, world, shop, ai):
+    for i in range(18):
+        stock_50_sold_300(session, world, f"LONG{i}")
+    session.commit()
+    result = confirm(session, world, propose(session, world, ai, *[L(n) for n in range(1, 21)]).token)
+    assert result.text.count("\n• ") == 20  # 줄이 빠지지 않는다 (품목 최대 20)
+    for i in range(18):
+        assert f"(LONG{i})" in result.text
+
+
+def test_option_label_in_summary_and_result(session, world, shop, ai):
+    option_product(session, world, "TS-BK-M", "기본 티셔츠", color="검정", size="M")
+    option_product(session, world, "WIP-30", "물티슈", spec="30롤")
+    reply = propose(session, world, ai, L(1), L(2), L(3))  # 번호: 1 = WIP-30, 2 = TS-BK-M, 3 = BOX
+    assert "• 물티슈 · 30롤 (WIP-30) — " in reply.text
+    assert "• 기본 티셔츠 · 검정 / M (TS-BK-M) — " in reply.text
+    assert f"• {shop['box'].name} (BOX) — " in reply.text  # 옵션이 없으면 옵션 부분 생략
+    result = confirm(session, world, reply.token)
+    assert "• 기본 티셔츠 · 검정 / M (TS-BK-M) — 160개" in result.text and "• 물티슈 · 30롤 (WIP-30) — 160개" in result.text
+
+
+def test_llm_candidates_include_options_but_not_price_or_stock(session, world, shop, ai):
+    option_product(session, world, "TS-BK-M", "기본 티셔츠", color="검정", size="M")
+    propose(session, world, ai, L(1), text="검정 M 티셔츠 3개")
+    _, user = ai.calls[0]
+    data = json.loads(user.split("\n", 1)[1].rsplit("\n", 1)[0])
+    first = data["items"][0]
+    assert (first["name"], first["color"], first["size"], first["spec"]) == ("기본 티셔츠", "검정", "M", None)
+    for banned in ("supplier", "current_stock", "available", "unit_cost", "unit_price", "A업체"):
+        assert banned not in user
+
+
+def test_same_name_different_options_are_distinguishable(session, world, shop, ai):
+    black = option_product(session, world, "TS-BK-M", "기본 티셔츠", color="검정", size="M")
+    option_product(session, world, "TS-WH-M", "기본 티셔츠", color="흰색", size="M")
+    reply = propose(session, world, ai, L(1), L(2))
+    assert "• 기본 티셔츠 · 흰색 / M (TS-WH-M)" in reply.text and "• 기본 티셔츠 · 검정 / M (TS-BK-M)" in reply.text
+    confirm(session, world, propose(session, world, ai, L(2)).token)  # 검정(번호 2)을 먼저 초안에 담는다
+    again = propose(session, world, ai, L(2))  # 같은 품목을 다시 → 이미 작성 중. 어느 품목인지 줄에 나온다
+    assert f"2번 기본 티셔츠 · 검정 / M ({black.sku}): 이미 작성 중 발주서에 있어요" in again.text

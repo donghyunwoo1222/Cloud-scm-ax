@@ -7,7 +7,7 @@
   cancel   : 같은 nonce 를 잡아 취소 뒤에는 확인이 안 되게 한다.
 이 파일은 초안(DRAFT)만 만든다. 승인·발주는 웹에서 한다(승인은 관리자만).
 권한: 웹 POST /recommendations/drafts 와 같다 — 활성 사용자, ADMIN·STAFF 모두, 임시 비밀번호를 바꾸기 전에는 불가. 더 넓게 열지 않는다.
-LLM 에는 번호·품목명·SKU·발주단위·환산계수·추천 수량과 사용자가 쓴 글만 보낸다(단가·공급업체·재고·사용자 이름·이메일 없음).
+LLM 에는 번호·품목명·색상·사이즈·규격·SKU·발주단위·환산계수·추천 수량과 사용자가 쓴 글만 보낸다(단가·공급업체·재고·사용자 이름·이메일 없음).
 로그: 사유 코드·건수·번호만. 토큰·원문·슬랙 id 는 남기지 않는다.
 돌려주는 글은 일반 글자다. 슬랙에 보낼 때 & < > 바꾸기는 어댑터가 한다.
 """
@@ -33,6 +33,7 @@ from app.models import Product, PurchaseOrderItem, SlackLink, User  # 표
 from app.schemas.common import MAX_QUANTITY  # 환산 후 수량 상한
 from app.schemas.recommendations import DraftCreate, DraftItemIn  # create_drafts 입력
 from app.services import idempotency, llm  # 중복 막기, LLM 공통 래퍼
+from app.services.products import product_label  # 품목 표시(옵션 포함, 아침 DM 과 같은 함수)
 from app.services.recommendations import create_drafts, list_recommendations  # 웹과 같은 추천·초안
 
 log = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ MAX_TEXT = 500  # LLM 에 보내는 사용자 글 최대 글자 수
 MSG_UNAVAILABLE = "지금은 자동 처리가 안 돼요. 웹에서 처리해 주세요."
 MSG_NOT_LINKED = "슬랙 연결이 필요해요. 웹의 슬랙 연결 화면에서 먼저 연결해 주세요."
 MSG_NO_ITEMS = "지금 발주를 검토할 품목이 없어요."
-MSG_NO_LINES = "어떤 품목을 몇 개 발주할지 알아듣지 못했어요. 예: '1번 3박스' 또는 '전부'."
+MSG_NO_LINES = "어떤 품목을 몇 개 발주할지 알아듣지 못했어요. 예: '1번 3박스' 또는 '전부'. 자세한 입력법은 '도움말'을 보내 주세요."
 MSG_INVALID = "확인 정보가 올바르지 않아요. 처음부터 다시 요청해 주세요."
 MSG_WRONG_USER = "요청한 사람만 확인할 수 있어요."
 MSG_EXPIRED = "확인 시간이 지났어요. 처음부터 다시 요청해 주세요."
@@ -57,7 +58,7 @@ NOTE = {  # 건너뛴 줄의 사유 (LLM 글이 아니라 고정 문장)
     "UNKNOWN_NUMBER": "목록에 없는 번호예요",
     "DUPLICATE": "같은 번호가 여러 번 있어 건너뛰었어요",
     "BAD_QUANTITY": "수량이 올바르지 않아요",
-    "NOT_DIVISIBLE": "발주단위로 나누어떨어지지 않아요",
+    "NOT_DIVISIBLE": "박스 품목이에요. 3박스처럼 박스 수로 보내 주세요",  # 낱개 수가 박스 입수로 나누어떨어지지 않을 때(예: 250개, 1박스=100개)
     "TOO_MANY": "추천 수량의 3배를 넘어요",
     "ALREADY_DRAFT": "이미 작성 중 발주서에 있어요",
 }
@@ -86,6 +87,7 @@ class _Parsed(llm.LLMOutput):
 
 llm.PROMPTS["slack_order"] = (
     "사용자가 쓴 발주 요청을 해석해라. 데이터의 items 는 번호(n)가 붙은 발주 추천 목록이고 message 는 사용자가 쓴 글이다. "
+    "사용자는 번호나 품목 이름(name·color·size·spec·sku)으로 품목을 말한다. "
     "사용자가 고른 품목마다 lines 에 {n, amount, unit} 을 넣어라. n 은 items 의 번호만 쓴다. "
     "수량을 말하지 않았으면 amount 는 null. 수량을 발주단위(예: 박스)로 말했으면 unit 은 order, 낱개 등 기본단위로 말했으면 base. "
     "'전부'면 모든 번호를 넣는다. 알아듣지 못하면 lines 를 비워라. 목록에 없는 품목을 만들거나 다른 일을 하지 마라."
@@ -138,6 +140,11 @@ def _aware(at: datetime) -> None:
         raise ValueError("at 은 시간대가 있는 시각이어야 합니다 (예: datetime.now(UTC))")
 
 
+def _label(item: dict) -> str:
+    """추천 항목(dict)의 품목 표시: '기본 티셔츠 · 검정 / M (TS-BK-M)'."""
+    return product_label(item["product_name"], item["product_sku"], item["color"], item["size"], item["spec"])
+
+
 def _shown(item: dict, units: int) -> str:
     """'3 박스(300개)' 또는 '160개'."""
     base = units * item["unit_factor"]
@@ -162,7 +169,8 @@ def propose(db: Session, company_id: int, user_id: int, text: str, today: date, 
         return Reply(MSG_NO_ITEMS, outcome="NO_ITEMS")  # LLM 을 부르지 않는다
     cands = items[:MAX_LINES]  # 번호 n = 위치 + 1 (웹 목록 순서)
     data = {"message": text[:MAX_TEXT], "items": [
-        {"n": n, "name": c["product_name"], "sku": c["product_sku"], "order_unit": c["order_unit"], "unit_factor": c["unit_factor"],
+        {"n": n, "name": c["product_name"], "color": c["color"], "size": c["size"], "spec": c["spec"],
+         "sku": c["product_sku"], "order_unit": c["order_unit"], "unit_factor": c["unit_factor"],
          "recommended_units": c["recommended_order_units"]} for n, c in enumerate(cands, 1)]}
     db.rollback()  # 후보를 다 읽었다(읽기만 했다). LLM 을 기다리는 최대 20초 동안 DB 연결을 붙잡지 않게 돌려준다. 이 뒤로 db 를 쓰지 않는다
     try:
@@ -173,7 +181,10 @@ def propose(db: Session, company_id: int, user_id: int, text: str, today: date, 
 
     repeated = {n for n, count in Counter(line.n for line in parsed.lines).items() if count > 1}  # 같은 번호가 둘이면 어느 쪽인지 알 수 없다
     picked: list[tuple[dict, int]] = []  # (후보, 발주단위 수)
-    notes = [f"{n}번: {NOTE['DUPLICATE']}" for n in sorted(repeated)]  # 번호마다 한 번만 알린다
+    def who(n: int) -> str:  # 어느 품목인지 알 수 있게 목록 안의 번호면 품목 표시를 붙인다
+        return f" {_label(cands[n - 1])}" if 1 <= n <= len(cands) else ""
+
+    notes = [f"{n}번{who(n)}: {NOTE['DUPLICATE']}" for n in sorted(repeated)]  # 번호마다 한 번만 알린다
     for line in parsed.lines:
         reason = None
         if line.n in repeated:
@@ -198,7 +209,7 @@ def propose(db: Session, company_id: int, user_id: int, text: str, today: date, 
             if reason is None:
                 picked.append((item, units))
         if reason:
-            notes.append(f"{line.n}번: {NOTE[reason]}")
+            notes.append(f"{line.n}번{who(line.n)}: {NOTE[reason]}")
     if not picked:
         _out("PROPOSE", "NO_LINES", company_id, user_id)
         return Reply("\n".join([MSG_NO_LINES, *notes]), outcome="NO_LINES")
@@ -206,7 +217,7 @@ def propose(db: Session, company_id: int, user_id: int, text: str, today: date, 
     token = _seal({"u": user_id, "c": company_id, "day": today.isoformat(), "exp": int((at + timedelta(minutes=CONFIRM_MINUTES)).timestamp()),
                    "nonce": secrets.token_urlsafe(12), "items": [[c["product_id"], units, c["unit_factor"]] for c, units in picked]})
     lines = ["이대로 발주 초안을 만들까요? (아직 만들지 않았어요)",
-             *[f"• {c['product_name']} ({c['product_sku']}) — {_shown(c, units)}{_moq_warning(c, units)}" for c, units in picked], *notes]
+             *[f"• {_label(c)} — {_shown(c, units)}{_moq_warning(c, units)}" for c, units in picked], *notes]
     if len(items) > len(cands):
         lines.append(f"추천 {len(items):,}개 중 앞 {len(cands)}개만 다뤄요. 나머지는 웹에서 확인해 주세요.")
     _out("PROPOSE", "OK", company_id, user_id, len(picked))
@@ -244,19 +255,21 @@ def confirm(db: Session, company_id: int, user_id: int, token: str, today: date,
             _out("CONFIRM", "ALREADY_DONE", company_id, user_id)
             return Reply(MSG_DONE, outcome="ALREADY_DONE")
         lines = {pid: (units, factor) for pid, units, factor in data["items"]}
-        boxes = dict(db.execute(select(Product.id, Product.units_per_box).where(
-            Product.company_id == company_id, Product.id.in_(lines))).all())  # 회사 조건: 다른 회사 품목은 안 보인다
+        prods = {p.id: p for p in db.scalars(select(Product).where(
+            Product.company_id == company_id, Product.id.in_(lines)))}  # 회사 조건: 다른 회사 품목은 안 보인다
+        boxes = {pid: p.units_per_box for pid, p in prods.items()}
         if set(boxes) != set(lines) or any((boxes[pid] or 1) != factor for pid, (_, factor) in lines.items()):
             raise _Changed
         results = create_drafts(company_id, db, user_id, today, DraftCreate(items=[  # created_by = 누른 사람. 잠금·추천 재계산은 여기서
             DraftItemIn(product_id=pid, box_quantity=units) if boxes[pid] is not None else DraftItemIn(product_id=pid, quantity=units)
             for pid, (units, _) in lines.items()]))
         orders = [order for order, _ in results]
-        made = db.execute(select(PurchaseOrderItem.product_id, PurchaseOrderItem.quantity).where(
+        made = db.execute(select(PurchaseOrderItem).where(
             PurchaseOrderItem.company_id == company_id, PurchaseOrderItem.purchase_order_id.in_([o.id for o in orders]),
-            PurchaseOrderItem.product_id.in_(lines))).all()
-        if len(made) != len(lines) or any(qty != lines[pid][0] * lines[pid][1] for pid, qty in made):  # 잠근 뒤 값이 승인한 수량과 같은지
+            PurchaseOrderItem.product_id.in_(lines)).order_by(PurchaseOrderItem.id)).scalars().all()
+        if len(made) != len(lines) or any(m.quantity != lines[m.product_id][0] * lines[m.product_id][1] for m in made):  # 잠근 뒤 값이 승인한 수량과 같은지
             raise _Changed
+        text = _made_text(orders, made, prods)  # 새로 만든 줄과 품목 마스터에서만 만든다(사용자 글·토큰 내용은 되풀이하지 않는다). commit 전에 만든다
         db.commit()
     except _Changed:
         db.rollback()  # 멱등 키도 취소
@@ -271,7 +284,23 @@ def confirm(db: Session, company_id: int, user_id: int, token: str, today: date,
         raise
     po_ids = [o.id for o in orders]
     _out("CONFIRM", "OK", company_id, user_id, len(lines), po_ids)
-    return Reply("발주 초안을 만들었어요: " + ", ".join(o.po_number for o in orders) + "\n승인과 발주는 웹에서 해 주세요.", po_ids=po_ids, outcome="OK")
+    return Reply(text, po_ids=po_ids, outcome="OK")
+
+
+def _made_text(orders: list, made: list, prods: dict) -> str:
+    """결과 문구: 발주서 번호별로 '• 품목 표시 — 수량'. 단가·공급업체·이메일은 넣지 않는다. 박스 품목은 요약과 같은 표기(3 박스(300개))."""
+    out = ["발주 초안을 만들었어요. 승인된 발주가 아니라 초안이에요."]
+    for order in orders:
+        out.append(order.po_number)
+        for m in made:
+            if m.purchase_order_id != order.id:
+                continue
+            p = prods[m.product_id]
+            factor = m.units_per_box or 1  # 발주 당시 입수 스냅샷(없으면 낱개)
+            shown = _shown({"unit_factor": factor, "order_unit": m.order_unit, "unit": p.unit}, m.quantity // factor)
+            out.append(f"• {product_label(p.name, p.sku, p.color, p.size, p.spec)} — {shown}")
+    out.append("승인과 발주는 웹에서 해 주세요.")
+    return "\n".join(out)
 
 
 class _Changed(Exception):

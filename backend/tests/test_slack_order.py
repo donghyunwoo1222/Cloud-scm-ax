@@ -160,21 +160,22 @@ def test_unusable_reply_has_no_buttons(client, world, shop, ai, fake):
 
 def test_rate_limit_per_person(client, world, shop, ai, fake, logs, monkeypatch):
     ai.say(L(1))
-    for _ in range(5):
-        send(client, "1번 2박스")  # 같은 사람이 연달아 5번
+    for _ in range(12):
+        send(client, "1번 2박스")  # 같은 사람이 연달아 12번
     texts = [s[1] for s in fake.sent]
-    assert len(ai.calls) == slack_events.RATE_PER_MINUTE == 3  # 4·5번째는 LLM 까지 안 간다
+    assert len(ai.calls) == slack_events.RATE_PER_MINUTE == 10  # 11·12번째는 LLM 까지 안 간다
     assert texts.count(slack_events.RATE_LIMITED) == 2
+    assert "1분" in slack_events.RATE_LIMITED  # 얼마나 기다려야 하는지 알려 준다
     assert "slack_order action=PROPOSE outcome=RATE_LIMITED" in logs()
     send(client, "1번 2박스", user=ADMIN)  # 다른 사람은 따로 센다
-    assert len(ai.calls) == 4
+    assert len(ai.calls) == 11
     monkeypatch.setattr(slack_link, "now", lambda: NOW + timedelta(seconds=61))  # 1분 뒤에는 다시 된다
     send(client, "1번 2박스")
-    assert len(ai.calls) == 5
+    assert len(ai.calls) == 12
 
 
 def test_help_does_not_count_toward_limit(client, world, shop, ai, fake):
-    for _ in range(5):
+    for _ in range(slack_events.RATE_PER_MINUTE + 2):
         send(client, "도움말")
     ai.say(L(1))
     send(client, "1번 2박스")
@@ -539,3 +540,57 @@ def test_click_with_wrong_user_team_id_is_ignored(client, session, world, shop, 
     payload["user"]["team_id"] = "T0OTHER"
     slack_events.handle_action(payload, NOW)
     assert orders(session, world) == [] and fake.updated == [] and "outcome=WRONG_TEAM" in logs()
+
+
+# ----- 표시 개선: 결과 문구·도움말·옵션 (#197 후속) -----
+
+def test_result_text_in_slack_escapes_name_and_options(client, session, world, shop, ai, fake):
+    from app.models import Product
+
+    one = session.scalar(select(Product).where(Product.sku == "ONE"))
+    one.name, one.color, one.size = "A<&>B", "<검&정>", "M&L"
+    session.commit()
+    token = propose_token(client, fake, ai, L(2))
+    assert "A&lt;&amp;&gt;B · &lt;검&amp;정&gt; / M&amp;L (ONE)" in fake.sent[-1][1]  # 요약
+    slack_events.handle_action(click(token), NOW)
+    _, _, text, blocks = fake.updated[0]
+    shown = text + " ".join(b["text"]["text"] for b in blocks)
+    assert "A&lt;&amp;&gt;B · &lt;검&amp;정&gt; / M&amp;L (ONE) — 160개" in shown
+    assert "A<&>B" not in shown and "<검&정>" not in shown
+
+
+def test_result_with_20_lines_is_complete_in_blocks(client, session, world, shop, ai, fake):
+    for i in range(18):
+        stock_50_sold_300(session, world, f"LONG{i}")
+    session.commit()
+    token = propose_token(client, fake, ai, *[L(n) for n in range(1, 21)])
+    slack_events.handle_action(click(token), NOW)
+    _, _, _, blocks = fake.updated[0]
+    shown = "\n".join(b["text"]["text"] for b in blocks)
+    assert shown.count("• ") == 20 and all(f"(LONG{i})" in shown for i in range(18))  # 줄이 빠지지 않는다
+    assert "승인과 발주는 웹에서 해 주세요." in shown
+
+
+def test_help_lists_only_working_inputs(client, world, shop, ai, fake):
+    send(client, "도움말")
+    help_text = fake.sent[-1][1]
+    assert "\n" in help_text and help_text.count("• ") >= 3  # 줄바꿈이 있는 짧은 목록
+    for supported in ("번호와 수량", "1번 3박스", "전부", "도움말", "[확인]", "[취소]", "품목 이름", "박스 품목은", "3 박스(300개)"):
+        assert supported in help_text
+    assert "승인·발주·입고·판매는 슬랙에서 할 수 없어요" in help_text and "웹에서" in help_text
+    for unsupported in ("연결 코드", "연결 1", "'취소'", "승인해", "입고해"):  # 글로 보내도 동작하지 않거나 슬랙에서 못 하는 것
+        assert unsupported not in help_text
+    assert ai.calls == []  # 도움말은 LLM 을 부르지 않는다
+    for text, outcome in (("전부", "OK"), ("1번 3박스", "OK")):  # 도움말의 예시 입력은 실제로 요약까지 간다
+        ai.say(L(1))
+        send(client, text)
+        assert fake.blocks and "이대로 발주 초안을 만들까요?" in fake.sent[-1][1]
+
+
+def test_logs_have_no_token_text_or_slack_id_after_confirm(client, session, world, shop, ai, fake, logs):
+    token = propose_token(client, fake, ai, L(2), text="비밀 메모 검정 M")
+    slack_events.handle_action(click(token), NOW)
+    text = logs()
+    assert "slack_order action=CONFIRM outcome=OK" in text
+    for secret in (token, "비밀 메모", STAFF, "ONE 이름"):
+        assert secret not in text
