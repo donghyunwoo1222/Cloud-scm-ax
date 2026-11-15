@@ -3,13 +3,15 @@
 from datetime import date  # 기간 칸
 from typing import Annotated, Literal  # 타입에 부가 정보를 붙이는 도구, 정해진 값 중 하나
 
-from fastapi import APIRouter, Query, Request  # 라우터, 쿼리 문자열 칸, 요청 경로(멱등 키)
-from sqlalchemy import func, select  # 이력에 연결된 발주 품목 조회
+from fastapi import (  # 라우터, 쿼리 문자열 칸, 요청 경로(멱등 키), 파일 응답
+    APIRouter,
+    Query,
+    Request,
+    Response,
+)
 
 from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
-from app.db import DB  # 요청마다 DB 세션
-from app.errors import AppError  # 공통 오류
-from app.models import InventoryMovement, PurchaseOrderItem  # 발주 품목에 발주서 번호가 있다.
+from app.db import DB, ReadDB  # 요청마다 DB 세션, 한 시점으로 읽는 조회 세션
 from app.pagination import Page  # page·page_size
 from app.schemas.common import (  # 멱등 키 헤더, 번호 칸 (DB 범위를 넘으면 422, #71)
     IdempotencyKeyHeader,
@@ -22,8 +24,10 @@ from app.schemas.movements import (  # 요청·응답 모양
     MovementOut,
     MovementTypeFilter,
 )
-from app.services import idempotency  # 같은 요청 키는 한 번만 처리 (#190)
-from app.services import products as products_service  # 품목 조회
+from app.services import (  # 목록 내보내기 (#191), 같은 요청 키는 한 번만 처리 (#190)
+    export,
+    idempotency,
+)
 from app.services import stock as stock_service  # 재고 업무 규칙
 
 router = APIRouter(prefix="/inventory-movements")  # 이 파일의 경로는 모두 /inventory-movements 로 시작
@@ -41,35 +45,24 @@ def list_movements(
     sort: Annotated[Literal["date", "registered"], Query()] = "date",  # date: 입출고일 최신순(기본), registered: 등록 순서 최신순
     include_current_stock: bool = False,  # 이력에 나온 품목의 현재고를 함께 조회한다.
 ) -> dict:
-    if date_from and date_to and date_from > date_to:  # 거꾸로 된 기간은 빈 결과 대신 422 로 알려준다
-        raise AppError(422, "VALIDATION_ERROR", "시작일은 종료일보다 늦을 수 없습니다.", [{"field": "date_from", "reason": "invalid"}])
+    stock_service.check_period(date_from, date_to)  # 거꾸로 된 기간은 422
     rows, meta = stock_service.list_movements(user.company_id, db, page, product_id, movement_type, date_from, date_to, sort)
-    products = {p.id: p for p in products_service.products_by_ids(user.company_id, db, {m.product_id for m in rows})}  # 품목명·SKU 를 한 번에
-    item_ids = {m.purchase_order_item_id for m in rows if m.purchase_order_item_id is not None}
-    order_ids = dict(db.execute(select(PurchaseOrderItem.id, PurchaseOrderItem.purchase_order_id).where(
-        PurchaseOrderItem.company_id == user.company_id, PurchaseOrderItem.id.in_(item_ids),
-    )).all()) if item_ids else {}  # 같은 회사의 발주서만 연결한다.
-    stocks = {s["product_id"]: s["current_stock"] for s in stock_service.stock_rows(
-        user.company_id, db, list(products.values()),
-    )} if include_current_stock and products else {}
-    original_ids = {m.id for m in rows if m.movement_type != "CORRECTION"}
-    corrected = dict(db.execute(select(
-        InventoryMovement.reverses_movement_id, func.sum(InventoryMovement.quantity),
-    ).where(
-        InventoryMovement.company_id == user.company_id, InventoryMovement.reverses_movement_id.in_(original_ids),
-    ).group_by(InventoryMovement.reverses_movement_id)).all()) if original_ids else {}
-    data = []
-    for m in rows:
-        out = MovementOut.model_validate(m)  # 이력 칸
-        product = products[m.product_id]
-        out.product_sku, out.product_name, out.product_unit = product.sku, product.name, product.unit
-        out.product_color, out.product_size, out.product_spec, out.product_group_code = product.color, product.size, product.spec, product.group_code
-        out.purchase_order_id = order_ids.get(m.purchase_order_item_id)
-        out.current_stock = stocks.get(m.product_id)
-        if m.id in original_ids:
-            out.correctable_quantity = m.quantity - corrected.get(m.id, 0)  # 품목 SKU·이름 덧붙이기
-        data.append(out.model_dump(mode="json"))
+    data = stock_service.enrich_movements(user.company_id, db, rows, include_current_stock)  # 품목·발주서·정정 가능 수량 덧붙이기
     return {"data": data, "meta": meta}  # 정정 행은 reverses_movement_id 포함
+
+
+@router.get("/export")  # 내보내기 (#191)
+def export_movements(
+    user: CurrentUser,  # 관리자·담당자 둘 다
+    db: ReadDB,  # 여러 쪽을 나눠 읽는 동안 한 시점으로 읽는다
+    fmt: Annotated[Literal["csv", "xlsx"], Query(alias="format")],  # 파일 형식 (그 밖은 422)
+    product_id: QueryId = None,  # 아래 다섯 칸은 목록 경로와 같은 이름·검사 (쪽·현재고 칸은 없다)
+    movement_type: Annotated[list[MovementTypeFilter] | None, Query()] = None,
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+    sort: Annotated[Literal["date", "registered"], Query()] = "date",
+) -> Response:
+    return export.movements(user, db, fmt, product_id, movement_type, date_from, date_to, sort)  # 거꾸로 된 기간은 422
 
 
 @router.post("", status_code=201)  # 직접 입고·출고·조정 등록

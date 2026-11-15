@@ -381,6 +381,13 @@ def receive_order(company_id: int, db: Session, user_id: int, order_id: int, dat
     return order
 
 
+def line_total(i: PurchaseOrderItem) -> int:
+    """발주 줄 금액: 발주단위 줄은 발주단위 수량 × 발주단위 단가, 아니면 수량 × 단가 (화면과 내보내기가 함께 쓴다)."""
+    if i.units_per_box is None:
+        return i.quantity * i.unit_price
+    return (i.quantity // i.units_per_box) * i.box_unit_price
+
+
 def build_out(company_id: int, db: Session, orders: list[PurchaseOrder]) -> list[dict]:
     """발주서들을 응답 모양으로. 줄·품목·업체·누적 입고량을 목록 전체에 대해 각각 한 번의 조회로 가져온다(N+1 없음)."""
     ids = [o.id for o in orders]
@@ -402,7 +409,7 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder]) -> list
             units_per_box=i.units_per_box, box_unit_price=i.box_unit_price, box_quantity=box_quantity,
             order_unit=i.order_unit or p.unit, unit_factor=i.units_per_box or 1,  # 발주 당시 스냅샷. 박스 줄이 아니면 재고 단위·1
             min_order_units=i.min_order_units,  # 발주 당시 최소 주문량 (#194)
-            line_total=i.quantity * i.unit_price if box_quantity is None else box_quantity * i.box_unit_price,
+            line_total=line_total(i),
             recommendation_reason=i.recommendation_reason, received_quantity=int(received.get(i.id, 0)),
         ))
     return [

@@ -1,8 +1,8 @@
 """재고 조회 경로 (F5). 관리자·담당자 모두 사용. 읽기만 한다."""
 
-from typing import Annotated  # 타입에 부가 정보를 붙이는 도구
+from typing import Annotated, Literal  # 정해진 값 중 하나
 
-from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
+from fastapi import APIRouter, Query, Response  # 라우터, 쿼리 문자열 칸, 파일 응답
 
 from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
 from app.clock import seoul_today  # 서울 기준 오늘 (추천 계산 기준일)
@@ -10,7 +10,11 @@ from app.db import ReadDB  # 한 시점으로 읽는 조회 세션 (상태 계�
 from app.pagination import Page  # page·page_size
 from app.schemas.common import PathId  # 번호 칸 (DB 범위를 넘으면 422, #71)
 from app.schemas.stock import Status, StockOut  # 상태 값, 응답 모양
-from app.services import inventory_status, stock  # 현재고 상태와 이력 기반 재고 추이
+from app.services import (  # 현재고 상태와 이력 기반 재고 추이, 목록 내보내기 (#191)
+    export,
+    inventory_status,
+    stock,
+)
 
 router = APIRouter(prefix="/stock")  # 이 파일의 경로는 모두 /stock 으로 시작
 
@@ -29,6 +33,19 @@ def list_stock(
         user.company_id, db, seoul_today(), page, include_inactive, status, q=q, group_code=group_code,  # 기존 조회 세션을 그대로 쓴다
     )
     return {"data": [StockOut(**r).model_dump(mode="json") for r in rows], "meta": meta}
+
+
+@router.get("/export")  # 내보내기 (#191). /{product_id} 보다 먼저 선언해야 "export" 를 번호로 읽지 않는다
+def export_stock(
+    user: CurrentUser,  # 관리자·담당자 둘 다 (화면에서 이미 보는 값만 내보낸다)
+    db: ReadDB,  # 여러 쪽을 나눠 읽는 동안 한 시점으로 읽는다
+    fmt: Annotated[Literal["csv", "xlsx"], Query(alias="format")],  # 파일 형식 (그 밖은 422)
+    include_inactive: Annotated[bool, Query()] = False,  # 아래 네 칸은 목록 경로와 같은 이름·검사
+    status: Annotated[Status | None, Query()] = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    group_code: Annotated[str | None, Query(max_length=50)] = None,
+) -> Response:
+    return export.stock(user, db, fmt, include_inactive, status, q, group_code)  # 회사는 토큰에서
 
 
 @router.get("/{product_id}")  # 품목 하나의 현재고
