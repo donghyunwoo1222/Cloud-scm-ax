@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     llm_max_response_bytes: int = Field(200_000, gt=0)  # LLM_MAX_RESPONSE_BYTES: 받는 응답 크기 상한(바이트)
     llm_price_input_usd_per_mtok: float = Field(0, ge=0)  # LLM_PRICE_INPUT_USD_PER_MTOK: 입력 100만 토큰당 달러(무료 키 0)
     llm_price_output_usd_per_mtok: float = Field(0, ge=0)  # LLM_PRICE_OUTPUT_USD_PER_MTOK: 출력 100만 토큰당 달러(무료 키 0)
+    # 슬랙 연동(#197). 기본은 모두 "꺼짐": SLACK_ENABLED 가 false 이거나 SLACK_TEAM_ID 가 비면 연결 코드를 발급하지 않는다
+    slack_enabled: bool = False  # SLACK_ENABLED: 전체 스위치(kill switch)
+    slack_team_id: str = ""  # SLACK_TEAM_ID: 허용할 슬랙 워크스페이스 id 하나 (예: T0123ABCD). 다른 워크스페이스는 무시
+    slack_bot_token: SecretStr = SecretStr("")  # SLACK_BOT_TOKEN: xoxb- 봇 토큰 (메시지 보내기, PR 3부터 사용)
+    slack_signing_secret: SecretStr = SecretStr("")  # SLACK_SIGNING_SECRET: Events API 요청 서명 검증 (PR 3부터 사용)
+    slack_app_token: SecretStr = SecretStr("")  # SLACK_APP_TOKEN: xapp- 앱 수준 토큰, 개발용 Socket Mode (PR 3부터 사용)
 
 
 settings = Settings()  # 앱 어디서나 import 해서 쓰는 설정 한 벌
