@@ -1,6 +1,6 @@
 """발주서 경로: 작성·수정·조회(#33), 상태 변경 approve·order·cancel(#34), 입고(#35). 승인만 관리자, 나머지는 둘 다."""
 
-from typing import Annotated  # 타입에 부가 정보를 붙이는 도구
+from typing import Annotated, Literal  # 타입에 부가 정보를 붙이는 도구, 정해진 값 중 하나
 
 from fastapi import (  # 라우터, 쿼리 문자열 칸, 요청 경로(멱등 키), 파일 응답
     APIRouter,
@@ -10,7 +10,7 @@ from fastapi import (  # 라우터, 쿼리 문자열 칸, 요청 경로(멱등 �
 )
 
 from app.auth.deps import AdminUser, CurrentUser  # 관리자만 / 로그인 사용자 (#22·#23)
-from app.db import DB  # 요청마다 DB 세션
+from app.db import DB, ReadDB  # 요청마다 DB 세션, 한 시점으로 읽는 조회 세션
 from app.errors import AppError  # 공통 오류
 from app.pagination import Page  # page·page_size
 from app.schemas.common import (  # 멱등 키 헤더, 번호 칸 (DB 범위를 넘으면 422, #71)
@@ -29,6 +29,7 @@ from app.schemas.purchase_orders import (  # 요청 모양
     ReceiptDue,
 )
 from app.services import (
+    export,  # 목록 내보내기 (#191)
     idempotency,  # 같은 요청 키는 한 번만 처리 (#190)
     po_change_log,  # 발주서 변경 이력 (#181)
     po_document,  # 발주서 문서·엑셀 (#157)
@@ -56,6 +57,19 @@ def list_orders(
 ) -> dict:
     rows, meta = po_service.list_orders(user.company_id, db, page, supplier_id, status, q, receipt_due)
     return {"data": po_service.build_out(user.company_id, db, rows), "meta": meta}
+
+
+@router.get("/export")  # 내보내기 (#191). /{order_id} 보다 먼저 선언해야 "export" 를 번호로 읽지 않는다
+def export_orders(
+    user: CurrentUser,  # 관리자·담당자 둘 다 (단가·금액은 화면에서 이미 보인다)
+    db: ReadDB,  # 여러 쪽을 나눠 읽는 동안 한 시점으로 읽는다
+    fmt: Annotated[Literal["csv", "xlsx"], Query(alias="format")],  # 파일 형식 (그 밖은 422)
+    supplier_id: QueryId = None,  # 아래 네 칸은 목록 경로와 같은 이름·검사
+    status: Annotated[PoStatus | None, Query()] = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    receipt_due: Annotated[ReceiptDue | None, Query()] = None,
+) -> Response:
+    return export.orders(user, db, fmt, supplier_id, status, q, receipt_due)  # 회사는 토큰에서
 
 
 @router.post("", status_code=201)  # 작성 (DRAFT)

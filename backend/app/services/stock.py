@@ -23,8 +23,13 @@ from app.models import (  # 입출고 이력, 품목, 발주서·발주 품목
     PurchaseOrderItem,
 )
 from app.pagination import PageParams, paginate  # 목록 쪽 나누기
-from app.schemas.movements import CorrectionCreate, MovementCreate  # 등록·정정 요청 모양
+from app.schemas.movements import (  # 등록·정정 요청 모양, 이력 응답 모양
+    CorrectionCreate,
+    MovementCreate,
+    MovementOut,
+)
 from app.schemas.stock import StockTrendDay, StockTrendOut  # 일별 마감 재고 응답
+from app.services.products import products_by_ids  # 이력 목록의 품목명·SKU
 from app.services.recommend import SALES_WINDOW_DAYS  # 최근 30일 (추천 순수 함수와 같은 기간)
 from app.services.tenant import (  # 회사 분리 도우미 (#23)
     NOT_FOUND_MESSAGE,
@@ -366,6 +371,12 @@ def stock_rows(company_id: int, db: Session, products: list[Product]) -> list[di
     ]
 
 
+def check_period(date_from: date | None, date_to: date | None) -> None:
+    """거꾸로 된 기간은 빈 결과 대신 422 로 알려준다 (이력 목록과 내보내기가 함께 쓴다)."""
+    if date_from and date_to and date_from > date_to:
+        raise AppError(422, "VALIDATION_ERROR", "시작일은 종료일보다 늦을 수 없습니다.", [{"field": "date_from", "reason": "invalid"}])
+
+
 def list_movements(
     company_id: int, db: Session, page: PageParams,
     product_id: int | None, movement_types: list[str] | None, date_from: date | None, date_to: date | None,
@@ -391,3 +402,39 @@ def list_movements(
     else:
         order = (InventoryMovement.movement_date.desc(), InventoryMovement.id.desc())  # 입출고일 최신순 (기본)
     return paginate(db, stmt.order_by(*order), page)
+
+
+def movement_links(company_id: int, db: Session, rows: list[InventoryMovement]) -> tuple[dict[int, Product], dict[int, int]]:
+    """이력 한 쪽에 붙일 품목들(id → 품목)과 연결된 발주서(발주 품목 id → 발주서 id)를 각각 한 번의 조회로 구한다."""
+    products = {p.id: p for p in products_by_ids(company_id, db, {m.product_id for m in rows})}  # 품목명·SKU 를 한 번에
+    item_ids = {m.purchase_order_item_id for m in rows if m.purchase_order_item_id is not None}
+    order_ids = dict(db.execute(select(PurchaseOrderItem.id, PurchaseOrderItem.purchase_order_id).where(
+        PurchaseOrderItem.company_id == company_id, PurchaseOrderItem.id.in_(item_ids),
+    )).all()) if item_ids else {}  # 같은 회사의 발주서만 연결한다.
+    return products, order_ids
+
+
+def enrich_movements(company_id: int, db: Session, rows: list[InventoryMovement], include_current_stock: bool = False) -> list[dict]:
+    """이력 목록 응답: 이력 칸에 품목 정보·발주서 번호·정정 가능 수량(·현재고)을 덧붙인다 (API 에서 옮겨 왔다, 동작은 같다)."""
+    products, order_ids = movement_links(company_id, db, rows)
+    stocks = {s["product_id"]: s["current_stock"] for s in stock_rows(
+        company_id, db, list(products.values()),
+    )} if include_current_stock and products else {}
+    original_ids = {m.id for m in rows if m.movement_type != "CORRECTION"}
+    corrected = dict(db.execute(select(
+        InventoryMovement.reverses_movement_id, func.sum(InventoryMovement.quantity),
+    ).where(
+        InventoryMovement.company_id == company_id, InventoryMovement.reverses_movement_id.in_(original_ids),
+    ).group_by(InventoryMovement.reverses_movement_id)).all()) if original_ids else {}
+    data = []
+    for m in rows:
+        out = MovementOut.model_validate(m)  # 이력 칸
+        product = products[m.product_id]
+        out.product_sku, out.product_name, out.product_unit = product.sku, product.name, product.unit
+        out.product_color, out.product_size, out.product_spec, out.product_group_code = product.color, product.size, product.spec, product.group_code
+        out.purchase_order_id = order_ids.get(m.purchase_order_item_id)
+        out.current_stock = stocks.get(m.product_id)
+        if m.id in original_ids:
+            out.correctable_quantity = m.quantity - corrected.get(m.id, 0)  # 품목 SKU·이름 덧붙이기
+        data.append(out.model_dump(mode="json"))
+    return data

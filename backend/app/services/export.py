@@ -11,18 +11,29 @@ import csv  # CSV 쓰기
 import io  # 메모리 위의 파일
 import logging  # 내보내기 기록 한 줄
 from collections.abc import Callable, Iterator  # 함수·반복자 타입
+from datetime import date, datetime  # 날짜·시각 글자 만들기
 
 from fastapi import Response  # 엑셀 파일 응답
 from fastapi.responses import StreamingResponse  # CSV 를 조금씩 보내는 응답
 from openpyxl import Workbook  # .xlsx 쓰기 (이미 쓰는 라이브러리)
 from openpyxl.cell import WriteOnlyCell  # 쓰기 전용 모드의 칸 (칸 형식을 직접 정할 때)
+from sqlalchemy import func, select  # 이름 조회, 발주 줄 개수
 from sqlalchemy.orm import Session  # DB 세션 타입
 
-from app.clock import seoul_today  # 파일 이름의 날짜 (서울 기준)
+from app.clock import SEOUL, seoul_today  # 서울 시간대, 파일 이름의 날짜
 from app.errors import AppError  # 공통 오류
-from app.models import User  # 로그인 사용자
+from app.models import (  # 로그인 사용자, 발주서, 공급업체
+    PurchaseOrder,
+    PurchaseOrderItem,
+    Supplier,
+    User,
+)
 from app.pagination import PageParams  # 쪽 번호·쪽 크기
+from app.services import inventory_status  # 재고 목록 (화면과 같은 조건)
 from app.services import products as products_service  # 품목 목록 (화면과 같은 조건)
+from app.services import purchase_orders as po_service  # 발주서 목록·누적 입고량
+from app.services import stock as stock_service  # 입출고 이력 목록
+from app.services.tenant import scoped  # 회사 조건이 붙은 조회
 
 log = logging.getLogger(__name__)  # 이 파일의 로그
 
@@ -98,13 +109,16 @@ def export(
     user: User, target: str, fmt: str, headers: list[str],
     fetch: Callable[[PageParams], tuple[list, dict]],  # 화면 목록과 같은 서비스 함수 (한 쪽 + meta)
     to_rows: Callable[[list], list[list]],  # 한 쪽의 행들 → 파일 행들
+    count_rows: Callable[[], int] | None = None,  # 목록 한 줄이 파일 여러 줄이 되면(발주서) 파일 행 수를 따로 센다
 ) -> Response:
     """첫 쪽에서 전체 개수를 보고 상한을 넘으면 파일을 만들기 전에 422. 아니면 끝까지 읽어 파일로 보낸다."""
     first, meta = fetch(PageParams(page=1, page_size=CHUNK))
     total = meta["total"]
-    if total > MAX_ROWS:  # 스트리밍이 시작되면 오류 코드를 보낼 수 없어 먼저 센다
-        log.info("export target=%s fmt=%s company_id=%s user_id=%s rows=%d outcome=TOO_LARGE", target, fmt, user.company_id, user.id, total)
-        raise AppError(422, "EXPORT_TOO_LARGE", f"내보낼 행이 {total:,}개로 한 번에 내보낼 수 있는 {MAX_ROWS:,}개를 넘습니다. "
+    # 목록 개수가 상한 안이어도 파일 행은 더 많을 수 있다(발주서)
+    total_rows = count_rows() if total <= MAX_ROWS and count_rows else total
+    if total_rows > MAX_ROWS:  # 스트리밍이 시작되면 오류 코드를 보낼 수 없어 먼저 센다
+        log.info("export target=%s fmt=%s company_id=%s user_id=%s rows=%d outcome=TOO_LARGE", target, fmt, user.company_id, user.id, total_rows)
+        raise AppError(422, "EXPORT_TOO_LARGE", f"내보낼 행이 {total_rows:,}개로 한 번에 내보낼 수 있는 {MAX_ROWS:,}개를 넘습니다. "
                        "검색어나 조건을 좁혀 주세요.", [{"field": "rows", "reason": "too_large"}])
     company_id, user_id = user.company_id, user.id  # 스트리밍 중에 사용자 객체를 다시 읽지 않게 미리 꺼낸다
     written = 0
@@ -163,3 +177,138 @@ def products(
                  suppliers[p.default_supplier_id].name, "활성" if p.is_active else "비활성"] for p in batch]
 
     return export(user, "products", fmt, PRODUCT_HEADERS, fetch, to_rows)
+
+
+def day(value: date | None) -> str | None:
+    """날짜 칸 → YYYY-MM-DD 글자. 예) 2026-11-15 → "2026-11-15"."""
+    return value.isoformat() if value else None
+
+
+def seoul_time(value: datetime | None) -> str | None:
+    """UTC 시각 → 서울 시간 "YYYY-MM-DD HH:MM". 예) 2026-11-15 00:30 UTC → "2026-11-15 09:30"."""
+    return value.astimezone(SEOUL).strftime("%Y-%m-%d %H:%M") if value else None
+
+
+def user_names(company_id: int, db: Session, ids: set) -> dict[int, str]:
+    """사용자 id → 이름 (같은 회사만). 이메일·해시는 읽지 않는다."""
+    ids.discard(None)
+    if not ids:
+        return {}
+    return dict(db.execute(select(User.id, User.name).where(User.company_id == company_id, User.id.in_(ids))).all())
+
+
+STOCK_HEADERS = ["SKU", "품목명", "현재고", "단위", "안전재고", "발주 진행 중 수량", "재주문점", "상태", "판단 불가 이유",
+                 "색상", "사이즈", "규격", "그룹 코드", "활성"]
+STATUS_LABELS = {"SHORTAGE": "부족", "NORMAL": "정상", "UNKNOWN": "판단 불가"}  # 비활성 품목은 상태 없음(빈칸)
+
+
+def stock(
+    user: User, db: Session, fmt: str, include_inactive: bool, status: str | None, q: str | None, group_code: str | None,
+) -> Response:
+    """재고 현황. 화면 재고 목록(list_stock)과 같은 조건·순서(최신순)."""
+    company_id, today = user.company_id, seoul_today()
+    cache: dict = {}  # 상태 필터가 있어도 전체 품목의 상태 계산은 한 번만 (쪽마다 다시 계산하지 않는다)
+
+    def fetch(page: PageParams):
+        return inventory_status.list_stock(company_id, db, today, page, include_inactive, status,
+                                           q=q, group_code=group_code, cache=cache)
+
+    def to_rows(batch: list) -> list[list]:
+        return [[r["sku"], r["name"], r["current_stock"], r["unit"], r["safety_stock"], r["in_transit"],
+                 None if r["reorder_point"] is None else round(r["reorder_point"], 1),
+                 STATUS_LABELS.get(r["status"]), r["status_reason"]["message"] if r["status_reason"] else None,
+                 r["color"], r["size"], r["spec"], r["group_code"], "활성" if r["is_active"] else "비활성"] for r in batch]
+
+    return export(user, "stock", fmt, STOCK_HEADERS, fetch, to_rows)
+
+
+MOVEMENT_HEADERS = ["입출고일", "SKU", "품목명", "유형", "방향", "수량", "단위", "판매 채널", "사유", "메모", "발주번호",
+                    "등록자", "등록 시각"]
+TYPE_LABELS = {"RECEIPT": "입고", "SALE": "판매", "DISPOSAL": "폐기", "OTHER_OUT": "기타 출고", "ADJUSTMENT": "조정", "CORRECTION": "정정"}
+DIRECTION_LABELS = {"IN": "증가", "OUT": "감소"}
+
+
+def movements(
+    user: User, db: Session, fmt: str, product_id: int | None, movement_types: list[str] | None,
+    date_from: date | None, date_to: date | None, sort: str,
+) -> Response:
+    """입출고 이력. 화면 이력 목록(list_movements)과 같은 조건·순서. 이력은 수정 불가라 정정도 한 줄로 그대로 나온다."""
+    stock_service.check_period(date_from, date_to)  # 거꾸로 된 기간은 목록과 같은 422
+    company_id = user.company_id
+
+    def fetch(page: PageParams):
+        return stock_service.list_movements(company_id, db, page, product_id, movement_types, date_from, date_to, sort)
+
+    def to_rows(batch: list) -> list[list]:
+        products, order_ids = stock_service.movement_links(company_id, db, batch)  # 쪽마다 한 번에
+        po_numbers = dict(db.execute(select(PurchaseOrder.id, PurchaseOrder.po_number).where(
+            PurchaseOrder.company_id == company_id, PurchaseOrder.id.in_(set(order_ids.values())))).all()) if order_ids else {}
+        names = user_names(company_id, db, {m.created_by for m in batch})
+        return [[day(m.movement_date), products[m.product_id].sku, products[m.product_id].name, TYPE_LABELS[m.movement_type],
+                 DIRECTION_LABELS[m.direction], m.quantity, products[m.product_id].unit, m.sales_channel, m.reason, m.memo,
+                 po_numbers.get(order_ids.get(m.purchase_order_item_id)), names.get(m.created_by), seoul_time(m.created_at)]
+                for m in batch]
+
+    return export(user, "movements", fmt, MOVEMENT_HEADERS, fetch, to_rows)
+
+
+ORDER_HEADERS = ["발주번호", "상태", "공급업체", "납기", "메모", "납품장소", "지불조건", "작성자", "작성 시각", "승인자", "승인 시각",
+                 "발주 시각", "입고 완료 시각", "취소 시각", "SKU", "품목명", "발주단위 수량", "발주단위 이름", "환산계수",
+                 "기본단위 수량", "기본단위 이름", "단가", "발주단위 단가", "금액", "누적 입고량"]
+
+
+def orders(
+    user: User, db: Session, fmt: str, supplier_id: int | None, status: str | None, q: str | None, receipt_due: str | None,
+) -> Response:
+    """발주서. 한 줄 = 발주 품목 한 줄(머리 정보는 줄마다 반복). 화면 발주서 목록(list_orders)과 같은 조건·순서.
+
+    발주단위·환산계수는 발주 줄에 저장된 원래 값이다(발주단위가 없는 줄은 빈칸, 기본단위 수량만 있다).
+    줄이 하나도 없는 발주서는 빈 품목 칸으로 한 줄 나온다(발주서가 파일에서 사라지지 않게).
+    """
+    company_id = user.company_id
+
+    def fetch(page: PageParams):
+        return po_service.list_orders(company_id, db, page, supplier_id, status, q, receipt_due)
+
+    def count_rows() -> int:
+        """파일 행 수 = 줄 수(줄 없는 발주서는 1). 목록을 끝까지 넘기며 센다. 상한을 넘으면 거기서 멈춘다."""
+        total, page = 0, 1
+        while True:
+            batch, meta = fetch(PageParams(page=page, page_size=CHUNK))
+            ids = [o.id for o in batch]
+            per_order = dict(db.execute(select(PurchaseOrderItem.purchase_order_id, func.count()).where(
+                PurchaseOrderItem.company_id == company_id, PurchaseOrderItem.purchase_order_id.in_(ids),
+            ).group_by(PurchaseOrderItem.purchase_order_id)).all()) if ids else {}
+            total += sum(max(per_order.get(i, 0), 1) for i in ids)
+            if total > MAX_ROWS or page * CHUNK >= meta["total"]:
+                return total
+            page += 1
+
+    def to_rows(batch: list) -> list[list]:
+        ids = [o.id for o in batch]
+        items = list(db.scalars(scoped(company_id, PurchaseOrderItem).where(
+            PurchaseOrderItem.purchase_order_id.in_(ids)).order_by(PurchaseOrderItem.id))) if ids else []
+        products = {p.id: p for p in products_service.products_by_ids(company_id, db, {i.product_id for i in items})}
+        suppliers = {s.id: s for s in db.scalars(scoped(company_id, Supplier).where(
+            Supplier.id.in_({o.supplier_id for o in batch})))} if batch else {}
+        received = po_service.received_quantities(company_id, db, [i.id for i in items])
+        names = user_names(company_id, db, {u for o in batch for u in (o.created_by, o.approved_by)})
+        by_order: dict[int, list] = {}
+        for i in items:
+            by_order.setdefault(i.purchase_order_id, []).append(i)
+        rows = []
+        for o in batch:
+            head = [o.po_number, o.status, suppliers[o.supplier_id].name, day(o.due_date), o.memo, o.delivery_address, o.payment_terms,
+                    names.get(o.created_by), seoul_time(o.created_at), names.get(o.approved_by), seoul_time(o.approved_at),
+                    seoul_time(o.ordered_at), seoul_time(o.received_at), seoul_time(o.cancelled_at)]
+            for i in by_order.get(o.id) or [None]:  # 줄이 없으면 빈 품목 칸 한 줄
+                if i is None:
+                    rows.append(head + [None] * (len(ORDER_HEADERS) - len(head)))
+                    continue
+                p = products[i.product_id]
+                boxed = i.units_per_box is not None  # 발주단위 줄인가
+                rows.append(head + [p.sku, p.name, i.quantity // i.units_per_box if boxed else None, i.order_unit, i.units_per_box,
+                                    i.quantity, p.unit, i.unit_price, i.box_unit_price, po_service.line_total(i), received.get(i.id, 0)])
+        return rows
+
+    return export(user, "purchase-orders", fmt, ORDER_HEADERS, fetch, to_rows, count_rows)
