@@ -65,11 +65,13 @@ NOTE = {  # 건너뛴 줄의 사유 (LLM 글이 아니라 고정 문장)
 
 @dataclass
 class Reply:
-    """어댑터에 내주는 값. text 는 보여 줄 글, token 이 있으면 [확인]·[취소] 버튼에 실을 값, po_ids 는 만든 발주서."""
+    """어댑터에 내주는 값. text 는 보여 줄 글, token 이 있으면 [확인]·[취소] 버튼에 실을 값, po_ids 는 만든 발주서,
+    outcome 은 사유 코드(OK·WRONG_USER·ALREADY_DONE 등). 어댑터는 문구가 아니라 이 코드로 분기한다(문구를 바꿔도 동작이 안 깨진다)."""
 
     text: str
     token: str | None = None
     po_ids: list[int] = field(default_factory=list)
+    outcome: str = ""
 
 
 class _Line(llm.LLMOutput):
@@ -153,20 +155,21 @@ def propose(db: Session, company_id: int, user_id: int, text: str, today: date, 
     _aware(at)
     if not _linked(db, company_id, user_id):
         _out("PROPOSE", "NOT_LINKED", company_id, user_id)
-        return Reply(MSG_NOT_LINKED)  # LLM 을 부르지 않는다
+        return Reply(MSG_NOT_LINKED, outcome="NOT_LINKED")  # LLM 을 부르지 않는다
     items = list_recommendations(company_id, db, today)["items"]
     if not items:
         _out("PROPOSE", "NO_ITEMS", company_id, user_id)
-        return Reply(MSG_NO_ITEMS)  # LLM 을 부르지 않는다
+        return Reply(MSG_NO_ITEMS, outcome="NO_ITEMS")  # LLM 을 부르지 않는다
     cands = items[:MAX_LINES]  # 번호 n = 위치 + 1 (웹 목록 순서)
     data = {"message": text[:MAX_TEXT], "items": [
         {"n": n, "name": c["product_name"], "sku": c["product_sku"], "order_unit": c["order_unit"], "unit_factor": c["unit_factor"],
          "recommended_units": c["recommended_order_units"]} for n, c in enumerate(cands, 1)]}
+    db.rollback()  # 후보를 다 읽었다(읽기만 했다). LLM 을 기다리는 최대 20초 동안 DB 연결을 붙잡지 않게 돌려준다. 이 뒤로 db 를 쓰지 않는다
     try:
         parsed = llm.ask(company_id, "slack_order", data, _Parsed)
     except llm.LLMUnavailable as exc:  # 한도·꺼짐·시간 초과·응답 오류 모두 같은 한 문장
         _out("PROPOSE", f"LLM_{exc.reason}", company_id, user_id)
-        return Reply(MSG_UNAVAILABLE)
+        return Reply(MSG_UNAVAILABLE, outcome=f"LLM_{exc.reason}")
 
     repeated = {n for n, count in Counter(line.n for line in parsed.lines).items() if count > 1}  # 같은 번호가 둘이면 어느 쪽인지 알 수 없다
     picked: list[tuple[dict, int]] = []  # (후보, 발주단위 수)
@@ -198,7 +201,7 @@ def propose(db: Session, company_id: int, user_id: int, text: str, today: date, 
             notes.append(f"{line.n}번: {NOTE[reason]}")
     if not picked:
         _out("PROPOSE", "NO_LINES", company_id, user_id)
-        return Reply("\n".join([MSG_NO_LINES, *notes]))
+        return Reply("\n".join([MSG_NO_LINES, *notes]), outcome="NO_LINES")
 
     token = _seal({"u": user_id, "c": company_id, "day": today.isoformat(), "exp": int((at + timedelta(minutes=CONFIRM_MINUTES)).timestamp()),
                    "nonce": secrets.token_urlsafe(12), "items": [[c["product_id"], units, c["unit_factor"]] for c, units in picked]})
@@ -207,7 +210,7 @@ def propose(db: Session, company_id: int, user_id: int, text: str, today: date, 
     if len(items) > len(cands):
         lines.append(f"추천 {len(items):,}개 중 앞 {len(cands)}개만 다뤄요. 나머지는 웹에서 확인해 주세요.")
     _out("PROPOSE", "OK", company_id, user_id, len(picked))
-    return Reply("\n".join(lines), token)
+    return Reply("\n".join(lines), token, outcome="OK")
 
 
 def _check(db: Session, company_id: int, user_id: int, token: str, today: date | None, at: datetime | None, action: str) -> tuple[dict | None, Reply | None]:
@@ -215,16 +218,16 @@ def _check(db: Session, company_id: int, user_id: int, token: str, today: date |
     data = _open(token)
     if data is None:
         _out(action, "INVALID_TOKEN", company_id, user_id)
-        return None, Reply(MSG_INVALID)
+        return None, Reply(MSG_INVALID, outcome="INVALID_TOKEN")
     if (data["c"], data["u"]) != (company_id, user_id):  # 다른 사람이 눌렀다. nonce 는 건드리지 않는다
         _out(action, "WRONG_USER", company_id, user_id)
-        return None, Reply(MSG_WRONG_USER)
+        return None, Reply(MSG_WRONG_USER, outcome="WRONG_USER")
     if today is not None and (data["day"] != today.isoformat() or at.timestamp() >= data["exp"]):  # 서울 날짜가 바뀌었거나 30분 지남
         _out(action, "EXPIRED", company_id, user_id)
-        return None, Reply(MSG_EXPIRED)
+        return None, Reply(MSG_EXPIRED, outcome="EXPIRED")
     if not _linked(db, company_id, user_id):  # 그사이 연결 해제·비활성
         _out(action, "NOT_LINKED", company_id, user_id)
-        return None, Reply(MSG_NOT_LINKED)
+        return None, Reply(MSG_NOT_LINKED, outcome="NOT_LINKED")
     return data, None
 
 
@@ -239,7 +242,7 @@ def confirm(db: Session, company_id: int, user_id: int, token: str, today: date,
         if not idempotency.claim(db, company_id, ENDPOINT, data["nonce"]):  # 같은 토큰 두 번째 클릭, 또는 취소한 뒤
             db.rollback()
             _out("CONFIRM", "ALREADY_DONE", company_id, user_id)
-            return Reply(MSG_DONE)
+            return Reply(MSG_DONE, outcome="ALREADY_DONE")
         lines = {pid: (units, factor) for pid, units, factor in data["items"]}
         boxes = dict(db.execute(select(Product.id, Product.units_per_box).where(
             Product.company_id == company_id, Product.id.in_(lines))).all())  # 회사 조건: 다른 회사 품목은 안 보인다
@@ -258,17 +261,17 @@ def confirm(db: Session, company_id: int, user_id: int, token: str, today: date,
     except _Changed:
         db.rollback()  # 멱등 키도 취소
         _out("CONFIRM", "CHANGED", company_id, user_id, len(lines))
-        return Reply(MSG_CHANGED)
+        return Reply(MSG_CHANGED, outcome="CHANGED")
     except AppError as exc:  # 더 이상 추천 대상이 아님·비활성·이미 초안 등
         db.rollback()
         _out("CONFIRM", f"BLOCKED_{exc.code}", company_id, user_id, len(lines))
-        return Reply(MSG_BLOCKED)
+        return Reply(MSG_BLOCKED, outcome=f"BLOCKED_{exc.code}")
     except Exception:
         db.rollback()  # 예상 못 한 오류: 되돌리고 부르는 쪽(어댑터)이 알 수 있게 그대로 올린다
         raise
     po_ids = [o.id for o in orders]
     _out("CONFIRM", "OK", company_id, user_id, len(lines), po_ids)
-    return Reply("발주 초안을 만들었어요: " + ", ".join(o.po_number for o in orders) + "\n승인과 발주는 웹에서 해 주세요.", po_ids=po_ids)
+    return Reply("발주 초안을 만들었어요: " + ", ".join(o.po_number for o in orders) + "\n승인과 발주는 웹에서 해 주세요.", po_ids=po_ids, outcome="OK")
 
 
 class _Changed(Exception):
@@ -284,10 +287,10 @@ def cancel(db: Session, company_id: int, user_id: int, token: str) -> Reply:
         if not idempotency.claim(db, company_id, ENDPOINT, data["nonce"]):
             db.rollback()
             _out("CANCEL", "ALREADY_DONE", company_id, user_id)
-            return Reply(MSG_DONE)
+            return Reply(MSG_DONE, outcome="ALREADY_DONE")
         db.commit()
     except Exception:
         db.rollback()  # 예상 못 한 오류: 되돌리고 그대로 올린다
         raise
     _out("CANCEL", "OK", company_id, user_id)
-    return Reply("취소했어요. 아무것도 만들지 않았어요.")
+    return Reply("취소했어요. 아무것도 만들지 않았어요.", outcome="OK")

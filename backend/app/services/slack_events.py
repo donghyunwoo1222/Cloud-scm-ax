@@ -56,6 +56,10 @@ ACTION_ERROR = "처리 중 문제가 생겼어요. 웹에서 확인해 주세요
 RATE_PER_MINUTE = 3  # 사람별 분당 해석(LLM) 요청 수. 임시값
 CONFIRM_ID, CANCEL_ID = "order_confirm", "order_cancel"  # 버튼 action_id
 WEB_ORDERS_PATH = "/purchase-orders"  # 발주서 목록 화면
+MSG_SPLIT = "한 번에 보여 줄 수 없을 만큼 길어요. 나눠서 요청해 주세요."  # 요약이 슬랙 블록 한도를 넘을 때(버튼 없이 거절)
+BLOCK_TEXT_MAX = 2900  # section 글 한도(슬랙 3,000자)에서 여유를 둔 값. 이스케이프(& → &amp;) 뒤 길이로 잰다
+MAX_BLOCKS = 50  # 메시지당 블록 한도(버튼 블록 포함)
+ITEM_LINE = re.compile(r"(• )(.*?)( \([^()]*\) — .*)", re.DOTALL)  # chat_order 요약의 품목 줄: "• 품목명 (SKU) — 수량"
 
 SEEN_MAX = 1000  # 메모리에 기억할 최근 event_id 수
 SEEN_MINUTES = 10  # 슬랙 재전송은 5분 뒤가 마지막이라 10분이면 덮인다
@@ -150,17 +154,48 @@ def parse_dm(envelope: dict) -> Dm | None:
     return Dm(envelope["event_id"], envelope.get("team_id") or "", user, channel, text, event.get("thread_ts"))
 
 
-def _section(text: str) -> dict:
-    return {"type": "section", "text": {"type": "mrkdwn", "text": text[:2900]}}  # 슬랙 한도 3,000자
+def _section(escaped: str) -> dict:
+    return {"type": "section", "text": {"type": "mrkdwn", "text": escaped}}  # 이미 이스케이프하고 한도 이하로 맞춘 글
 
 
-def _order_blocks(text: str, token: str) -> list[dict]:
-    """요약 글 + [확인][취소] 버튼. 두 버튼의 value 는 같은 토큰 하나뿐이다."""
+def _fit(line: str) -> str:
+    """한 줄을 이스케이프한 글(BLOCK_TEXT_MAX 이하)로 만든다. 넘으면 품목 줄은 품목명만 줄여(SKU·수량은 남김) 맞추고, 그 밖의 줄은 끝을 줄인다.
+    이스케이프 '뒤'에 길이를 재서 &amp; 가 중간에서 끊기지 않는다. 품목명은 100자 이하라 실제로는 거의 안 넘는다."""
+    if len(_escape(line)) <= BLOCK_TEXT_MAX:
+        return _escape(line)
+    match = ITEM_LINE.fullmatch(line)
+    head, name, tail = match.groups() if match else ("", line, "")
+    while name and len(_escape(f"{head}{name}…{tail}")) > BLOCK_TEXT_MAX:
+        name = name[:-1]
+    return _escape(f"{head}{name}…{tail}")
+
+
+def _text_blocks(text: str) -> list[dict]:
+    """글 전체를 줄 단위로 section 블록 여러 개로 나눈다(블록마다 BLOCK_TEXT_MAX 이하). 자르지 않으니 모든 줄이 보인다."""
+    blocks: list[dict] = []
+    current = ""
+    for line in text.split("\n"):
+        piece = _fit(line)
+        if current and len(current) + 1 + len(piece) > BLOCK_TEXT_MAX:
+            blocks.append(_section(current))
+            current = piece
+        else:
+            current = f"{current}\n{piece}" if current else piece
+    if current:
+        blocks.append(_section(current))
+    return blocks
+
+
+def _order_blocks(text: str, token: str) -> list[dict] | None:
+    """요약 글(여러 블록) + 마지막에 [확인][취소] 버튼. 두 버튼의 value 는 같은 토큰 하나뿐이다.
+    확인 버튼은 토큰 속 품목을 전부 만들므로 요약이 전부 보여야 한다. 블록이 한도를 넘으면 None(버튼 없이 거절)."""
     def button(label: str, action_id: str, **extra) -> dict:
         return {"type": "button", "action_id": action_id, "text": {"type": "plain_text", "text": label}, "value": token, **extra}
 
-    return [_section(text), {"type": "actions", "block_id": "order", "elements": [
-        button("확인", CONFIRM_ID, style="primary"), button("취소", CANCEL_ID)]}]
+    blocks = _text_blocks(text)
+    if len(blocks) + 1 > MAX_BLOCKS:
+        return None
+    return [*blocks, {"type": "actions", "block_id": "order", "elements": [button("확인", CONFIRM_ID, style="primary"), button("취소", CANCEL_ID)]}]
 
 
 def _send(dm: Dm, text: str, blocks: list[dict] | None = None) -> None:
@@ -234,7 +269,11 @@ def handle_event(envelope: dict, at: datetime) -> None:
         return
     if result:
         text, token = result
-        _send(dm, _escape(text), _order_blocks(_escape(text), token) if token else None)  # 슬랙 글에서 & < > 는 바꿔 보낸다
+        blocks = _order_blocks(text, token) if token else None
+        if token and blocks is None:  # 요약이 너무 길어 다 보여 줄 수 없다: 버튼 없이 거절(토큰은 버려지고 아무것도 만들어지지 않는다)
+            _outcome("SUMMARY_TOO_LONG", dm.event_id)
+            text = MSG_SPLIT
+        _send(dm, _escape(text), blocks)  # 슬랙 글에서 & < > 는 바꿔 보낸다
 
 
 # ----- 버튼 (block_actions) -----
@@ -286,7 +325,7 @@ def _tell(click: Click, text: str) -> None:
 def _replace_buttons(click: Click, text: str) -> None:
     """버튼 메시지를 결과 문구로 바꾼다(보조 방어선). 실패하면 사유만 남기고, 결과는 그대로 두며 누른 사람에게 결과를 따로 알린다."""
     try:
-        slack_client.get_client().update_message(click.channel, click.ts, _escape(text), [_section(_escape(text))])
+        slack_client.get_client().update_message(click.channel, click.ts, _escape(text), _text_blocks(text))
     except Exception as exc:  # noqa: BLE001
         _action_outcome("UPDATE_FAILED", exc.response.get("error") if isinstance(exc, SlackApiError) else type(exc).__name__)
         _tell(click, text)
@@ -320,7 +359,7 @@ def _handle_action(payload: dict, at: datetime) -> None:
             link = db.scalar(select(SlackLink).where(
                 SlackLink.slack_team_id == click.team_id, SlackLink.slack_user_id == click.user))  # 누른 사람 = 이 행의 사용자
             if link is None:
-                linked, reply = False, chat_order.Reply(chat_order.MSG_NOT_LINKED)
+                linked, reply = False, chat_order.Reply(chat_order.MSG_NOT_LINKED, outcome="NOT_LINKED")
             elif click.action_id == CONFIRM_ID:
                 reply = chat_order.confirm(db, link.company_id, link.user_id, click.token, at.astimezone(SEOUL).date(), at)
             else:
@@ -329,8 +368,8 @@ def _handle_action(payload: dict, at: datetime) -> None:
         _action_outcome("ERROR", type(exc).__name__)
         _tell(click, ACTION_ERROR)
         return
-    # 다른 사람이 눌렀거나 이미 처리된 경우: 원래 메시지(진짜 결과가 적혔을 수 있다)는 두고 누른 사람에게만 알린다
-    if not linked or reply.text in (chat_order.MSG_WRONG_USER, chat_order.MSG_DONE):
+    # 다른 사람이 눌렀거나 이미 처리된 경우: 원래 메시지(진짜 결과가 적혔을 수 있다)는 두고 누른 사람에게만 알린다. 문구가 아니라 사유 코드로 가른다
+    if not linked or reply.outcome in ("WRONG_USER", "ALREADY_DONE"):
         _action_outcome("NOT_LINKED" if not linked else "NOTICE_ONLY")
         _tell(click, reply.text)
         return

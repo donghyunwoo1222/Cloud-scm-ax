@@ -8,6 +8,7 @@
 import itertools  # 이벤트 id 만들기
 import json  # 버튼 본문
 import logging  # 로그에 비밀이 없는지
+import re  # 이스케이프가 끊기지 않았는지
 from contextlib import nullcontext  # 테스트 세션을 닫지 않고 빌려주기
 from datetime import datetime, time, timedelta  # 고정 시각
 from urllib.parse import quote  # payload= 폼 글자
@@ -86,7 +87,7 @@ def propose_token(client, fake, ai, *lines, user=STAFF, text="1번 2박스"):
     """DM 을 보내 [확인][취소] 버튼의 토큰을 돌려준다."""
     ai.say(*lines)
     assert send(client, text, user=user).status_code == 200
-    return fake.blocks[-1][1]["elements"][0]["value"]
+    return fake.blocks[-1][-1]["elements"][0]["value"]  # 버튼 블록은 늘 마지막
 
 
 def click(token, action=slack_events.CONFIRM_ID, user=STAFF, team=TEAM, channel="D1", ts="1700.01"):
@@ -408,3 +409,133 @@ def test_logs_have_no_token_text_or_slack_ids(client, session, world, shop, ai, 
     text = logs()
     for secret in (token, token.split(".")[0], "비밀 메모", STAFF, ADMIN, OTHER_CO, TEAM, SECRET):
         assert secret not in text
+
+
+# ----- 긴 요약 (M1): 요약은 token 속 품목을 빠짐없이 보여 줘야 한다 -----
+
+def long_names(session, world, count=18, prefix="L"):
+    """이름이 100자(& 가득 → 이스케이프하면 500자)인 추천 품목 count 개. 최신 품목이 목록 앞이므로 모두 번호 안에 든다."""
+    for i in range(count):
+        product = stock_50_sold_300(session, world, f"{prefix}{i:02d}")
+        product.name = f"{i:02d}" + "&" * 98
+    session.commit()
+
+
+def section_texts(blocks):
+    return [b["text"]["text"] for b in blocks if b["type"] == "section"]
+
+
+def test_long_summary_shows_every_item_in_limit(client, session, world, shop, ai, fake):
+    long_names(session, world, 20)  # 기존 2개 + 20개 = 22개 중 앞 20개(L00~L19)가 번호에 든다
+    propose_token(client, fake, ai, *[L(n) for n in range(1, 21)])
+    blocks = fake.blocks[-1]
+    texts = section_texts(blocks)
+    assert blocks[-1]["type"] == "actions" and len(texts) >= 2  # 버튼은 마지막, 요약은 여러 블록
+    assert all(len(t) <= slack_events.BLOCK_TEXT_MAX for t in texts)  # 블록마다 한도 이하
+    joined = "\n".join(texts)
+    for i in range(20):
+        assert f"(L{i:02d})" in joined  # 모든 SKU 가 요약 안에 있다 (token 속 20줄과 같은 내용)
+    assert "&amp;" in joined and "&&" not in joined and not re.search(r"&(?!amp;)", joined)  # 이스케이프가 끊기지 않았다
+
+
+def test_too_many_blocks_refuses_without_buttons(client, session, world, shop, ai, fake, monkeypatch, logs):
+    long_names(session, world, 20)
+    monkeypatch.setattr(slack_events, "MAX_BLOCKS", 2)  # 요약 블록 2개 + 버튼 1개 = 3 > 2
+    propose_token_or_none(client, ai, *[L(n) for n in range(1, 21)])
+    assert fake.sent[-1][1] == slack_events.MSG_SPLIT and fake.blocks == []
+    assert orders(session, world) == [] and "outcome=SUMMARY_TOO_LONG" in logs()
+
+
+def propose_token_or_none(client, ai, *lines, user=STAFF, text="전부"):
+    ai.say(*lines)
+    assert send(client, text, user=user).status_code == 200
+
+
+def test_fit_keeps_sku_and_quantity_for_huge_line():
+    line = "• " + "&" * 3000 + " (SKU-9) — 3 박스(300개) ⚠ 최소 주문량 5박스보다 적어요"
+    out = slack_events._fit(line)
+    assert len(out) <= slack_events.BLOCK_TEXT_MAX
+    assert "(SKU-9) — 3 박스(300개)" in out and out.startswith("• ") and "…" in out  # SKU·수량은 남고 품목명이 줄었다
+    assert not re.search(r"&(?!amp;)", out)  # &amp; 가 중간에서 끊기지 않았다
+    other = slack_events._fit("<" * 5000)  # 품목 줄이 아닌 긴 줄도 한도 안
+    assert len(other) <= slack_events.BLOCK_TEXT_MAX and not re.search(r"&(?!lt;)", other)
+
+
+def test_result_text_uses_same_blocks(client, session, world, shop, ai, fake):
+    token = propose_token(client, fake, ai, L(1))
+    slack_events.handle_action(click(token), NOW)
+    _channel, _ts, text, blocks = fake.updated[0]
+    assert [b["type"] for b in blocks] == ["section"] and blocks[0]["text"]["text"] == text  # 결과 문구는 자르지 않고 그대로 블록에 든다
+
+
+# ----- L1: LLM 을 기다리기 전에 DB 연결을 돌려준다 -----
+
+def test_propose_releases_connection_before_llm(session, world, shop, ai, monkeypatch):
+    seen = []
+    real = ai.complete
+
+    def probe(system, user, timeout):
+        seen.append(session.in_transaction())  # LLM 이 불리는 순간 세션이 트랜잭션 밖이어야 한다
+        return real(system, user, timeout)
+
+    monkeypatch.setattr(ai, "complete", probe)
+    ai.say(L(1))
+    user = world["a_staff"]
+    reply = co.propose(session, user.company_id, user.id, "1번 2박스", TODAY, NOW)
+    assert seen == [False] and reply.token and reply.outcome == "OK"
+    assert orders(session, world) == []  # 이후에도 같은 세션을 문제없이 쓴다
+
+
+# ----- L2: 사유 코드로 가른다 (문구를 바꿔도 동작이 같다) -----
+
+def test_other_person_notice_survives_message_change(client, session, world, shop, ai, fake, monkeypatch):
+    token = propose_token(client, fake, ai, L(1))
+    monkeypatch.setattr(co, "MSG_WRONG_USER", "다른 사람이 누를 수 없어요.")
+    monkeypatch.setattr(co, "MSG_DONE", "이미 끝난 요청이에요.")
+    slack_events.handle_action(click(token, user=ADMIN), NOW)
+    assert fake.ephemeral == [("D1", ADMIN, "다른 사람이 누를 수 없어요.")] and fake.updated == []  # 문구가 달라도 원래 메시지는 그대로
+    slack_events.handle_action(click(token), NOW)
+    slack_events.handle_action(click(token), NOW)
+    assert fake.ephemeral[-1] == ("D1", STAFF, "이미 끝난 요청이에요.") and len(fake.updated) == 1
+
+
+def test_reply_outcomes(session, world, shop, ai):
+    user = world["a_staff"]
+    ai.say(L(1))
+    proposed = co.propose(session, user.company_id, user.id, "1번", TODAY, NOW)
+    assert proposed.outcome == "OK"
+    assert co.confirm(session, user.company_id, user.id, "x.y", TODAY, NOW).outcome == "INVALID_TOKEN"
+    admin = world["a_admin"]
+    assert co.cancel(session, admin.company_id, admin.id, proposed.token).outcome == "WRONG_USER"
+    assert co.confirm(session, user.company_id, user.id, proposed.token, TODAY, NOW).outcome == "OK"
+    assert co.confirm(session, user.company_id, user.id, proposed.token, TODAY, NOW).outcome == "ALREADY_DONE"
+    assert co.confirm(session, user.company_id, user.id, proposed.token, TODAY, NOW + timedelta(hours=1)).outcome == "EXPIRED"
+
+
+# ----- 연결은 됐지만 지금은 못 쓰는 사용자가 자기 버튼을 누름 / payload 변형 -----
+
+@pytest.mark.parametrize("field", ["is_active", "must_change_password"])
+def test_unusable_user_clicking_own_button(client, session, world, shop, ai, fake, field):
+    token = propose_token(client, fake, ai, L(1))
+    setattr(world["a_staff"], field, field == "must_change_password")  # 비활성이 되거나 임시 비밀번호 상태로 돌아감
+    session.commit()
+    slack_events.handle_action(click(token), NOW)
+    assert orders(session, world) == []  # 초안이 만들어지지 않는다
+    assert fake.updated[0][2] == co.MSG_NOT_LINKED and fake.ephemeral == []  # 자기 메시지의 버튼이 안내로 바뀐다
+
+
+def test_click_with_only_user_team_id(client, session, world, shop, ai, fake):
+    token = propose_token(client, fake, ai, L(1))
+    payload = click(token)
+    del payload["team"]  # team.id 가 없고 user.team_id 만 있다
+    slack_events.handle_action(payload, NOW)
+    assert len(orders(session, world)) == 1
+
+
+def test_click_with_wrong_user_team_id_is_ignored(client, session, world, shop, ai, fake, logs):
+    token = propose_token(client, fake, ai, L(1))
+    payload = click(token)
+    del payload["team"]
+    payload["user"]["team_id"] = "T0OTHER"
+    slack_events.handle_action(payload, NOW)
+    assert orders(session, world) == [] and fake.updated == [] and "outcome=WRONG_TEAM" in logs()
