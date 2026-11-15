@@ -224,7 +224,7 @@ def stock(
 
 MOVEMENT_HEADERS = ["입출고일", "SKU", "품목명", "유형", "방향", "수량", "단위", "판매 채널", "사유", "메모", "발주번호",
                     "등록자", "등록 시각"]
-TYPE_LABELS = {"RECEIPT": "입고", "SALE": "판매", "DISPOSAL": "폐기", "OTHER_OUT": "기타 출고", "ADJUSTMENT": "조정", "CORRECTION": "정정"}
+TYPE_LABELS = {"RECEIPT": "입고", "SALE": "판매", "DISPOSAL": "폐기", "OTHER_OUT": "기타 출고", "ADJUSTMENT": "실사 조정", "CORRECTION": "정정"}  # 화면(frontend movement-form.tsx TYPE_LABEL)과 같은 말
 DIRECTION_LABELS = {"IN": "증가", "OUT": "감소"}
 
 

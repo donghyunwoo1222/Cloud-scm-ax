@@ -293,3 +293,13 @@ def test_route_declared_before_id_path(client, world, session):
     for target in TARGETS:
         assert client.get(TARGETS[target][0], params={"format": "csv"}).status_code == 200
 
+
+
+def test_movement_type_labels_match_screen(client, world, session):
+    """유형 라벨은 화면(TYPE_LABEL)과 같다: 조정은 "실사 조정"."""
+    p = add_product(session, world, "LB-1")
+    add_move(session, world, p, "ADJUSTMENT", "OUT", 1, 1)
+    session.commit()
+    login_as(client)
+    _, rows = get(client, "movements")
+    assert [r["유형"] for r in rows] == ["실사 조정"] and rows[0]["방향"] == "감소"
