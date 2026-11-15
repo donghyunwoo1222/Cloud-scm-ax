@@ -41,6 +41,7 @@
 | F1 | GET /me | 내 정보·회사·역할 | 둘 다 |
 | 자동화 슬랙 연결 | GET /slack/link, POST /slack/link/code, POST /slack/link/unlink | 내 슬랙 연결 상태, 6자리 연결 코드 발급(10분, 원문은 응답에만), 연결 해제. 자기 연결만 다루고 회사·사용자는 토큰에서만. 슬랙이 꺼져 있으면 발급은 503 `SLACK_DISABLED`, 이미 연결이면 409 `SLACK_ALREADY_LINKED`, 해제는 언제나 된다 (#197) | 둘 다 |
 | 자동화 슬랙 받는 문 | POST /slack/events | 슬랙 Events API 가 부르는 경로(배포용, 개발은 Socket Mode 워커). 로그인 대신 슬랙 서명(`X-Slack-Signature`, 5분 넘은 시각 거부)을 원문 본문으로 검증하고 실패하면 401 `SLACK_BAD_SIGNATURE`. 슬랙이 꺼져 있거나 서명 키가 없으면 404. `url_verification` 은 challenge 를 돌려주고, 나머지는 바로 200 을 보낸 뒤 뒤에서 처리한다(3초 안에 답, event_id 로 한 번만). DM "연결 123456" → 연결 코드 확인, 그 밖의 말은 안내 문구. 회사는 `slack_links` 행에서만 (#197) | 슬랙(서명) |
+| 자동화 아침 추천 알림 | (경로 없음) 명령 `python -m app.slack_digest` | 바깥 예약 실행(배포 #43, 서울 9시)이 하루 한 번 부르는 일회성 명령. 연결된 활성 사용자에게 오늘의 추천을 슬랙 DM 으로 보낸다(웹 추천 계산 그대로, 최대 10줄, 넘치면 "외 N개"). 추천 0개면 안 보낸다. 링크는 `APP_BASE_URL` 이 https:// 로 시작할 때만 `/recommendations`. 사람마다 `idempotency_keys`(`slack:digest`, `날짜:user_id`)로 하루 한 통, 보낸 뒤에만 확정(실패하면 다시 실행 때 그 사람만). 종료 코드 1 = 실패 있음. 읽기·알림만 (#197) | (명령) |
 | 자동화 회사 정보 | GET /company, PATCH /company | 우리 회사 정보(사업자번호·대표자·주소·연락처) 조회·수정. 경로·본문에 회사 번호가 없고 토큰의 회사만 쓴다 (#156) | 조회 둘 다, 수정 관리자 |
 | F1 | GET /users, POST /users, PATCH /users/{id} | 직원 목록, 이메일·임시 비밀번호로 계정 생성, 역할·비활성 변경 | 관리자 |
 | F2 공급업체 | GET /suppliers, POST /suppliers | 목록(비활성 제외·포함 선택), 등록(리드타임 0 이상 정수) | 둘 다 |
