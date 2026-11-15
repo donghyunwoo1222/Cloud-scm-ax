@@ -1,53 +1,103 @@
-.receiptCard {
-  position: relative;
-}
-
-/* 카드 여백은 전체 목록으로, 두 건수는 각 납기 목록으로 연결한다. */
-.allReceipts::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: var(--radius-md);
-}
-
-.receiptLinks {
+/* 오늘 할 일: 1번은 크게(먼저 할 일), 나머지는 번호 목록 */
+.firstTodo {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-xs);
-  margin-block: var(--space-xs);
-}
-
-.receiptLinks a {
-  position: relative;
-  z-index: 1;
-  flex: 1 1 0;
-  min-inline-size: max-content;
-  min-height: 36px;
-  display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-xs);
-  padding: var(--space-xs) var(--space-sm);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-hover);
-  font-size: var(--text-xs);
+  gap: var(--space-sm) var(--space-md);
+  padding: var(--space-md) var(--card-pad);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+  color: var(--color-foreground);
   text-decoration: none;
-  white-space: nowrap;
 }
 
-.receiptLinks a:hover {
-  border-color: currentColor;
+a.firstTodo:hover {
+  border-color: var(--color-primary);
 }
 
-.receiptLinks strong {
-  font-size: var(--text-base);
+/* 글이 길면 버튼이 아래 줄로 내려간다 (좁은 화면) */
+.todoText {
+  display: flex;
+  flex: 1 1 16rem;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.todoKicker {
+  font-size: var(--text-sm);
+  color: var(--color-muted-foreground);
+}
+
+.todoTitle {
+  font-size: var(--text-xl);
+  font-weight: 700;
+}
+
+.urgent {
+  border-color: var(--color-destructive);
+  background: var(--color-destructive-bg);
+}
+
+.urgent .todoKicker,
+.urgent .todoTitle {
+  color: var(--color-destructive);
+}
+
+.todoList {
+  margin: var(--space-sm) 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: todo 1;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+  overflow: hidden;
+}
+
+.todoList li {
+  counter-increment: todo;
+}
+
+.todoList li + li {
+  border-top: 1px solid var(--color-border);
+}
+
+.todoList a {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 44px;
+  padding: var(--space-sm) var(--card-pad);
+  color: var(--color-foreground);
+  text-decoration: none;
+}
+
+.todoList a::before {
+  content: counter(todo);
+  min-inline-size: 1.25em;
+  color: var(--color-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
-.receiptLinks .lateReceipts {
-  color: var(--color-destructive);
-  background: var(--color-destructive-bg);
+.todoList a:hover {
+  background: var(--color-hover);
+}
+
+.todoList a > span:first-child {
+  flex: 1;
+}
+
+.todoGo {
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.todoQuiet a {
+  color: var(--color-muted-foreground);
 }
 
 .orderLink {
@@ -136,10 +186,4 @@
 
 .monthRow:hover .monthLink {
   text-decoration: underline;
-}
-
-@media (pointer: coarse) {
-  .receiptLinks a {
-    min-height: 44px;
-  }
 }
