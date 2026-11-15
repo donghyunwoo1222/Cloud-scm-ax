@@ -13,6 +13,7 @@ from app.api import (  # 경로가 든 모듈들
     receipt_imports,
     recommendations,
     sales_imports,
+    slack_events,
     slack_link,
     stock,
     suppliers,
@@ -40,3 +41,4 @@ app.include_router(receipt_imports.router, prefix="/api/v1")  # 품목·입고 �
 app.include_router(product_imports.router, prefix="/api/v1")  # 품목 마스터 가져오기 (신규·수정, #189)
 app.include_router(import_templates.router, prefix="/api/v1")  # 가져오기 템플릿 내려받기 (#189)
 app.include_router(slack_link.router, prefix="/api/v1")  # 슬랙 연결 코드 발급·해제 (#197)
+app.include_router(slack_events.router, prefix="/api/v1")  # 슬랙 Events API 받는 문 (#197, 로그인 대신 서명 검증)
