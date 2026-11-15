@@ -31,7 +31,7 @@ ENDPOINT = "slack:digest"  # idempotency_keys 의 endpoint 칸 (웹 경로·slac
 MAX_LINES = 10  # 메시지에 넣는 최대 품목 수. 넘치면 "외 N개"로 웹에 안내
 WEB_PATH = "/recommendations"  # 웹 추천 화면 (frontend/app/(app)/recommendations, (app) 은 주소에 안 붙는 묶음)
 NO_LINK = "웹의 '발주 추천' 화면"
-REPLY_HINT = "답장 예: 1번 3박스"  # 이 DM 에 답장하면 발주 초안 요약이 온다(#197 PR 5b)
+REPLY_HINT = "답장 예: 1번 3박스 (더 보려면 '도움말')"  # 이 DM 에 답장하면 발주 초안 요약이 온다(#197 PR 5b)
 
 
 def _escape(value: str) -> str:
