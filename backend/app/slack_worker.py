@@ -1,4 +1,4 @@
-"""개발용 슬랙 Socket Mode 워커 (#197 PR 3b). 슬랙이 웹소켓으로 보내 주는 이벤트를 slack_events.handle_event 로 넘긴다.
+"""개발용 슬랙 Socket Mode 워커 (#197 PR 3b, 5b). 슬랙이 웹소켓으로 보내 주는 DM 이벤트는 slack_events.handle_event, 버튼(interactive)은 handle_action 으로 넘긴다.
 
 실행(저장소 맨 위 폴더):  docker compose exec backend python -m app.slack_worker   (끄기: Ctrl+C)
 공개 주소가 없는 개발 PC 용이다. 배포에서는 HTTP 경로(POST /slack/events)를 쓰므로 이 파일은 띄우지 않는다.
@@ -25,18 +25,21 @@ def _ignored(reason: str) -> None:
 
 
 def on_request(client: SocketModeClient, req: SocketModeRequest) -> None:
-    """먼저 "받았음"(ack)을 보낸다(슬랙은 3초 안에 답이 없으면 다시 보낸다). 그다음 events_api 만 처리한다. 예외는 밖으로 내지 않는다."""
+    """먼저 "받았음"(ack)을 보낸다(슬랙은 3초 안에 답이 없으면 다시 보낸다). 그다음 events_api(DM)·interactive(버튼)만 처리한다. 예외는 밖으로 내지 않는다."""
     try:
         client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
     except Exception as exc:  # noqa: BLE001  ack 실패: 슬랙이 다시 보내고 handle_event 가 event_id 로 중복을 막는다
         log.warning("slack_worker outcome=ACK_FAILED error=%s", type(exc).__name__)
         return
-    if req.type != "events_api":  # interactive(버튼)·slash_commands 등은 PR 5
+    if req.type not in ("events_api", "interactive"):  # slash_commands 등은 쓰지 않는다
         _ignored(f"TYPE_{req.type}")
         return
     try:
-        slack_events.handle_event(req.payload, slack_link.now())
-    except Exception as exc:  # noqa: BLE001  handle_event 는 원래 예외를 안 내지만, 워커는 무슨 일이 있어도 살아 있어야 한다
+        if req.type == "events_api":
+            slack_events.handle_event(req.payload, slack_link.now())
+        else:  # 버튼: block_actions 가 아니면 handle_action 이 무시한다
+            slack_events.handle_action(req.payload, slack_link.now())
+    except Exception as exc:  # noqa: BLE001  handle_event·handle_action 은 원래 예외를 안 내지만, 워커는 무슨 일이 있어도 살아 있어야 한다
         log.warning("slack_worker outcome=HANDLER_ERROR error=%s", type(exc).__name__)
 
 

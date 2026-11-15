@@ -30,6 +30,7 @@ ENDPOINT = "slack:digest"  # idempotency_keys 의 endpoint 칸 (웹 경로·slac
 MAX_LINES = 10  # 메시지에 넣는 최대 품목 수. 넘치면 "외 N개"로 웹에 안내
 WEB_PATH = "/recommendations"  # 웹 추천 화면 (frontend/app/(app)/recommendations, (app) 은 주소에 안 붙는 묶음)
 NO_LINK = "웹의 '발주 추천' 화면"
+REPLY_HINT = "답장 예: 1번 3박스"  # 이 DM 에 답장하면 발주 초안 요약이 온다(#197 PR 5b)
 
 
 def _escape(value: str) -> str:
@@ -45,8 +46,8 @@ def _quantity(item: dict) -> str:
     return f"{arrival:,}{_escape(unit)}"  # 환산 1이면 발주단위 수 = 도착 수량 (최소 주문량 반영)
 
 
-def _line(item: dict) -> str:
-    text = (f"• {_escape(item['product_name'])} ({_escape(item['product_sku'])}) — {_quantity(item)} 추천"
+def _line(n: int, item: dict) -> str:  # n: 줄 번호(1부터). 답장의 "1번"이 가리키는 번호와 같은 순서다
+    text = (f"{n}. {_escape(item['product_name'])} ({_escape(item['product_sku'])}) — {_quantity(item)} 추천"
             f" · 지금 쓸 수 있는 재고 {item['available']:,}{_escape(item['unit'])}")
     if item["draft"]:  # 아직 주문 전이라 추천에 남는다. 이미 담았다는 것만 알린다
         text += f" · 작성 중 발주서 {_escape(item['draft']['po_number'])}에 있어요"
@@ -57,12 +58,13 @@ def build_message(items: list[dict], day: date, base_url: str) -> str:
     """추천 목록(웹 추천 API 의 items 모양)으로 DM 글을 만든다. DB·슬랙을 쓰지 않는 순수 함수."""
     url = base_url.rstrip("/") + WEB_PATH if base_url.startswith("https://") else None  # https 주소일 때만 링크
     lines = [f"☀️ 오늘의 발주 추천 ({day.month}월 {day.day}일)", f"발주를 검토할 품목이 {len(items):,}개 있어요.", ""]
-    lines += [_line(item) for item in items[:MAX_LINES]]  # 웹 목록 순서(최신 품목 먼저) 그대로
+    lines += [_line(n, item) for n, item in enumerate(items[:MAX_LINES], 1)]  # 웹 목록 순서(최신 품목 먼저) 그대로
     rest = len(items) - MAX_LINES
     if rest > 0:
         lines.append(f"외 {rest:,}개는 웹에서 확인해 주세요: {url}" if url else f"외 {rest:,}개는 {NO_LINK}에서 확인해 주세요.")
     else:
         lines.append(f"자세한 이유: {url}" if url else f"자세한 이유는 {NO_LINK}에서 볼 수 있어요.")
+    lines.append(REPLY_HINT)  # 번호는 답장하는 시점의 목록 기준이라, 만들기 전에 요약에서 품목 이름을 다시 확인한다
     return "\n".join(lines)
 
 
