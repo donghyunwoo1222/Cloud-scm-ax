@@ -11,6 +11,12 @@ from app.schemas.products import ProductCreate, ProductUpdate  # 요청 모양
 from app.services.tenant import check_ref, get_owned, scoped  # 회사 분리 도우미 (#23)
 
 
+def product_label(name: str, sku: str, color: str | None = None, size: str | None = None, spec: str | None = None) -> str:
+    """품목 표시 글자(슬랙 아침 DM·확인 요약·결과 문구가 같이 쓴다). 옵션이 있으면 '기본 티셔츠 · 검정 / M (TS-BK-M)', 없으면 '기본 티셔츠 (TS-BK-M)'."""
+    options = " / ".join(v for v in (color, size, spec) if v)  # 있는 옵션만 ' / ' 로 잇는다
+    return f"{name} · {options} ({sku})" if options else f"{name} ({sku})"
+
+
 def filter_product_search(stmt: Select, q: str | None, group_code: str | None = None) -> Select:  # 품목 목록·재고 목록·추천 목록이 쓰는 같은 검색 조건
     code = group_code.strip().upper() if group_code else ""  # 그룹 코드는 대문자로 저장하므로 대문자로 맞춰 비교한다
     if code:  # 그룹 코드를 골랐으면
