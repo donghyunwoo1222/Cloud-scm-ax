@@ -37,10 +37,10 @@ export function ExportButton({ path, query, summary, note }: {
   }
 
   return (
-    <div style={{ display: "inline-block" }}>
+    <div style={{ position: "relative", display: "inline-block" }}>{/* 패널은 버튼 아래에 떠서 열려 제목 줄 배치를 밀지 않는다 */}
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>내보내기</button>
       {open && (
-        <div style={S.panel}>
+        <div style={{ ...S.panel, position: "absolute", top: "100%", right: 0, zIndex: 20, width: "max-content", maxWidth: "min(360px, 90vw)", flexDirection: "column", boxShadow: "var(--shadow-md, 0 4px 12px rgba(0,0,0,.12))" }}>
           <div>
             <p style={{ margin: 0 }}>현재 검색·필터 조건으로 내보냅니다{summary && ` · ${summary}`}</p>
             <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: "8px 0" }}>

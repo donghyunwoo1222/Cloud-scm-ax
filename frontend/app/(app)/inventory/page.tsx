@@ -210,7 +210,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
 
   return (
     <section>
-      <div style={S.detailHeader}><h1 ref={inventoryTitle} tabIndex={-1}>재고 현황</h1><Link href="/shipments?type=ADJUSTMENT" style={S.linkButtonGhost}>실사 조정</Link><ExportButton path="/stock/export" query={stock.exportQuery} summary={stock.meta ? `품목 ${stock.meta.total}건` : null} /></div>
+      <div style={S.detailHeader}><h1 ref={inventoryTitle} tabIndex={-1}>재고 현황</h1><div style={{ display: "flex", gap: "var(--space-sm)", flexWrap: "wrap" }}><Link href="/shipments?type=ADJUSTMENT" style={S.linkButtonGhost}>실사 조정</Link><ExportButton path="/stock/export" query={stock.exportQuery} summary={stock.meta ? `품목 ${stock.meta.total}건` : null} /></div></div>
       {/* 기존 목록 검색창과 비활성 포함을 재고 API에 연결한다. */}
       <ListControls placeholder="품목명·SKU·옵션 검색" onSearch={searchStock} searchInput={{ value: searchText, onChange: setSearchText, maxLength: 100 }}
         includeInactive={stock.includeInactive} onToggleInactive={stock.toggleInactive}
@@ -266,8 +266,10 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
 
       <div style={{ ...S.detailHeader, marginTop: S.sectionTitle.marginTop, marginBottom: 0 }}>
         <h2 id="movement-history" ref={historyTitle} tabIndex={-1} style={{ margin: 0 }}>입출고 이력</h2>
-        {productId && <button type="button" onClick={returnToInventory}>접고 목록으로 ↑</button>}
-        <ExportButton path="/inventory-movements/export" query={historyExportQuery} summary={meta ? `이력 ${meta.total}건` : null} />
+        <div style={{ display: "flex", gap: "var(--space-sm)", flexWrap: "wrap" }}>
+          {productId && <button type="button" onClick={returnToInventory}>접고 목록으로 ↑</button>}
+          <ExportButton path="/inventory-movements/export" query={historyExportQuery} summary={meta ? `이력 ${meta.total}건` : null} />
+        </div>
       </div>
       {/* tabIndex -1: 키 이동 순서에는 넣지 않고, 코드로만 포커스를 줄 수 있게 */}
       <p style={S.hint}>{historyProduct
