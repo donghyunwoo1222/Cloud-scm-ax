@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, apiListAll } from "../../lib/api"; // 서버 호출
 import { fetchSuggest, NO_AI_NOTICE, NO_AI_REASONS, ReadingConfirm, type Suggest } from "../../lib/import-suggest"; // "이렇게 읽었어요" (#193)
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
+import { FileDrop } from "../../lib/file-drop"; // 파일 올리기 칸 (끌어 놓기 포함)
 import { S } from "../../lib/styles"; // 공통 스타일
 import { InfoTip } from "../../lib/tip"; // 보조 설명 말풍선
 
@@ -193,12 +194,10 @@ export default function Page() {
 
       <div style={S.sectionCard}>
         <h2 style={{ marginTop: 0 }}>1. 파일 올리기</h2>
-        <input key={inputKey} type="file" accept=".csv,.xlsx" disabled={busy} aria-label="품목 파일"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) void inspect(f); else reset(null); }} />
-        <p style={{ ...S.hint, marginBottom: 0 }}>
-          {info ? `${file?.name} · 데이터 ${info.row_count.toLocaleString()}행 · ` : ""}템플릿 내려받기:{" "}
-          <a href="/api/v1/import-templates/products.xlsx" download>엑셀</a> · <a href="/api/v1/import-templates/products.csv" download>CSV</a>
-        </p>
+        <FileDrop key={inputKey} label="품목 파일" disabled={busy} fileName={file?.name}
+          meta={info ? `데이터 ${info.row_count.toLocaleString()}행` : undefined}
+          templates={{ xlsx: "/api/v1/import-templates/products.xlsx", csv: "/api/v1/import-templates/products.csv" }}
+          onFile={(f) => { if (f) void inspect(f); else reset(null); }} />
       </div>
 
       {reading && (
