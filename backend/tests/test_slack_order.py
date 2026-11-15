@@ -575,7 +575,7 @@ def test_help_lists_only_working_inputs(client, world, shop, ai, fake):
     send(client, "도움말")
     help_text = fake.sent[-1][1]
     assert "\n" in help_text and help_text.count("• ") >= 3  # 줄바꿈이 있는 짧은 목록
-    for supported in ("번호와 수량", "1번 3박스", "전부", "도움말", "[확인]", "[취소]", "품목 이름"):
+    for supported in ("번호와 수량", "1번 3박스", "전부", "도움말", "[확인]", "[취소]", "품목 이름", "박스 품목은", "3 박스(300개)"):
         assert supported in help_text
     assert "승인·발주·입고·판매는 슬랙에서 할 수 없어요" in help_text and "웹에서" in help_text
     for unsupported in ("연결 코드", "연결 1", "'취소'", "승인해", "입고해"):  # 글로 보내도 동작하지 않거나 슬랙에서 못 하는 것
