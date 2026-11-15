@@ -5,7 +5,6 @@ import { ReactNode, useEffect, useState } from "react"; // 카드 안 내용 타
 
 import { api, apiList } from "../../lib/api"; // 공통 API 호출 함수 (한 건, 목록)
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
-import { useMe } from "../../lib/me"; // 내 역할 (세 번째 카드가 역할마다 다르다)
 import { seoulToday } from "../../lib/movement-form"; // 이력 링크에 서울 기준 오늘을 쓴다
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 import styles from "./page.module.css"; // 입고 카드의 전체·세부 목록 링크
@@ -25,11 +24,11 @@ type Dashboard = {
   overstock: { days: number; count: number; items: OverItem[] }; // 과잉재고 (기준 일수 90, 전체 건수, 20줄)
   todo?: { type: string; count: number; href: string }[]; // 오늘 할 일 (서버가 순서·역할·0건 숨김을 정해 보낸다, 이전 응답에는 없을 수 있다)
 };
-// 할 일 종류별 문장과 단위 (건수 뒤에 붙는다)
-const TODO_TEXT: Record<string, [string, string]> = {
-  overdue_receipts: ["납기가 지난 발주서", "건"], review_recommendations: ["발주 추천 검토", "품목"],
-  approve_orders: ["승인할 발주서", "건"], send_orders: ["공급업체에 보낼 발주서", "건"],
-  due_today_receipts: ["오늘 입고 예정 발주서", "건"], unknown_stock: ["판단 불가 품목", "품목"],
+// 할 일 종류별 카드 이름, 단위, 카드 맨 아래 이동 문구
+const TODO_TEXT: Record<string, [string, string, string]> = {
+  overdue_receipts: ["납기 지연 발주서", "건", "지연 발주 보기"], review_recommendations: ["발주 추천 검토", "품목", "발주 추천 보기"],
+  approve_orders: ["승인할 발주서", "건", "승인할 발주 보기"], send_orders: ["보낼 발주서", "건", "보낼 발주 보기"],
+  due_today_receipts: ["오늘 입고 예정", "건", "오늘 입고 보기"], unknown_stock: ["판단 불가 품목", "품목", "재고 현황 보기"],
 };
 type ShortItem = { product_id: number; sku: string; name: string; unit: string; current_stock: number; available: number; reorder_point: number; recommended_quantity: number };
 type OverItem = { product_id: number; sku: string; name: string; unit: string; current_stock: number; avg_daily_sales: number };
@@ -62,7 +61,6 @@ function NumberCard({ label, value, sub, href, more }: { label: string; value: s
 
 // 오늘 할 일에서 시작해 재고 점검과 입출고 이력으로 이어진다.
 export default function Page() {
-  const me = useMe(); // 내 정보 (레이아웃이 로그인을 확인하기 전에는 null)
   const [data, setData] = useState<Dashboard | null>(null); // 불러온 요약 (불러오기 전 null)
   const [error, setError] = useState<unknown>(null); // 불러오기 오류
   const [hasSupplier, setHasSupplier] = useState<boolean | null>(null); // 첫 설정에서 가능한 다음 단계를 찾는다.
@@ -121,45 +119,17 @@ export default function Page() {
       )}
       {/* 품목이 하나도 없는 회사: 무엇부터 할지 안내 (빈 화면 대신 다음 행동) */}
 
-      {data.todo && (
-        <section style={S.sectionCard} aria-labelledby="todo-title">
-          <h2 id="todo-title">오늘 할 일</h2>
-          {data.todo.length === 0 ? <p style={S.empty}>오늘 할 일이 없습니다.</p> : (
-            <ul>
-              {data.todo.map((t) => (
-                <li key={t.type}>
-                  <Link href={t.href}>{TODO_TEXT[t.type]?.[0] ?? t.type} <strong>{won(t.count)}{TODO_TEXT[t.type]?.[1] ?? "건"}</strong></Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
-
-      <h2 style={S.sectionTitle}>오늘 확인할 일</h2>
-      <div role="group" aria-label="오늘 확인할 일" style={S.kpiGrid}>
-        <div className={`kpi-card ${styles.receiptCard}`} style={S.kpiCard}>
-          <span style={S.kpiLabel}>입고 대기 발주</span>
-          {po.due_today != null && po.overdue != null && (
-            <div className={styles.receiptLinks}>
-              <Link href="/purchase-orders?status=ORDERED&receipt_due=TODAY"><span>오늘</span>{" "}<strong>{won(po.due_today)}건</strong></Link>
-              <Link href="/purchase-orders?status=ORDERED&receipt_due=OVERDUE"
-                className={po.overdue > 0 ? styles.lateReceipts : undefined}><span>지연</span>{" "}<strong>{won(po.overdue)}건</strong></Link>
-            </div>
-          )}
-          <span style={S.kpiSub}>전체 {won(po.ordered)}건 · 입고 예정 {unitTotals(po.incoming_by_unit)}</span>
-          <Link className={styles.allReceipts} href="/purchase-orders?status=ORDERED" style={S.kpiMore}>입고 대기 발주 보기</Link>
+      <h2 style={S.sectionTitle}>오늘 할 일</h2>
+      {/* 순서·역할별 노출·0건 숨김은 서버(todo)가 정한다. 화면은 그대로 그린다 */}
+      {!data.todo || data.todo.length === 0 ? <p style={S.empty}>오늘 할 일이 없습니다.</p> : (
+        <div role="group" aria-label="오늘 할 일" style={S.kpiGrid}>
+          {data.todo.map((t) => {
+            const [label, unit, more] = TODO_TEXT[t.type] ?? [t.type, "건", "보기"];
+            return <NumberCard key={t.type} label={label} value={`${won(t.count)}${unit}`} href={t.href} more={more}
+              sub={t.type === "due_today_receipts" ? `전체 ${won(po.ordered)}건 · 입고 예정 ${unitTotals(po.incoming_by_unit)}` : undefined} />;
+          })}
         </div>
-        <NumberCard label="발주 검토" value={`${won(shortage.count)}품목`} href="/recommendations" more="발주 추천 보기" />
-        {me?.role === "ADMIN" && (
-          <NumberCard label="승인할 발주" value={`${won(po.draft)}건`} sub="승인 전 초안" href="/purchase-orders?status=DRAFT" more="승인할 발주 보기" />
-        )}
-        {/* 3-관리자: 내가 승인해야 할 발주서 */}
-        {me?.role === "STAFF" && (
-          <NumberCard label="보낼 발주" value={`${won(po.approved)}건`} sub="공급업체에 보낼 승인 발주서" href="/purchase-orders?status=APPROVED" more="보낼 발주 보기" />
-        )}
-        {/* 3-담당자: 승인이 나서 공급업체에 보낼 발주서 */}
-      </div>
+      )}
 
       {/* 항목마다 흰 카드 한 장. 카드 안 제목(h2)은 위 여백을 없앤다 */}
       <div style={S.sectionCard}>
