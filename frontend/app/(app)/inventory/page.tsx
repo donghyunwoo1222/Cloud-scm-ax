@@ -7,6 +7,7 @@ import { FormEvent, Suspense, useCallback, useEffect, useRef, useState } from "r
 import { api, apiList, Meta } from "../../lib/api"; // 공통 API 호출 함수
 import { useConfirmedPost } from "../../lib/confirmed-post"; // 멱등 키 (#190, 정정은 서버 경고가 없다)
 import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
+import { ExportButton } from "../../lib/export-button"; // 내보내기 (#191)
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 이름
 import { STOCK_BADGE, StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
@@ -122,6 +123,13 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
     return () => { alive = false; };
   }, [historyId, initialFrom, initialTo]);
 
+  const historyExport = new URLSearchParams(); // 내보내기는 화면의 이력 조건 그대로 (쪽 정보 없음, #191)
+  if (productId) historyExport.set("product_id", productId);
+  if (type) historyExport.set("movement_type", type);
+  if (from) historyExport.set("date_from", from);
+  if (to) historyExport.set("date_to", to);
+  const historyExportQuery = historyExport.toString(); // 예) product_id=7&date_from=2026-11-01
+
   const reloadMovements = useCallback(async () => {
     const request = ++historyRequest.current;
     const params = new URLSearchParams({ page: String(page), page_size: "10" }); // 전체·품목별 이력은 한 쪽에 10건
@@ -202,7 +210,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
 
   return (
     <section>
-      <div style={S.detailHeader}><h1 ref={inventoryTitle} tabIndex={-1}>재고 현황</h1><Link href="/shipments?type=ADJUSTMENT" style={S.linkButtonGhost}>실사 조정</Link></div>
+      <div style={S.detailHeader}><h1 ref={inventoryTitle} tabIndex={-1}>재고 현황</h1><Link href="/shipments?type=ADJUSTMENT" style={S.linkButtonGhost}>실사 조정</Link><ExportButton path="/stock/export" query={stock.exportQuery} summary={stock.meta ? `품목 ${stock.meta.total}건` : null} /></div>
       {/* 기존 목록 검색창과 비활성 포함을 재고 API에 연결한다. */}
       <ListControls placeholder="품목명·SKU·옵션 검색" onSearch={searchStock} searchInput={{ value: searchText, onChange: setSearchText, maxLength: 100 }}
         includeInactive={stock.includeInactive} onToggleInactive={stock.toggleInactive}
@@ -259,6 +267,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
       <div style={{ ...S.detailHeader, marginTop: S.sectionTitle.marginTop, marginBottom: 0 }}>
         <h2 id="movement-history" ref={historyTitle} tabIndex={-1} style={{ margin: 0 }}>입출고 이력</h2>
         {productId && <button type="button" onClick={returnToInventory}>접고 목록으로 ↑</button>}
+        <ExportButton path="/inventory-movements/export" query={historyExportQuery} summary={meta ? `이력 ${meta.total}건` : null} />
       </div>
       {/* tabIndex -1: 키 이동 순서에는 넣지 않고, 코드로만 포커스를 줄 수 있게 */}
       <p style={S.hint}>{historyProduct
