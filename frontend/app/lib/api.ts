@@ -89,3 +89,32 @@ async function request(path: string, options: Options) {
     error?.details ?? null,
   );
 }
+
+// 파일 내려받기 (#191 내보내기): 성공이면 blob → 임시 주소 → 클릭 → 주소 해제, 실패면 서버의 JSON 오류를 ApiError 로 던진다
+// 예) apiDownload("/products/export?format=xlsx&q=컵") → products-20261115.xlsx 저장
+// shortcut: 파일을 통째로 메모리(blob)에 받는다. 상한(MAX_ROWS)이 서버에 있어 충분하고, 더 커지면 스트리밍 저장으로 바꾼다
+export async function apiDownload(path: string, fallbackName = "export"): Promise<void> {
+  let response: Response; // 서버 응답
+  try {
+    response = await fetch(`/api/v1${path}`, { credentials: "same-origin" }); // GET 만 쓴다 (읽기)
+  } catch {
+    throw new ApiError(0, "NETWORK_ERROR", "서버에 연결할 수 없습니다."); // 서버가 꺼졌거나 네트워크 끊김
+  }
+  if (!response.ok) {
+    if (response.status === 401) {
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign("/login"); // 로그인이 풀렸으면 로그인 화면으로
+    }
+    const error = (await response.json().catch(() => null))?.error; // 서버 오류 본문 (예: EXPORT_TOO_LARGE)
+    throw new ApiError(response.status, error?.code ?? "UNKNOWN_ERROR", error?.message ?? "내보내지 못했습니다.", error?.details ?? null);
+  }
+  const name = response.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/)?.[1] ?? fallbackName; // 서버가 정한 파일 이름
+  const url = URL.createObjectURL(await response.blob()); // 받은 파일을 가리키는 임시 주소
+  const link = document.createElement("a"); // 눈에 안 보이는 링크로 저장 창을 띄운다
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url); // 임시 주소 해제
+}

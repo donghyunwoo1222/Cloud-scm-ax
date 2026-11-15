@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useRef, useState } from "react"; // 폼 제출, �
 
 import { api, apiListAll } from "../../lib/api"; // 공통 API 호출 함수
 import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸치는 입력 항목
+import { ExportButton } from "../../lib/export-button"; // 내보내기 (#191)
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { optionSummary } from "../../lib/options"; // 옵션 요약 ("검정 / M")
 import { type Product, ProductDetail } from "../../lib/product-detail"; // 품목 한 행 타입과 상세 모달 (#225)
@@ -156,7 +157,11 @@ export default function ProductsPage() {
   const boxed = Number.isInteger(factor) && factor >= 1; // 발주단위 설정이 있으면 발주단위, 없으면 재고 단위로 센다
   return (
     <section>
-      <h1>품목</h1>
+      <div style={S.detailHeader}>
+        <h1>품목</h1>
+        <ExportButton path="/products/export" query={list.exportQuery} summary={list.meta ? `품목 ${list.meta.total}건` : null}
+          note="내보낸 품목 파일은 가져오기 화면에 다시 올릴 수 있어요. 가져오기는 한 번에 5,000행까지예요" />
+      </div>
 
       {created && <p role="status" style={S.ok}>품목을 등록했습니다. <Link href="/receipts#direct-receipt">입고 등록으로 이동</Link></p>}
       <details ref={registration} className="smooth-details" style={S.sectionCard}>

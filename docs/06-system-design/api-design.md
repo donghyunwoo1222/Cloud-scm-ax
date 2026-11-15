@@ -193,6 +193,15 @@
 - `POST /{sales|receipt|product}-imports/suggest` (`file`, #193): LLM 열 매핑 제안(읽기만, 저장·자동 반영 없음). 항상 200이고 `source`·`reason`·`mapping`(inspect의 `suggested`와 같은 칸→열 번호)·`confidence`(칸→`high`|`low`)·`samples`(짝지어진 칸만, 앞쪽 값 5개·30자)를 준다. `source`는 `template`(템플릿과 머리글이 같아 LLM을 부르지 않음, 품목·판매만), `llm`(검증 통과), `rules`(그 밖: `mapping`·`confidence`·`samples`는 null, 화면은 inspect의 `suggested`로 기존 열 지정). `reason`은 코드 값만: #180 래퍼의 `DISABLED`·`DAILY_LIMIT`·`BUDGET`·`TIMEOUT`·`UPSTREAM`·`BAD_OUTPUT`·`TOO_LARGE`, 또는 `TOO_MANY_COLUMNS`(60열 초과, LLM 안 부름)·`INVALID_MAPPING`(없는 열·중복·필수 칸 누락·각 가져오기의 열 규칙 위반이면 답 전체를 버림). LLM에는 머리글(제어문자 제거·40자, 숫자가 절반 이상이면 모양으로)과 열마다 앞쪽 5행의 값 모양 최대 3개(숫자→9, 한글→가, 영문→A/a, 그 밖→?, 20자)만 보낸다. 실제 값·회사 번호·파일 이름은 보내지 않는다. 파일을 읽을 수 없으면 inspect와 같은 422.
 - 문제 행 사유: `MISSING_SKU`(비었거나 50자 초과), `INVALID_QUANTITY`, `INVALID_DATE`, `FUTURE_DATE`, `MISSING_REF`, `DUPLICATE_REF_IN_FILE`, `INVALID_PRODUCT_INFO`(새 SKU의 첫 행 값이 품목 등록 규칙에 어긋남, 그 SKU의 모든 행).
 
+### 목록 내보내기 (#191)
+
+모두 GET, 필수 쿼리 `format=csv|xlsx`(그 밖은 422). 쪽 정보(`page`·`page_size`)는 없고 조건에 맞는 모든 행을 내보낸다. 관리자·담당자 둘 다 쓴다. 한 번에 50,000행까지이고 넘으면 422 `EXPORT_TOO_LARGE`("기간이나 조건을 좁혀 주세요"). 화면은 현재 목록의 검색·필터 쿼리를 그대로 붙인다.
+
+- `GET /products/export`: `include_inactive`·`q`·`default_supplier_id`·`group_code` (품목 목록과 같은 조건). 가져오기(#189)에 다시 올릴 수 있는 열.
+- `GET /stock/export`: `include_inactive`·`status`·`q`·`group_code` (재고 현황과 같은 조건).
+- `GET /inventory-movements/export`: `product_id`·`movement_type`(여러 번 가능)·`date_from`·`date_to`·`sort`. 시작일이 종료일보다 늦으면 422.
+- `GET /purchase-orders/export`: `supplier_id`·`status`·`q`·`receipt_due`. 파일은 발주서 항목 줄 단위.
+
 ### 품목별 재고 추이 (#126)
 
 `GET /stock/{product_id}/trend`는 품목 정보와 서울 기준 오늘을 포함한 30일의 `days`를 날짜 오름차순으로 반환한다. `closing_stock`은 기간 전 재고에 날짜별 입출고·조정·정정을 반영한 수량이다. 이력이 시작되기 전에는 null이며, 이후 변동 없는 날은 전날 값을 이어 간다. 오늘 값은 조회 시점까지의 수량이다.

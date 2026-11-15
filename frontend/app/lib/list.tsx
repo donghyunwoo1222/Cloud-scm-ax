@@ -22,6 +22,10 @@ export function useList<T>(basePath: string, filters: Record<string, string> = {
   for (const [key, value] of Object.entries(JSON.parse(filterKey) as Record<string, string>)) if (value) params.set(key, value); // 값이 있는 추가 조건만
   if (includeInactive) params.set("include_inactive", "true"); // 비활성 포함일 때만
   const path = `${basePath}?${params}`; // 현재 조건을 한 주소로 나타낸다
+  const exportParams = new URLSearchParams(params); // 내보내기용 사본: 쪽 정보는 빼고 검색·필터만 남긴다 (#191)
+  exportParams.delete("page"); // 내보내기는 필터에 맞는 모든 행이라 쪽 번호가 없다
+  exportParams.delete("page_size"); // 예) page=2&page_size=10&status=SHORTAGE&q=컵 → status=SHORTAGE&q=컵
+  const exportQuery = exportParams.toString(); // 내보내기 경로 뒤에 붙일 쿼리
   const activePath = useRef(path); // 다른 작업이 끝나 재조회할 때도 그때의 최신 조건을 쓴다
 
   const reload = useCallback(async () => {
@@ -57,7 +61,7 @@ export function useList<T>(basePath: string, filters: Record<string, string> = {
     setPage(1);
   }
 
-  return { rows, meta, error, page, setPage, includeInactive, search, toggleInactive, reload, q, isCurrent: settledPath === path }; // 응답이 현재 조건의 것인지도 알려준다
+  return { rows, meta, error, page, setPage, includeInactive, search, toggleInactive, reload, q, exportQuery, isCurrent: settledPath === path }; // 응답이 현재 조건의 것인지도 알려준다
 }
 
 // 검색창 + "비활성 포함" 선택 (onSearch 를 주지 않으면 검색창은 숨긴다: 검색이 없는 목록 API 용)

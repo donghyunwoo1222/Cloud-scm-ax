@@ -6,6 +6,7 @@ import { Suspense, useEffect, useState } from "react"; // 주소 읽는 부품 �
 
 import { apiListAll } from "../../lib/api"; // 공통 API 호출 함수
 import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
+import { ExportButton } from "../../lib/export-button"; // 내보내기 (#191)
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { seoulToday } from "../../lib/movement-form"; // 상세 화면과 같은 서울 날짜
 import { overdueDays, PurchaseOrder, remainingQuantity, STATUS_LABEL } from "../../lib/po"; // 상세와 같은 입고 잔량 기준
@@ -64,7 +65,10 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
 
   return (
     <section>
-      <h1>발주</h1>
+      <div style={S.detailHeader}>
+        <h1>발주</h1>
+        <ExportButton path="/purchase-orders/export" query={list.exportQuery} summary={list.meta ? `발주서 ${list.meta.total}건(항목 줄 단위로 내보내요)` : null} />
+      </div>
       <p><Link href="/purchase-orders/new" style={S.linkButton}>발주서 작성</Link></p>
 
       <ListControls placeholder="발주번호 검색" onSearch={list.search} />
