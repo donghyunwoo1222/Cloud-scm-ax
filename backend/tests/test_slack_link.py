@@ -61,9 +61,10 @@ def redeem(session, code, user="U1", at=T0, team=TEAM):
 
 # ----- 스위치 -----
 
-def test_disabled_blocks_issue_but_allows_status_and_unlink(client, world):
+def test_disabled_blocks_issue_but_allows_status_and_unlink(client, world, monkeypatch):
+    monkeypatch.setattr(settings, "slack_enabled", False)  # 로컬 .env·환경변수와 상관없이 꺼짐으로 고정
     login_as(client)
-    assert client.post("/api/v1/slack/link/code").status_code == 503  # 기본값: 꺼짐
+    assert client.post("/api/v1/slack/link/code").status_code == 503  # 꺼짐
     assert client.get("/api/v1/slack/link").json()["data"] == {
         "enabled": False, "status": "NONE", "code_expires_at": None, "slack_user_id": None, "linked_at": None}
     assert client.post("/api/v1/slack/link/unlink").status_code == 200  # 해제는 꺼져 있어도 된다
@@ -71,6 +72,7 @@ def test_disabled_blocks_issue_but_allows_status_and_unlink(client, world):
 
 def test_team_id_required(client, world, monkeypatch):
     monkeypatch.setattr(settings, "slack_enabled", True)  # 스위치만 켜고 워크스페이스는 비움
+    monkeypatch.setattr(settings, "slack_team_id", "")  # 로컬 .env·환경변수와 상관없이 비움으로 고정
     login_as(client)
     assert client.post("/api/v1/slack/link/code").json()["error"]["code"] == "SLACK_DISABLED"
 
