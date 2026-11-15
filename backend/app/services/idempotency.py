@@ -34,6 +34,27 @@ def request_hash(data: BaseModel) -> str:
     return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
+def _insert_key(db: Session, company_id: int, endpoint: str, key: str, digest: str) -> int | None:
+    """① 이 회사의 만료 키 정리 → ② 키 행 넣기. 새로 넣었으면 행 번호, 이미 있으면 None."""
+    stale = select(IdempotencyKey.id).where(
+        IdempotencyKey.company_id == company_id, IdempotencyKey.created_at < EXPIRES,
+    ).with_for_update(skip_locked=True)  # 만료 행, 다른 요청이 잡은 행은 건너뛴다
+    db.execute(delete(IdempotencyKey).where(IdempotencyKey.id.in_(stale.scalar_subquery())))
+    return db.scalar(insert(IdempotencyKey).values(
+        company_id=company_id, endpoint=endpoint, idempotency_key=key, request_hash=digest,
+    ).on_conflict_do_nothing(index_elements=["company_id", "endpoint", "idempotency_key"]).returning(IdempotencyKey.id))
+
+
+def claim(db: Session, company_id: int, endpoint: str, key: str) -> bool:
+    """외부에서 온 이벤트(#197 슬랙 event_id)를 처리하기 전에 키를 먼저 잡는다. 처음이면 True, 이미 처리했으면 False.
+
+    커밋은 부르는 쪽이 처리와 함께 한다. 처리 중 오류로 롤백되면 키도 사라져 재전송 때 다시 처리할 수 있다.
+    같은 키가 동시에 오면 뒤의 것이 앞의 커밋을 기다린 뒤 False 를 받는다. 돌려줄 응답이 없어 응답 칸은 비운다.
+    """
+    digest = hashlib.sha256(key.encode()).hexdigest()  # 본문이 없으므로 키 자체의 지문 (칸이 비면 안 된다)
+    return _insert_key(db, company_id, endpoint, key, digest) is not None
+
+
 def run(db: Session, company_id: int, endpoint: str, key: str | None, data: BaseModel, work: Callable[[], dict],
         status_code: int = 201):
     """work() 로 처리하고 커밋한다. key 가 있으면 같은 회사·경로·키의 첫 응답을 기억하고, 다시 오면 그대로 돌려준다."""
@@ -43,13 +64,7 @@ def run(db: Session, company_id: int, endpoint: str, key: str | None, data: Base
         return body
 
     digest = request_hash(data)
-    stale = select(IdempotencyKey.id).where(
-        IdempotencyKey.company_id == company_id, IdempotencyKey.created_at < EXPIRES,
-    ).with_for_update(skip_locked=True)  # ① 만료 행, 다른 요청이 잡은 행은 건너뛴다
-    db.execute(delete(IdempotencyKey).where(IdempotencyKey.id.in_(stale.scalar_subquery())))
-    row_id = db.scalar(insert(IdempotencyKey).values(
-        company_id=company_id, endpoint=endpoint, idempotency_key=key, request_hash=digest,
-    ).on_conflict_do_nothing(index_elements=["company_id", "endpoint", "idempotency_key"]).returning(IdempotencyKey.id))  # ② 처리 중인 같은 키가 있으면 끝날 때까지 기다린다
+    row_id = _insert_key(db, company_id, endpoint, key, digest)  # ①② 처리 중인 같은 키가 있으면 끝날 때까지 기다린다
     if row_id is None:  # 이미 처리된 키
         saved = db.execute(select(IdempotencyKey.request_hash, IdempotencyKey.status_code, IdempotencyKey.response_body).where(
             IdempotencyKey.company_id == company_id, IdempotencyKey.endpoint == endpoint, IdempotencyKey.idempotency_key == key,

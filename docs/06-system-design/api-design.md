@@ -40,6 +40,7 @@
 | F1 | POST /auth/otp/verify, POST /auth/otp/resend | 관리자 로그인 메일 인증코드 확인·재발송. 임시 토큰은 otp_pending 쿠키(브라우저가 이 경로에만 자동으로 보냄) (#179) | 비밀번호 단계를 통과한 관리자 |
 | F1 | GET /me | 내 정보·회사·역할 | 둘 다 |
 | 자동화 슬랙 연결 | GET /slack/link, POST /slack/link/code, POST /slack/link/unlink | 내 슬랙 연결 상태, 6자리 연결 코드 발급(10분, 원문은 응답에만), 연결 해제. 자기 연결만 다루고 회사·사용자는 토큰에서만. 슬랙이 꺼져 있으면 발급은 503 `SLACK_DISABLED`, 이미 연결이면 409 `SLACK_ALREADY_LINKED`, 해제는 언제나 된다 (#197) | 둘 다 |
+| 자동화 슬랙 받는 문 | POST /slack/events | 슬랙 Events API 가 부르는 경로(배포용, 개발은 Socket Mode 워커). 로그인 대신 슬랙 서명(`X-Slack-Signature`, 5분 넘은 시각 거부)을 원문 본문으로 검증하고 실패하면 401 `SLACK_BAD_SIGNATURE`. 슬랙이 꺼져 있거나 서명 키가 없으면 404. `url_verification` 은 challenge 를 돌려주고, 나머지는 바로 200 을 보낸 뒤 뒤에서 처리한다(3초 안에 답, event_id 로 한 번만). DM "연결 123456" → 연결 코드 확인, 그 밖의 말은 안내 문구. 회사는 `slack_links` 행에서만 (#197) | 슬랙(서명) |
 | 자동화 회사 정보 | GET /company, PATCH /company | 우리 회사 정보(사업자번호·대표자·주소·연락처) 조회·수정. 경로·본문에 회사 번호가 없고 토큰의 회사만 쓴다 (#156) | 조회 둘 다, 수정 관리자 |
 | F1 | GET /users, POST /users, PATCH /users/{id} | 직원 목록, 이메일·임시 비밀번호로 계정 생성, 역할·비활성 변경 | 관리자 |
 | F2 공급업체 | GET /suppliers, POST /suppliers | 목록(비활성 제외·포함 선택), 등록(리드타임 0 이상 정수) | 둘 다 |
