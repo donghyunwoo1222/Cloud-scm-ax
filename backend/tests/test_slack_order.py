@@ -160,21 +160,22 @@ def test_unusable_reply_has_no_buttons(client, world, shop, ai, fake):
 
 def test_rate_limit_per_person(client, world, shop, ai, fake, logs, monkeypatch):
     ai.say(L(1))
-    for _ in range(5):
-        send(client, "1번 2박스")  # 같은 사람이 연달아 5번
+    for _ in range(12):
+        send(client, "1번 2박스")  # 같은 사람이 연달아 12번
     texts = [s[1] for s in fake.sent]
-    assert len(ai.calls) == slack_events.RATE_PER_MINUTE == 3  # 4·5번째는 LLM 까지 안 간다
+    assert len(ai.calls) == slack_events.RATE_PER_MINUTE == 10  # 11·12번째는 LLM 까지 안 간다
     assert texts.count(slack_events.RATE_LIMITED) == 2
+    assert "1분" in slack_events.RATE_LIMITED  # 얼마나 기다려야 하는지 알려 준다
     assert "slack_order action=PROPOSE outcome=RATE_LIMITED" in logs()
     send(client, "1번 2박스", user=ADMIN)  # 다른 사람은 따로 센다
-    assert len(ai.calls) == 4
+    assert len(ai.calls) == 11
     monkeypatch.setattr(slack_link, "now", lambda: NOW + timedelta(seconds=61))  # 1분 뒤에는 다시 된다
     send(client, "1번 2박스")
-    assert len(ai.calls) == 5
+    assert len(ai.calls) == 12
 
 
 def test_help_does_not_count_toward_limit(client, world, shop, ai, fake):
-    for _ in range(5):
+    for _ in range(slack_events.RATE_PER_MINUTE + 2):
         send(client, "도움말")
     ai.say(L(1))
     send(client, "1번 2박스")
