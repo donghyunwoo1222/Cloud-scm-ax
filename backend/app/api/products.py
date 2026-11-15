@@ -1,11 +1,11 @@
 """품목 경로. 관리자·담당자 모두 사용(CurrentUser). 삭제 경로는 없다(비활성으로 대신)."""
 
-from typing import Annotated  # 타입에 부가 정보를 붙이는 도구
+from typing import Annotated, Literal  # 타입에 부가 정보를 붙이는 도구, 정해진 값 중 하나
 
-from fastapi import APIRouter, Query  # 라우터, 쿼리 문자열 칸
+from fastapi import APIRouter, Query, Response  # 라우터, 쿼리 문자열 칸, 파일 응답
 
 from app.auth.deps import CurrentUser  # 로그인 사용자 (#22)
-from app.db import DB  # 요청마다 DB 세션
+from app.db import DB, ReadDB  # 요청마다 DB 세션, 한 시점으로 읽는 조회 세션
 from app.models import Product, Supplier  # 품목, 공급업체 표
 from app.pagination import Page  # page·page_size
 from app.schemas.common import PathId, QueryId  # 경로·목록의 번호 칸 (DB 범위를 넘으면 422)
@@ -15,6 +15,7 @@ from app.schemas.products import (  # 요청·응답 모양
     ProductUpdate,
     SupplierBrief,
 )
+from app.services import export  # 목록 내보내기 (#191)
 from app.services import products as products_service  # 업무 규칙
 
 router = APIRouter(prefix="/products")  # 이 파일의 경로는 모두 /products 로 시작
@@ -55,6 +56,19 @@ def list_products(
     )
     suppliers = products_service.suppliers_of(user.company_id, db, rows)  # 기본 공급업체를 한 번에
     return {"data": [out(p, suppliers[p.default_supplier_id]) for p in rows], "meta": meta}
+
+
+@router.get("/export")  # 내보내기 (#191). /{product_id} 보다 먼저 선언해야 "export" 를 번호로 읽지 않는다
+def export_products(
+    user: CurrentUser,  # 관리자·담당자 둘 다 (화면 목록에서 이미 보는 값만 내보낸다, 2026-11-15 사용자 결정)
+    db: ReadDB,  # 여러 쪽을 나눠 읽는 동안 한 시점으로 읽는다 (중간에 등록된 품목 때문에 줄이 밀리지 않게)
+    fmt: Annotated[Literal["csv", "xlsx"], Query(alias="format")],  # 파일 형식 (그 밖은 422)
+    include_inactive: Annotated[bool, Query()] = False,  # 아래 네 칸은 목록 경로와 같은 이름·검사
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    default_supplier_id: QueryId = None,
+    group_code: Annotated[str | None, Query(max_length=50)] = None,
+) -> Response:
+    return export.products(user, db, fmt, include_inactive, q, default_supplier_id, group_code)  # 회사는 토큰에서
 
 
 @router.post("", status_code=201)  # 등록
