@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"; // 처음 한 번 불러오기, 함수 고정, 상태
 
 import { ApiError, api } from "../../lib/api"; // 공통 API 호출 함수·오류 종류
+import { StatusBadge } from "../../lib/status-badge"; // 연결 상태 배지
 import { S } from "../../lib/styles"; // 화면 공통 스타일
 import { useToast } from "../../lib/toast"; // 성공 알림 토스트
 
@@ -74,50 +75,77 @@ export default function SlackPage() {
 
   const expired = info?.code_expires_at ? new Date(info.code_expires_at).getTime() < checkedAt : false; // 코드 만료 여부
 
+  // 상태별 배지: 연결 안 됨 / 연결 대기 / 연결됨 (색 + 글자 + 아이콘)
+  const badge = !info ? null
+    : info.status === "LINKED" ? <StatusBadge kind="ok">연결됨</StatusBadge>
+    : info.status === "PENDING" ? <StatusBadge kind="info">연결 대기</StatusBadge>
+    : <StatusBadge kind="unknown" icon="cancelled">연결 안 됨</StatusBadge>;
+
+  const copy = (text: string) => navigator.clipboard.writeText(text).then(() => toast("복사했어요"), () => setError("복사하지 못했어요. 직접 입력해 주세요."));
+
   return (
     <section>
       <h1>슬랙 연결</h1>
+      <p style={S.hint}>슬랙에서 {BOT}에게 재고·발주를 물어보려면 이 계정과 슬랙을 한 번 연결해야 해요.</p>
       {error && <p role="alert" style={S.error}>{error}</p>}
       {!info && !error && <p style={S.hint}>불러오는 중…</p>}
       {info && (
-        <div style={S.sectionCard}>
-          {!info.enabled && info.status !== "LINKED" && <p>슬랙 연결은 아직 켜져 있지 않아요.</p>}
+        <div style={{ ...S.sectionCard, maxWidth: 640 }}>
+          <div className="slack-head">
+            <h2 style={{ margin: 0 }}>연결 상태</h2>
+            {badge}
+            <button type="button" className="text-button" style={{ marginInlineStart: "auto" }} onClick={refresh} disabled={busy}>새로고침</button>
+          </div>
+
+          {!info.enabled && info.status !== "LINKED" && <p style={S.hint}>슬랙 연결은 아직 켜져 있지 않아요. 관리자에게 문의해 주세요.</p>}
 
           {info.enabled && info.status === "NONE" && (
             <>
-              <p style={S.hint}>슬랙에서 {BOT}에게 말을 걸려면 먼저 이 계정과 슬랙을 연결해야 해요.</p>
-              <div style={S.buttons}><button type="button" onClick={issue} disabled={busy}>연결 코드 받기</button></div>
+              <ol className="slack-steps">
+                <li><b>연결 코드 받기</b>를 눌러 6자리 코드를 받아요.</li>
+                <li>슬랙에서 {BOT}에게 <code>연결 코드</code>를 보내요. (10분 안에)</li>
+                <li>여기로 돌아와 <b>새로고침</b>을 누르면 연결이 확인돼요.</li>
+              </ol>
+              <button type="button" className="primary-action" onClick={issue} disabled={busy}>연결 코드 받기</button>
             </>
           )}
 
           {info.enabled && info.status === "PENDING" && (
             <>
               {issued ? (
-                <>
-                  <p aria-label="연결 코드" style={{ fontSize: "var(--text-xl)", fontWeight: 700, letterSpacing: "0.2em", fontVariantNumeric: "tabular-nums" }}>{issued.code}</p>
-                  <p>슬랙에서 {BOT}에게 <code>연결 {issued.code}</code>이라고 보내 주세요. 10분 안에 보내야 해요.</p>
-                  <p style={S.hint}>이 창을 닫으면 다시 볼 수 없어요. 새 코드를 받을 수 있어요. 이전에 받은 코드는 더 이상 쓸 수 없어요.</p>
-                  <p style={S.hint}>만료 시각: {when(issued.expires_at)}</p>
-                </>
+                <div className="slack-code">
+                  <span style={S.kpiLabel}>슬랙에서 {BOT}에게 이렇게 보내 주세요</span>
+                  <div className="slack-code-row">
+                    <code aria-label="연결 코드">연결 {issued.code}</code>
+                    <button type="button" onClick={() => void copy(`연결 ${issued.code}`)}>복사</button>
+                  </div>
+                  <span style={S.kpiSub}>만료 {when(issued.expires_at)} · 이 화면을 벗어나면 코드를 다시 볼 수 없어요.</span>
+                </div>
+              ) : expired ? (
+                <p>코드가 만료됐어요. 새 코드를 받아 주세요.</p>
               ) : (
-                <p>코드는 이미 받았지만 아직 연결되지 않았어요.{info.code_expires_at && (expired ? " 코드가 만료됐어요." : ` 만료 시각: ${when(info.code_expires_at)}`)}</p>
+                <p>
+                  받은 코드로 아직 연결되지 않았어요.{info.code_expires_at && ` 만료 ${when(info.code_expires_at)}`}
+                  <br /><span style={S.hint}>코드를 잃어버렸다면 새로 받아 주세요.</span>
+                </p>
               )}
-              <div style={S.buttons}><button type="button" onClick={issue} disabled={busy}>새 코드 받기</button></div>
-              <p style={S.hint}>새 코드를 받으면 이전 코드는 더 이상 쓸 수 없어요.</p>
+              {issued && <p style={S.hint}>슬랙에서 보낸 뒤 <b>새로고침</b>을 눌러 주세요.</p>}
+              {/* 만료됐을 때는 할 일이 이것뿐이라 파란 주요 버튼으로 보인다 */}
+              <button type="button" className={expired && !issued ? "primary-action" : undefined} onClick={issue} disabled={busy}>새 코드 받기</button>
+              <p style={{ ...S.kpiSub, marginBottom: 0 }}>새 코드를 받으면 이전 코드는 더 이상 쓸 수 없어요.</p>
             </>
           )}
 
           {info.status === "LINKED" && (
             <>
-              <p>슬랙과 연결돼 있어요.</p>
-              <p style={S.hint}>슬랙 사용자 id: {info.slack_user_id} · 연결 시각: {info.linked_at && when(info.linked_at)}</p>
-              <div style={S.buttons}><button type="button" onClick={unlink} disabled={busy}>연결 해제</button></div>
+              <dl className="slack-facts">
+                <div><dt style={S.detailLabel}>슬랙 사용자 id</dt><dd>{info.slack_user_id}</dd></div>
+                <div><dt style={S.detailLabel}>연결 시각</dt><dd>{info.linked_at && when(info.linked_at)}</dd></div>
+              </dl>
+              <p style={S.hint}>이제 슬랙에서 {BOT}에게 바로 요청할 수 있어요.</p>
+              <button type="button" onClick={unlink} disabled={busy}>연결 해제</button>
             </>
           )}
-
-          <div style={{ ...S.buttons, marginTop: "var(--space-md)" }}>
-            <button type="button" onClick={refresh} disabled={busy}>새로고침</button>
-          </div>
         </div>
       )}
     </section>
