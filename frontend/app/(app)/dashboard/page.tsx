@@ -23,6 +23,13 @@ type Dashboard = {
   dead_stock: { days: number; count: number; items: DeadItem[] }; // 장기재고 (기준 일수, 전체 건수, 화면에 보일 줄)
   shortage: { count: number; items: ShortItem[] }; // 부족 품목 (전체 건수, 화면에 보일 20줄)
   overstock: { days: number; count: number; items: OverItem[] }; // 과잉재고 (기준 일수 90, 전체 건수, 20줄)
+  todo?: { type: string; count: number; href: string }[]; // 오늘 할 일 (서버가 순서·역할·0건 숨김을 정해 보낸다, 이전 응답에는 없을 수 있다)
+};
+// 할 일 종류별 문장과 단위 (건수 뒤에 붙는다)
+const TODO_TEXT: Record<string, [string, string]> = {
+  overdue_receipts: ["납기가 지난 발주서", "건"], review_recommendations: ["발주 추천 검토", "품목"],
+  approve_orders: ["승인할 발주서", "건"], send_orders: ["공급업체에 보낼 발주서", "건"],
+  due_today_receipts: ["오늘 입고 예정 발주서", "건"], unknown_stock: ["판단 불가 품목", "품목"],
 };
 type ShortItem = { product_id: number; sku: string; name: string; unit: string; current_stock: number; available: number; reorder_point: number; recommended_quantity: number };
 type OverItem = { product_id: number; sku: string; name: string; unit: string; current_stock: number; avg_daily_sales: number };
@@ -113,6 +120,21 @@ export default function Page() {
         </section>
       )}
       {/* 품목이 하나도 없는 회사: 무엇부터 할지 안내 (빈 화면 대신 다음 행동) */}
+
+      {data.todo && (
+        <section style={S.sectionCard} aria-labelledby="todo-title">
+          <h2 id="todo-title">오늘 할 일</h2>
+          {data.todo.length === 0 ? <p style={S.empty}>오늘 할 일이 없습니다.</p> : (
+            <ul>
+              {data.todo.map((t) => (
+                <li key={t.type}>
+                  <Link href={t.href}>{TODO_TEXT[t.type]?.[0] ?? t.type} <strong>{won(t.count)}{TODO_TEXT[t.type]?.[1] ?? "건"}</strong></Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       <h2 style={S.sectionTitle}>오늘 확인할 일</h2>
       <div role="group" aria-label="오늘 확인할 일" style={S.kpiGrid}>

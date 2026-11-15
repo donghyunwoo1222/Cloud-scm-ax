@@ -17,6 +17,7 @@ from app.services.purchase_orders import (
 )
 from app.services.recommend import (  # 과잉 기준(일), 과잉 판정, 부족 판정
     OVERSTOCK_DAYS,
+    Excluded,
     is_overstock,
     stock_status,
 )
@@ -151,13 +152,14 @@ def dead_stock(company_id: int, db: Session, today: date) -> dict:
     }
 
 
-def shortage_and_overstock(company_id: int, db: Session, today: date) -> dict:
+def shortage_and_overstock(company_id: int, db: Session, today: date, rows: list[tuple] | None = None) -> dict:
     """부족(추천 대상)과 과잉(현재고 ≥ 일평균 × 90일) 품목. 활성 품목만, 목록은 20줄까지.
 
     장기재고와는 겹치지 않는다: 과잉은 최근 30일 판매가 있어야 하고, 장기재고는 60일 넘게 판매가 없어야 한다.
+    rows 를 넘기면 그 계산 결과를 다시 쓴다(오늘 할 일과 같은 계산을 두 번 하지 않으려고).
     """
     shortage, overstock = [], []  # 부족 품목, 과잉 품목
-    for product, _, stock, _, result in calculate_for(company_id, db, today):  # 추천 목록과 같은 계산 하나
+    for product, _, stock, _, result in rows if rows is not None else calculate_for(company_id, db, today):  # 추천 목록과 같은 계산 하나
         base = {"product_id": product.id, "sku": product.sku, "name": product.name, "unit": product.unit, "current_stock": stock}
         if stock_status(result) == "SHORTAGE":  # 예) 가용재고 50 ≤ 재주문점 70
             shortage.append({**base, "available": result.available, "reorder_point": float(result.reorder_point),
@@ -172,11 +174,34 @@ def shortage_and_overstock(company_id: int, db: Session, today: date) -> dict:
     }
 
 
-def get_dashboard(company_id: int, db: Session, today: date) -> dict:
+def todo_items(role: str, orders: dict, rows: list[tuple]) -> list[dict]:
+    """오늘 할 일 (#196). 새 계산 없이 이미 구한 발주 건수와 추천 계산 결과만 센다. 건수 0인 줄은 뺀다.
+
+    순서(고정): 납기 지연 → 부족·추천 검토 → 승인 대기(관리자) / 보낼 발주(직원) → 오늘 입고 예정 → 판단 불가(맨 끝).
+    예) 추천 대상 3품목이면 review 3건 → /recommendations 목록도 3건이다(같은 계산).
+    """
+    review = sum(1 for *_, result in rows if not isinstance(result, Excluded) and result.recommended_quantity is not None)  # /recommendations items 와 같은 조건
+    unknown = sum(1 for *_, result in rows if stock_status(result) == "UNKNOWN")  # /stock?status=UNKNOWN 과 같은 판정
+    po_link = "/purchase-orders?status="
+    lines = [
+        ("overdue_receipts", orders["overdue"], po_link + "ORDERED&receipt_due=OVERDUE"),
+        ("review_recommendations", review, "/recommendations"),
+        # 승인은 관리자만, 보내는 일은 직원 몫이라 역할마다 한 줄만 둔다
+        *([("approve_orders", orders["draft"], po_link + "DRAFT")] if role == "ADMIN" else [("send_orders", orders["approved"], po_link + "APPROVED")]),
+        ("due_today_receipts", orders["due_today"], po_link + "ORDERED&receipt_due=TODAY"),
+        ("unknown_stock", unknown, "/inventory?status=UNKNOWN"),
+    ]
+    return [{"type": t, "count": n, "href": h} for t, n, h in lines if n > 0]
+
+
+def get_dashboard(company_id: int, db: Session, today: date, role: str = "STAFF") -> dict:
     """GET /dashboard 응답 본문. 쿼리는 품목 수와 무관하다(장기재고 1번 + 추천 계산 5번 + 그 밖)."""
+    rows = calculate_for(company_id, db, today)  # 부족·과잉·오늘 할 일이 같은 계산 하나를 나눠 쓴다
+    orders = open_orders(company_id, db, today)
     return {
-        **shortage_and_overstock(company_id, db, today),  # shortage, overstock (#76)
-        "purchase_orders": open_orders(company_id, db, today),
+        **shortage_and_overstock(company_id, db, today, rows),  # shortage, overstock (#76)
+        "purchase_orders": orders,
         "month": month_movements(company_id, db, today),
         "dead_stock": dead_stock(company_id, db, today),
+        "todo": todo_items(role, orders, rows),
     }
