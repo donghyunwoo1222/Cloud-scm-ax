@@ -110,8 +110,9 @@ export default function Page() {
       {!first ? (
         <div className={styles.firstTodo}>
           <span className={styles.todoText}>
-            <strong className={styles.todoTitle}>오늘 처리할 일이 없습니다</strong>
-            <span style={S.hint}>아래 재고 현황에서 부족·과잉 품목을 살펴볼 수 있습니다.</span>
+            <strong className={styles.todoTitle}>오늘 할 일이 없습니다</strong>
+            {/* 품목이 있을 때만 재고 현황으로 안내한다 (품목 0개면 위 "첫 재고 설정"이 다음 행동, 개수를 모르면 숨김) */}
+            {productTotal ? <span style={S.hint}>아래 재고 현황에서 부족·과잉 품목을 살펴볼 수 있습니다.</span> : null}
           </span>
         </div>
       ) : (
