@@ -130,14 +130,27 @@ def _open(token: str) -> dict | None:
         return None
 
 
+def _aware(at: datetime) -> None:
+    """시간대 없는 시각은 서버 지역 시각으로 잘못 읽혀 만료가 어긋난다. 호출한 쪽 실수이므로 바로 알린다."""
+    if at.tzinfo is None:
+        raise ValueError("at 은 시간대가 있는 시각이어야 합니다 (예: datetime.now(UTC))")
+
+
 def _shown(item: dict, units: int) -> str:
     """'3 박스(300개)' 또는 '160개'."""
     base = units * item["unit_factor"]
     return f"{units:,} {item['order_unit']}({base:,}{item['unit']})" if item["unit_factor"] > 1 else f"{base:,}{item['unit']}"
 
 
+def _moq_warning(item: dict, units: int) -> str:
+    """최소 주문량보다 적으면 안내만 붙인다(막지 않는다). 웹(#194)과 같은 기준: 발주단위 수 < 최소 주문량, 단위는 발주단위(박스 없으면 재고 단위)."""
+    moq = item["min_order_units"]
+    return f" ⚠ 최소 주문량 {moq:,}{item['order_unit']}보다 적어요" if moq is not None and units < moq else ""
+
+
 def propose(db: Session, company_id: int, user_id: int, text: str, today: date, at: datetime) -> Reply:
     """사용자가 쓴 글 → 요약 글 + 확인 토큰. 아무것도 저장하지 않는다. company_id·user_id 는 슬랙 연결 행에서 온 값만 넘긴다."""
+    _aware(at)
     if not _linked(db, company_id, user_id):
         _out("PROPOSE", "NOT_LINKED", company_id, user_id)
         return Reply(MSG_NOT_LINKED)  # LLM 을 부르지 않는다
@@ -190,7 +203,7 @@ def propose(db: Session, company_id: int, user_id: int, text: str, today: date, 
     token = _seal({"u": user_id, "c": company_id, "day": today.isoformat(), "exp": int((at + timedelta(minutes=CONFIRM_MINUTES)).timestamp()),
                    "nonce": secrets.token_urlsafe(12), "items": [[c["product_id"], units, c["unit_factor"]] for c, units in picked]})
     lines = ["이대로 발주 초안을 만들까요? (아직 만들지 않았어요)",
-             *[f"• {c['product_name']} ({c['product_sku']}) — {_shown(c, units)}" for c, units in picked], *notes]
+             *[f"• {c['product_name']} ({c['product_sku']}) — {_shown(c, units)}{_moq_warning(c, units)}" for c, units in picked], *notes]
     if len(items) > len(cands):
         lines.append(f"추천 {len(items):,}개 중 앞 {len(cands)}개만 다뤄요. 나머지는 웹에서 확인해 주세요.")
     _out("PROPOSE", "OK", company_id, user_id, len(picked))
@@ -216,16 +229,18 @@ def _check(db: Session, company_id: int, user_id: int, token: str, today: date |
 
 
 def confirm(db: Session, company_id: int, user_id: int, token: str, today: date, at: datetime) -> Reply:
-    """[확인] 버튼: 토큰 속 품목으로 초안을 만든다. 성공·실패 모두 commit/rollback 을 여기서 끝낸다(멱등 키와 초안이 한 트랜잭션)."""
+    """[확인] 버튼: 토큰 속 품목으로 초안을 만든다. 성공은 commit, 막힌 경우(AppError·마스터 변경)는 rollback 후 안내 글을 돌려준다(멱등 키와 초안이 한 트랜잭션).
+    그 밖의 예외도 rollback 한 뒤 그대로 다시 올려, 키와 반쪽 발주서가 세션에 남지 않는다."""
+    _aware(at)
     data, early = _check(db, company_id, user_id, token, today, at, "CONFIRM")
     if early:
         return early
-    if not idempotency.claim(db, company_id, ENDPOINT, data["nonce"]):  # 같은 토큰 두 번째 클릭, 또는 취소한 뒤
-        db.rollback()
-        _out("CONFIRM", "ALREADY_DONE", company_id, user_id)
-        return Reply(MSG_DONE)
-    lines = {pid: (units, factor) for pid, units, factor in data["items"]}
-    try:
+    try:  # 키 잡기부터 commit 까지 어떤 예외가 나도 rollback 한다(키와 반쪽 발주서가 세션에 남지 않게)
+        if not idempotency.claim(db, company_id, ENDPOINT, data["nonce"]):  # 같은 토큰 두 번째 클릭, 또는 취소한 뒤
+            db.rollback()
+            _out("CONFIRM", "ALREADY_DONE", company_id, user_id)
+            return Reply(MSG_DONE)
+        lines = {pid: (units, factor) for pid, units, factor in data["items"]}
         boxes = dict(db.execute(select(Product.id, Product.units_per_box).where(
             Product.company_id == company_id, Product.id.in_(lines))).all())  # 회사 조건: 다른 회사 품목은 안 보인다
         if set(boxes) != set(lines) or any((boxes[pid] or 1) != factor for pid, (_, factor) in lines.items()):
@@ -248,6 +263,9 @@ def confirm(db: Session, company_id: int, user_id: int, token: str, today: date,
         db.rollback()
         _out("CONFIRM", f"BLOCKED_{exc.code}", company_id, user_id, len(lines))
         return Reply(MSG_BLOCKED)
+    except Exception:
+        db.rollback()  # 예상 못 한 오류: 되돌리고 부르는 쪽(어댑터)이 알 수 있게 그대로 올린다
+        raise
     po_ids = [o.id for o in orders]
     _out("CONFIRM", "OK", company_id, user_id, len(lines), po_ids)
     return Reply("발주 초안을 만들었어요: " + ", ".join(o.po_number for o in orders) + "\n승인과 발주는 웹에서 해 주세요.", po_ids=po_ids)
@@ -262,10 +280,14 @@ def cancel(db: Session, company_id: int, user_id: int, token: str) -> Reply:
     data, early = _check(db, company_id, user_id, token, None, None, "CANCEL")
     if early:
         return early
-    if not idempotency.claim(db, company_id, ENDPOINT, data["nonce"]):
-        db.rollback()
-        _out("CANCEL", "ALREADY_DONE", company_id, user_id)
-        return Reply(MSG_DONE)
-    db.commit()
+    try:
+        if not idempotency.claim(db, company_id, ENDPOINT, data["nonce"]):
+            db.rollback()
+            _out("CANCEL", "ALREADY_DONE", company_id, user_id)
+            return Reply(MSG_DONE)
+        db.commit()
+    except Exception:
+        db.rollback()  # 예상 못 한 오류: 되돌리고 그대로 올린다
+        raise
     _out("CANCEL", "OK", company_id, user_id)
     return Reply("취소했어요. 아무것도 만들지 않았어요.")

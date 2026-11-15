@@ -265,7 +265,8 @@ def test_no_recommendations_never_calls_llm(session, world, ai):
 
 # ----- LLM 실패 -----
 
-@pytest.mark.parametrize("text", ["이건 JSON 이 아님", '{"lines": [], "approve_all": true}', '{"lines": [{"n": "x"}]}', RuntimeError("boom")])
+@pytest.mark.parametrize("text", ["이건 JSON 이 아님", '{"lines": [], "approve_all": true}', '{"lines": [{"n": "x"}]}', RuntimeError("boom"),
+                                  '{"lines": [{"n": true}]}'])  # n 이 true(불리언)여도 정수로 받지 않는다
 def test_llm_bad_output_or_error(session, world, shop, ai, text):
     ai.text = text
     assert co.propose(session, world["a_staff"].company_id, world["a_staff"].id, "x", TODAY, AT).text == co.MSG_UNAVAILABLE
@@ -295,7 +296,8 @@ def test_company_isolation(session, world, shop, ai):
     ai.say(L(1))
     mine = co.propose(session, b.company_id, b.id, "x", TODAY, AT)  # 회사 B 의 목록에는 B 품목만
     assert list(lines_of(mine.token)) == [own_b.id]
-    assert all("ONE" not in c[1] or "B-ONE" in c[1] for c in ai.calls[-1:])  # 보낸 데이터에 A 품목이 없다
+    sent = json.loads("".join(ai.calls[-1][1].splitlines()[1:-1]))  # 마지막으로 LLM 에 보낸 데이터(구분자 줄 둘 사이)
+    assert [i["sku"] for i in sent["items"]] == ["B-ONE"]  # 회사 A 품목(ONE·BOX)은 하나도 없다
 
 
 def test_prompt_injection_cannot_leave_recommendation_list(session, world, shop, ai):
@@ -339,3 +341,80 @@ def test_logs_have_codes_not_tokens(session, world, shop, ai, caplog, monkeypatc
     text = caplog.text
     assert "slack_order action=PROPOSE outcome=OK" in text and "slack_order action=CONFIRM outcome=OK" in text
     assert reply.token not in text and "비밀문장" not in text and co._open(reply.token)["nonce"] not in text
+
+
+# ----- 리뷰 반영 (PR #244 M1·M2·M3, 낮음 3) -----
+
+def count_keys(session):
+    return session.scalar(select(func.count()).select_from(IdempotencyKey).where(IdempotencyKey.endpoint == co.ENDPOINT))
+
+
+def test_unexpected_error_rolls_back_key_and_half_made_orders(session, world, shop, ai, monkeypatch):
+    token = propose(session, world, ai, L(1), L(2)).token
+    real = co.create_drafts
+
+    def boom(*args, **kwargs):
+        real(*args, **kwargs)  # 발주서를 진짜로 만든 뒤(아직 commit 전)
+        raise RuntimeError("DB 가 끊겼다고 치자")
+
+    monkeypatch.setattr(co, "create_drafts", boom)
+    with pytest.raises(RuntimeError):
+        confirm(session, world, token)
+    assert not orders(session, world) and count_keys(session) == 0  # 반쪽 발주서도 키도 남지 않는다
+    monkeypatch.setattr(co, "create_drafts", real)
+    assert confirm(session, world, token).po_ids  # 키가 풀려 다시 누르면 정확히 한 번 만들어진다
+    assert len(orders(session, world)) == 1
+
+
+def test_unexpected_error_in_cancel_rolls_back(session, world, shop, ai, monkeypatch):
+    token = propose(session, world, ai, L(2)).token
+    real = co.idempotency.claim
+
+    def claim_then_fail(*args, **kwargs):
+        real(*args, **kwargs)  # 키를 잡은 뒤(아직 commit 전)
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(co.idempotency, "claim", claim_then_fail)
+    user = world["a_staff"]
+    with pytest.raises(RuntimeError):
+        co.cancel(session, user.company_id, user.id, token)
+    assert count_keys(session) == 0
+    monkeypatch.setattr(co.idempotency, "claim", real)
+    assert confirm(session, world, token).po_ids  # 취소가 실패했으니 확인은 여전히 된다
+
+
+def test_factor_changed_after_lock_hits_final_quantity_check(session, world, shop, ai, monkeypatch):
+    """잠금 전 환산계수 비교는 통과한 뒤, create_drafts 가 잠그기 직전에 1박스=100 → 50 으로 바뀌는 경우: 마지막 수량 비교가 막는다."""
+    token = propose(session, world, ai, L(1, 2)).token  # 2박스(=200개) 승인
+    real = co.create_drafts
+
+    def change_then_run(company_id, db, *args, **kwargs):
+        shop["box"].units_per_box = 50  # 앞 확인(환산계수 비교)을 이미 지난 뒤의 변경
+        db.flush()
+        return real(company_id, db, *args, **kwargs)
+
+    monkeypatch.setattr(co, "create_drafts", change_then_run)
+    assert confirm(session, world, token).text == co.MSG_CHANGED  # 줄 수량 2×50=100 ≠ 승인한 2×100=200
+    assert not orders(session, world) and count_keys(session) == 0
+
+
+def test_below_moq_is_warned_not_blocked(session, world, shop, ai):
+    shop["box"].min_order_units, shop["one"].min_order_units = 5, 200  # 박스 품목 5박스, 낱개 품목 200개
+    session.commit()
+    low = propose(session, world, ai, L(1, 2), L(2, 150))
+    assert "최소 주문량 5박스보다 적어요" in low.text and "최소 주문량 200개보다 적어요" in low.text
+    assert lines_of(low.token) == {shop["box"].id: 2, shop["one"].id: 150}  # 막지 않고 요청한 수량 그대로
+    assert confirm(session, world, low.token).po_ids  # 확인하면 웹처럼 그대로 만들어진다
+    ok = propose(session, world, ai, L(1, 5), L(2, 200))  # 딱 최소 주문량은 경고 없음(웹의 "< 최소" 와 같은 기준)
+    assert "최소 주문량" not in ok.text or "적어요" not in ok.text
+
+
+def test_naive_time_is_rejected(session, world, shop, ai):
+    naive = datetime(2026, 11, 16, 3, 0)  # 시간대 없음
+    user = world["a_staff"]
+    with pytest.raises(ValueError):
+        co.propose(session, user.company_id, user.id, "x", TODAY, naive)
+    token = propose(session, world, ai, L(2)).token
+    with pytest.raises(ValueError):
+        co.confirm(session, user.company_id, user.id, token, TODAY, naive)
+    assert not ai.calls[1:] and not orders(session, world)
