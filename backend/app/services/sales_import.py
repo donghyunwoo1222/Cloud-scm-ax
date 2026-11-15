@@ -22,6 +22,7 @@ from app.errors import AppError  # 공통 오류
 from app.models import InventoryMovement, Product  # 이력, 품목
 from app.schemas.sales_import import SalesImportOptions  # 열 지정·옵션
 from app.services import stock as stock_service  # 이력은 register_movement 로만 쓴다
+from app.services.export import FORMULA_START  # 내보내기(#191)가 ' 를 붙이는 시작 글자
 
 MAX_BYTES = 5 * 1024 * 1024  # 파일 크기 상한 5MB
 MAX_ROWS = 5000  # 데이터 행 상한 (머리글 제외)
@@ -75,6 +76,14 @@ def _cell_text(value) -> str:
     return str(value).strip()
 
 
+def _unquote(cell: str) -> str:
+    """내보낸 CSV(#191)를 다시 올릴 때: ' 바로 뒤가 수식 시작 글자일 때만 ' 하나를 뗀다. 예) "'=1+1" → "=1+1".
+
+    그 밖의 ' 는 그대로 둔다. 예) "'A01", "''=x" 는 바뀌지 않는다.
+    """
+    return cell[1:] if cell.startswith("'") and cell[1:].startswith(FORMULA_START) else cell
+
+
 def read_table(filename: str, content: bytes) -> tuple[list[str], list[list[str]]]:
     """파일 → (머리글, 데이터 행들). 크기·행 수·형식 검사를 여기서 한다."""
     if len(content) > MAX_BYTES:
@@ -88,7 +97,7 @@ def read_table(filename: str, content: bytes) -> tuple[list[str], list[list[str]
                 text = content.decode("cp949")  # 한국 엑셀이 저장한 CSV
             except UnicodeDecodeError:
                 raise invalid("INVALID_FILE", "CSV 인코딩을 읽을 수 없습니다. UTF-8로 저장해 올려 주세요.") from None
-        table = list(csv.reader(io.StringIO(text)))
+        table = [[_unquote(c) for c in row] for row in csv.reader(io.StringIO(text))]
     elif name.endswith(".xlsx"):
         try:
             workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)  # 읽기 전용: 메모리를 아낀다
