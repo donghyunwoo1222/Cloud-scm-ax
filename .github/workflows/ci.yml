@@ -59,5 +59,7 @@ jobs:
         run: npm ci                          # package-lock.json 그대로 설치 (버전이 매번 같게)
       - name: 린트(ESLint)
         run: npm run lint
+      - name: 단위 테스트(node --test)
+        run: npm test                        # safe-next 등 순수 함수 시험
       - name: 빌드
         run: npm run build                   # 타입 오류나 빌드 오류가 있으면 실패
