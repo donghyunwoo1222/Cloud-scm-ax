@@ -12,13 +12,13 @@ const ALLOWED = [
   /^\/inventory$/,
   /^\/recommendations$/,
   /^\/purchase-orders$/,
-  /^\/purchase-orders\/\d+$/,
-  /^\/purchase-orders\/\d+\/document$/,
+  /^\/purchase-orders\/\d{1,9}$/, // 번호는 9자리까지: DB 정수(21억) 범위 안
+  /^\/purchase-orders\/\d{1,9}\/document$/,
   /^\/receipts$/,
   /^\/shipments$/,
   /^\/products$/,
   /^\/suppliers$/,
-  /^\/suppliers\/\d+$/,
+  /^\/suppliers\/\d{1,9}$/,
   /^\/company$/,
   /^\/slack$/,
   /^\/users$/,
@@ -53,4 +53,11 @@ export function safeNext(raw: unknown): string {
   if (!ALLOWED.some((re) => re.test(path))) return FALLBACK;
 
   return path;
+}
+
+// 로그인이 풀렸을 때 보낼 로그인 주소. 지금 경로가 허용 경로면 "/login?next=<경로>", 아니면 그냥 "/login"
+// pathname 은 location.pathname (쿼리·해시가 없다). 예) /purchase-orders/17 → /login?next=%2Fpurchase-orders%2F17
+// 예) /login, /change-password, /products/new 는 허용 밖이라 "/login" (next=/login 으로 돌고 도는 일도 없다)
+export function loginUrlFor(pathname: string): string {
+  return safeNext(pathname) === pathname ? "/login?next=" + encodeURIComponent(pathname) : "/login";
 }

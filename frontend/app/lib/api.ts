@@ -3,6 +3,8 @@
 // - 성공이면 응답의 data 를(목록은 apiList 로 data·meta 를), 실패면 서버의 error.code·message 를 담은 ApiError 를 던진다.
 // - 401(로그인 필요)이면 로그인 화면으로 보낸다.
 
+import { loginUrlFor } from "./safe-next"; // 로그인이 풀렸을 때 가던 곳을 기억시키는 로그인 주소
+
 // 서버가 돌려준 오류 한 건 (서버 형식: {"error": {"code", "message", "details"}})
 export class ApiError extends Error {
   constructor(
@@ -78,8 +80,7 @@ async function request(path: string, options: Options) {
 
   if (response.status === 401 && redirectOn401) {
     // 이 함수는 React 컴포넌트 밖이라 useRouter 를 쓸 수 없고, 전체 새로고침으로 이전 사용자의 화면 상태도 비우려고 일부러 쓴다
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.assign("/login"); // 로그인이 풀렸으면 로그인 화면으로
+    window.location.assign(loginUrlFor(window.location.pathname)); // 로그인이 풀렸으면 로그인 화면으로 (지금 화면의 경로를 next 로 붙인다, 이벤트 안이라 window 접근 가능)
   }
   const error = json?.error; // 서버 오류 본문
   throw new ApiError(
@@ -102,8 +103,7 @@ export async function apiDownload(path: string, fallbackName = "export"): Promis
   }
   if (!response.ok) {
     if (response.status === 401) {
-      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-      window.location.assign("/login"); // 로그인이 풀렸으면 로그인 화면으로
+      window.location.assign(loginUrlFor(window.location.pathname)); // 로그인이 풀렸으면 로그인 화면으로 (경로를 next 로)
     }
     const error = (await response.json().catch(() => null))?.error; // 서버 오류 본문 (예: EXPORT_TOO_LARGE)
     throw new ApiError(response.status, error?.code ?? "UNKNOWN_ERROR", error?.message ?? "내보내지 못했습니다.", error?.details ?? null);
