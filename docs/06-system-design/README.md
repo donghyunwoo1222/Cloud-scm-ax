@@ -9,6 +9,7 @@
 | [erd.md](./erd.md) | 표 10개(업무 7개 + 멱등 키 + 발주서 변경 이력 + 슬랙 연결), 컬럼, 관계, 업무 규칙(R1~R10) 대응, 시나리오 S1~S14 점검 |
 | [api-design.md](./api-design.md) | REST API 32개, 권한, 오류 코드, 핵심 API 상세 |
 | [architecture.md](./architecture.md) | 기술 스택, 구성도, 폴더 구조, 추천 계산 함수, 배포·운영, 주차별 계획 |
+| [channels-and-deeplinks.md](./channels-and-deeplinks.md) | 채널별 역할(슬랙·카카오·메일·엑셀), 알림 → 화면 딥링크 규칙(#198, 코드 구현은 PR 2 예정) |
 
 읽는 순서: ERD → API → 아키텍처.
 
