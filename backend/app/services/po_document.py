@@ -13,12 +13,14 @@ from app.clock import SEOUL  # 서울 시간대 (발주일자)
 from app.errors import AppError  # 공통 오류
 from app.models import Company, Supplier, User  # 표들
 from app.services import purchase_orders as po_service  # 발주서 조회·응답 만들기
+from app.services.export import seoul_time, user_names  # 서울 시각 글자, 사용자 id → 이름
 from app.services.tenant import get_owned  # 회사 조건이 붙은 조회
 
 DOCUMENT_STATUSES = ("APPROVED", "ORDERED", "RECEIVED")  # 승인 이후 상태만 문서를 만든다 (DRAFT·CANCELLED 는 409)
 DIGITS = "영일이삼사오육칠팔구"  # 숫자 → 한글
 SMALL_UNITS = ("", "십", "백", "천")  # 네 자리 묶음 안의 자릿수
 BIG_UNITS = ("", "만", "억", "조", "경")  # 네 자리 묶음 이름
+STAMP_DROP = ("주식회사", "(주)", "㈜")  # 도장에서 떼는 회사 형태 표기
 FONT_DIR = Path(__file__).resolve().parents[1] / "fonts"  # 한글 폰트(나눔고딕, OFL). 도커 이미지에 한글 폰트가 없어 저장소에 넣었다
 
 
@@ -59,6 +61,28 @@ def fmt_business_number(number: str | None) -> str | None:
     return f"{number[:3]}-{number[3:5]}-{number[5:]}" if number else number
 
 
+def stamp_of(name: str) -> dict:
+    """회사명 → 원형 도장 글자 배치 (#263). 화면·PDF·메일이 모두 이 결과만 그린다(규칙은 여기 한 곳).
+
+    lines: 줄별 글자 (앞줄이 길거나 같게), ratio: 글자 크기 ÷ 도장 지름. 이스케이프는 그리는 쪽이 한다.
+    예) "(주)한빛생활" → {"lines": ["한빛", "생활"], "ratio": 0.35}, 지름 64px 이면 글자 22.4px.
+    """
+    compact = "".join(name.split())  # 앞뒤·안쪽 공백 모두 제거
+    text = compact
+    for word in STAMP_DROP:
+        text = text.replace(word, "")
+    text = (text or compact or "인")[:9]  # 형태 표기만 있던 이름은 원래 이름, 그것도 비면 "인". 10자 이상은 앞 9자
+    rows = 1 if len(text) <= 3 else 2 if len(text) <= 6 else 3  # 1~3자 1줄, 4~6자 2줄, 7~9자 3줄
+    base, extra = divmod(len(text), rows)  # 남는 글자는 앞줄부터 한 자씩 (7자 → 3/2/2)
+    lines, start = [], 0
+    for row in range(rows):
+        size = base + (row < extra)
+        lines.append(text[start:start + size])
+        start += size
+    ratio = min(0.36, 0.7 / max(rows, len(lines[0])))  # 가장 긴 줄은 첫 줄. 1~2자는 0.36 상한
+    return {"lines": lines, "ratio": round(ratio, 3)}
+
+
 def build_document(company_id: int, db: Session, order_id: int) -> dict:
     """GET /purchase-orders/{id}/document 응답. 다른 회사·없는 id 는 404, 승인 전·취소는 409. 회사 정보가 비어도 만들어진다."""
     order = po_service.get_order(company_id, db, order_id)  # 다른 회사 404
@@ -68,6 +92,7 @@ def build_document(company_id: int, db: Session, order_id: int) -> dict:
     company = db.get_one(Company, company_id)
     supplier = get_owned(company_id, db, Supplier, order.supplier_id)
     author = get_owned(company_id, db, User, order.created_by)  # 작성자 (같은 회사 사용자)
+    stamp_name = order.approved_company_name or company.name  # 승인 시점 회사명. 승인 칸 없이 만든 발주서는 현재 회사명
     lines = []
     for number, item in enumerate(out["items"], start=1):
         boxed = item["box_quantity"] is not None  # 박스 발주는 박스 단위로 적는다
@@ -98,6 +123,12 @@ def build_document(company_id: int, db: Session, order_id: int) -> dict:
         "delivery_address": order.delivery_address or company.address,  # 비면 회사 주소
         "payment_terms": order.payment_terms,
         "memo": order.memo,
+        "approval": {  # 승인 기록과 도장 (#263). 승인 칸이 빈 발주서는 이름·시각이 null
+            "approver_name": user_names(company_id, db, {order.approved_by}).get(order.approved_by),
+            "approved_at": seoul_time(order.approved_at),  # 서울 "YYYY-MM-DD HH:MM"
+            "company_name": stamp_name,
+            "stamp": stamp_of(stamp_name),
+        },
     }
 
 

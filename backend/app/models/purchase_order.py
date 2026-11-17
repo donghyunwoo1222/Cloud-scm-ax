@@ -42,6 +42,7 @@ class PurchaseOrder(CompanyMixin, Base):
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))  # 작성자
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))  # 승인자 (승인 전에는 비움)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 승인 시각
+    approved_company_name: Mapped[str | None]  # 승인 시점 회사명 (문서 도장용 스냅샷, 회사명이 나중에 바뀌어도 그대로, #263)
     ordered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # ORDERED로 바뀐 시각
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # RECEIVED로 바뀐 시각
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # CANCELLED로 바뀐 시각
