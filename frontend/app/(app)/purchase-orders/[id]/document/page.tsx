@@ -68,11 +68,11 @@ function Document() {
                 <th colSpan={2}>발주처</th>
               </tr>
               <tr><td className="lb">상 호</td><td>{s.name}</td><td className="lb">상 호</td>
-                {/* 도장은 발주처 상호 칸 오른쪽에 겹쳐 찍는다 (관례). 글자가 도장 밑에 깔리지 않게 오른쪽 여백을 둔다 (#263) */}
-                <td style={{ position: "relative", paddingRight: 64 }}>
+                {/* 도장은 발주처 상호 칸 오른쪽 끝에 글자 위로 겹쳐 찍는다 (실제 도장처럼). multiply+투명도로 밑의 글자가 비쳐 읽히게 한다 (#263) */}
+                <td style={{ position: "relative" }}>
                   {b.name}
-                  <span style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", lineHeight: 0, pointerEvents: "none" }}>
-                    <StampSeal stamp={ap.stamp} companyName={ap.company_name} size={58} />
+                  <span style={{ position: "absolute", right: 2, top: "50%", transform: "translateY(-58%)", lineHeight: 0, pointerEvents: "none", mixBlendMode: "multiply", opacity: 0.85 }}>
+                    <StampSeal stamp={ap.stamp} companyName={ap.company_name} size={72} />
                   </span>
                 </td>
               </tr>
