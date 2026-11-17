@@ -177,6 +177,13 @@ def build_xlsx(doc: dict) -> bytes:
     ws.append(["2) 납품장소", doc["delivery_address"]])
     ws.append(["3) 지불조건", doc["payment_terms"]])
     ws.append(["4) 기타", doc["memo"]])
+    ap = doc["approval"]  # 승인 줄은 맨 끝에 붙여, 위쪽 줄의 위치·병합이 밀리지 않게 한다 (#263)
+    ws.append([])
+    ws.append(["승인", f"{ap['approver_name'] or '-'} (인)", "승인 시각", ap["approved_at"] or "-"])  # 승인 칸이 빈 발주서는 "- (인)", "-"
+    for cell in ws[ws.max_row]:
+        cell.data_type = "s"  # 이름이 "="로 시작해도 수식이 아니라 글자로 저장한다
+    for col in (1, 3):
+        ws.cell(ws.max_row, col).font = bold  # 라벨 칸은 굵게
     for column, width in zip("ABCDEFGH", (14, 28, 10, 12, 16, 16, 20, 24), strict=True):
         ws.column_dimensions[column].width = width
     buffer = BytesIO()
