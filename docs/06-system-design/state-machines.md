@@ -10,21 +10,21 @@
 | 출발 | 동작 | 도착 | 권한 | 규칙이 있는 곳 |
 |---|---|---|---|---|
 | (없음) | 작성 | DRAFT | 둘 다 | `backend/app/services/purchase_orders.py:133` (공급업체당 DRAFT 1장) |
-| DRAFT | 승인 approve | APPROVED | 관리자만 | `TRANSITIONS` `purchase_orders.py:211-215` |
-| APPROVED | 주문 완료 표시 order | ORDERED | 둘 다 | `TRANSITIONS` |
-| APPROVED | 메일 첫 발송 성공 | ORDERED | 둘 다 | **표 밖** `backend/app/services/po_mail.py:171-173` |
-| ORDERED | 입고로 모든 줄이 다 참 | RECEIVED | 둘 다 | **표 밖** `purchase_orders.py:372-374` |
-| DRAFT·APPROVED·ORDERED | 취소 cancel (입고 기록 0건일 때만, ORDERED 는 사유 필수) | CANCELLED | 둘 다 | `TRANSITIONS` + `purchase_orders.py:236-242` |
+| DRAFT | 승인 approve | APPROVED | 관리자만 | `TRANSITIONS["approve"]` (`backend/app/services/po_states.py`) |
+| APPROVED | 주문 완료 표시 order | ORDERED | 둘 다 | `TRANSITIONS["order"]` |
+| APPROVED | 메일 첫 발송 성공 | ORDERED | 둘 다 | `TRANSITIONS["email"]` (발송 성공 뒤 `po_mail.send_order` 가 호출) |
+| ORDERED | 입고로 모든 줄이 다 참 | RECEIVED | 둘 다 | `TRANSITIONS["complete_receipt"]` (`purchase_orders.receive_order` 가 호출) |
+| DRAFT·APPROVED·ORDERED | 취소 cancel (입고 기록 0건일 때만, ORDERED 는 사유 필수) | CANCELLED | 둘 다 | `TRANSITIONS["cancel"]` + `purchase_orders.change_status` 의 사전 조건 |
 
-RECEIVED·CANCELLED 는 끝 상태다(나가는 전이 없음). `order.status` 에 값을 쓰는 곳은 `purchase_orders.py:245`, `:374`, `po_mail.py:173` 세 곳뿐이다(grep 확인).
+RECEIVED·CANCELLED 는 끝 상태다(나가는 전이 없음). `order.status` 에 값을 쓰는 곳은 `purchase_orders.set_status` 한 곳뿐이다(표 확인 → 변경 이력 → 대입). `backend/tests/test_po_state_table.py` 가 코드 검색으로 이를 고정한다.
 
 ```mermaid
 stateDiagram-v2
     [*] --> DRAFT: 작성
     DRAFT --> APPROVED: approve (관리자)
-    APPROVED --> ORDERED: order / 메일 첫 발송 (표 밖)
+    APPROVED --> ORDERED: order / 메일 첫 발송 email
     ORDERED --> ORDERED: 부분 입고
-    ORDERED --> RECEIVED: 입고 완료 (표 밖)
+    ORDERED --> RECEIVED: 입고 완료 complete_receipt
     DRAFT --> CANCELLED: cancel
     APPROVED --> CANCELLED: cancel
     ORDERED --> CANCELLED: cancel (사유 필수, 입고 0건만)
@@ -35,6 +35,8 @@ stateDiagram-v2
 ## 2. 상태별 되는 일 / 안 되는 일
 
 ○ = 됨, ✕ = 409 `INVALID_STATUS` (details `{"status": 현재 상태}`), 그 밖은 표에 코드를 적었다. 다른 회사 발주서는 어디서나 404, 로그인 없으면 401.
+
+허용 상태의 출처: 상태를 바꾸는 동작(승인·주문 완료·메일 첫 발송·입고 완료·취소)은 `TRANSITIONS`, 그 밖의 동작은 `ACTION_STATES` (둘 다 `backend/app/services/po_states.py`). `ACTION_STATES` 키: `edit`(수정), `email`(메일 발송·미리보기), `receive`(입고), `correct_receipt`(입고 정정), `document`(문서 보기·엑셀). 오류 문장은 각 호출 지점에 있다.
 
 | 동작 (경로) | DRAFT | APPROVED | ORDERED | RECEIVED | CANCELLED |
 |---|---|---|---|---|---|
@@ -57,12 +59,12 @@ stateDiagram-v2
 
 ## 3. 표 밖 전이 2곳
 
-| 전이 | 위치 | 왜 표 밖인가 (지금 코드 기준) |
-|---|---|---|
-| APPROVED → ORDERED (메일 첫 발송) | `backend/app/services/po_mail.py:171-173` | 메일이 실제로 나간 뒤에만 바꾼다. ORDERED 에서 다시 보내면 상태는 그대로 |
-| ORDERED → RECEIVED (입고 완료) | `backend/app/services/purchase_orders.py:372-374` | 누적 입고량이 모든 줄에서 발주 수량에 닿을 때만 바꾼다 |
+없음. #260 PR2 에서 둘 다 전이표로 옮겼다(`test_po_transitions.py` 는 고치지 않고 그대로 통과).
 
-PR2 에서 이 둘을 전이표에 넣을 예정이다. 그때도 `test_po_transitions.py` 는 그대로 통과해야 한다.
+| 전이 | 옮긴 위치 | 언제 바꾸는가 (그대로) |
+|---|---|---|
+| APPROVED → ORDERED (메일 첫 발송) | `TRANSITIONS["email"]`, `po_mail.send_order` 가 `set_status` 호출 | 메일이 실제로 나간 뒤에만. ORDERED 에서 다시 보내면 상태·이력 그대로 |
+| ORDERED → RECEIVED (입고 완료) | `TRANSITIONS["complete_receipt"]`, `purchase_orders.receive_order` 가 `set_status` 호출 | 누적 입고량이 모든 줄에서 발주 수량에 닿을 때만 |
 
 ## 4. 알려진 이상 동작 (지금은 그대로 고정)
 
@@ -122,7 +124,7 @@ PR2 에서 이 둘을 전이표에 넣을 예정이다. 그때도 `test_po_trans
 
 ## 7. 새 상태나 동작을 추가할 때 해야 할 일
 
-- [ ] 전이표 `TRANSITIONS`(`purchase_orders.py`)에 넣는다. 표 밖에 새 전이를 만들지 않는다.
+- [ ] `backend/app/services/po_states.py` 의 두 표(`TRANSITIONS`, `ACTION_STATES`)에 넣고, 상태는 `purchase_orders.set_status` 로만 바꾼다(`order.status = …` 직접 대입 금지). 직접 대입하면 `backend/tests/test_po_state_table.py` 의 코드 검색 테스트가 실패한다.
 - [ ] 권한(관리자만/둘 다)을 경로에서 정하고, 위 2절 표에 적는다.
 - [ ] 거절 응답: HTTP 코드, 오류 코드, `details` 모양을 정한다. 기존 코드를 재사용할 수 있으면 재사용한다.
 - [ ] 변경 이력 `po_change_log` 에 status 행을 남긴다.
@@ -132,7 +134,6 @@ PR2 에서 이 둘을 전이표에 넣을 예정이다. 그때도 `test_po_trans
 
 ## 8. 이 문서가 다루지 않는 것 (후속 PR 범위)
 
-- 전이표 완성 — 표 밖 전이 2곳과 상태별 가능한 일을 한 표·한 검증 함수로 (#260 PR2)
 - 응답에 `allowed_actions`·`can_correct` 추가, 거절 `details` 표준화 (#260 PR3, #259)
 - 화면이 `allowed_actions` 로 버튼 표시 (#260 PR4, #259)
 - 잔량 마감 (#252)

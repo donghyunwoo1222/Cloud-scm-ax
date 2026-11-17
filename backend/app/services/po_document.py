@@ -15,9 +15,9 @@ from app.errors import AppError  # 공통 오류
 from app.models import Company, Supplier, User  # 표들
 from app.services import purchase_orders as po_service  # 발주서 조회·응답 만들기
 from app.services.export import seoul_time, user_names  # 서울 시각 글자, 사용자 id → 이름
+from app.services.po_states import ACTION_STATES  # 문서를 만들 수 있는 상태 (#260)
 from app.services.tenant import get_owned  # 회사 조건이 붙은 조회
 
-DOCUMENT_STATUSES = ("APPROVED", "ORDERED", "RECEIVED")  # 승인 이후 상태만 문서를 만든다 (DRAFT·CANCELLED 는 409)
 DIGITS = "영일이삼사오육칠팔구"  # 숫자 → 한글
 SMALL_UNITS = ("", "십", "백", "천")  # 네 자리 묶음 안의 자릿수
 BIG_UNITS = ("", "만", "억", "조", "경")  # 네 자리 묶음 이름
@@ -94,7 +94,7 @@ def stamp_of(name: str) -> dict:
 def build_document(company_id: int, db: Session, order_id: int) -> dict:
     """GET /purchase-orders/{id}/document 응답. 다른 회사·없는 id 는 404, 승인 전·취소는 409. 회사 정보가 비어도 만들어진다."""
     order = po_service.get_order(company_id, db, order_id)  # 다른 회사 404
-    if order.status not in DOCUMENT_STATUSES:
+    if order.status not in ACTION_STATES["document"]:  # 승인 이후만 (DRAFT·CANCELLED 는 409)
         raise AppError(409, "INVALID_STATUS", "승인된 발주서만 문서로 볼 수 있습니다.", {"status": order.status})
     out = po_service.build_out(company_id, db, [order])[0]  # 줄 금액은 발주서 응답과 같은 계산을 쓴다
     company = db.get_one(Company, company_id)
