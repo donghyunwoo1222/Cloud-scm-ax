@@ -17,6 +17,7 @@ import hashlib  # SHA-256
 import hmac  # 서명
 import json  # 토큰 내용
 import logging  # 사유 코드 한 줄
+import re  # 웹 기본 주소 모양 검사
 import secrets  # 요청마다 다른 nonce
 from collections import Counter  # 같은 번호가 두 번 나왔는지 세기
 from dataclasses import dataclass, field  # 돌려주는 값 묶음
@@ -287,11 +288,18 @@ def confirm(db: Session, company_id: int, user_id: int, token: str, today: date,
     return Reply(text, po_ids=po_ids, outcome="OK")
 
 
+LINK_BASE = re.compile(r"https://[^\s|<>&]+")  # 링크를 깨는 문자(공백 | < > &)가 없는 https 주소만(아침 요약과 같은 https 규칙)
+MAX_PO_LINKS = 5  # 결과에 발주서 상세 주소를 적는 최대 장수. 넘치면 "외 N건"(목록 링크는 어댑터가 글 끝에 붙인다)
+
+
 def _made_text(orders: list, made: list, prods: dict) -> str:
-    """결과 문구: 발주서 번호별로 '• 품목 표시 — 수량'. 단가·공급업체·이메일은 넣지 않는다. 박스 품목은 요약과 같은 표기(3 박스(300개))."""
+    """결과 문구: 발주서 번호별로 '• 품목 표시 — 수량'. 단가·공급업체·이메일은 넣지 않는다. 박스 품목은 요약과 같은 표기(3 박스(300개)).
+    웹 주소가 https 면 번호 옆에 발주서 상세 주소(/purchase-orders/정수 id)를 적는다. 슬랙이 주소를 알아서 링크로 바꾼다. 토큰·회사·사용자 값은 넣지 않는다."""
+    base = settings.app_base_url.rstrip("/")
+    linked = LINK_BASE.fullmatch(base) is not None
     out = ["발주 초안을 만들었어요. 승인된 발주가 아니라 초안이에요."]
-    for order in orders:
-        out.append(order.po_number)
+    for n, order in enumerate(orders):
+        out.append(f"{order.po_number} {base}/purchase-orders/{int(order.id)}" if linked and n < MAX_PO_LINKS else order.po_number)
         for m in made:
             if m.purchase_order_id != order.id:
                 continue
@@ -299,6 +307,8 @@ def _made_text(orders: list, made: list, prods: dict) -> str:
             factor = m.units_per_box or 1  # 발주 당시 입수 스냅샷(없으면 낱개)
             shown = _shown({"unit_factor": factor, "order_unit": m.order_unit, "unit": p.unit}, m.quantity // factor)
             out.append(f"• {product_label(p.name, p.sku, p.color, p.size, p.spec)} — {shown}")
+    if linked and len(orders) > MAX_PO_LINKS:
+        out.append(f"외 {len(orders) - MAX_PO_LINKS:,}건은 아래 웹 목록에서 확인해 주세요.")
     out.append("승인과 발주는 웹에서 해 주세요.")
     return "\n".join(out)
 

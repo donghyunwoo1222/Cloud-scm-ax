@@ -594,3 +594,26 @@ def test_logs_have_no_token_text_or_slack_id_after_confirm(client, session, worl
     assert "slack_order action=CONFIRM outcome=OK" in text
     for secret in (token, "비밀 메모", STAFF, "ONE 이름"):
         assert secret not in text
+
+
+# ----- 결과 글의 발주서 상세 주소 (#249) -----
+
+BASE_URL = "https://scm.example.com"  # slack_on 이 정한 웹 기본 주소(끝 슬래시는 떼고 쓴다)
+
+
+def test_confirm_result_has_detail_url_before_list_link(client, session, world, shop, ai, fake):
+    token = propose_token(client, fake, ai, L(1))
+    slack_events.handle_action(click(token), NOW)
+    po = orders(session, world)[0]
+    _, _, text, blocks = fake.updated[0]
+    assert f"{po.po_number} {BASE_URL}/purchase-orders/{po.id}\n" in text  # 번호 줄에 상세 주소
+    assert text.endswith(f"웹에서 보기: {BASE_URL}/purchase-orders")  # 기존 목록 링크는 그대로 맨 끝
+    assert blocks[0]["text"]["text"] == text and len(blocks) == 1
+
+
+def test_cancel_and_done_have_no_url(client, session, world, shop, ai, fake):
+    token = propose_token(client, fake, ai, L(1))
+    slack_events.handle_action(click(token, slack_events.CANCEL_ID), NOW)
+    slack_events.handle_action(click(token), NOW)  # 취소한 뒤 확인: 이미 처리됨
+    assert all("/purchase-orders" not in str(args) for args in fake.updated)
+    assert all("/purchase-orders" not in args[-1] for args in fake.ephemeral)
