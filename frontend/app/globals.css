@@ -1181,10 +1181,22 @@ details.reason > p {
 
 /* 사이드 메뉴 링크 (마우스·현재 화면 표시는 인라인 스타일로 못 하므로 여기 둔다) */
 .side-nav a {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: var(--space-sm) 12px;
   border-radius: var(--radius-sm);
   color: var(--color-foreground);
+}
+
+/* 메뉴 아이콘: 평소엔 흐리게, 현재 화면은 글자색(파랑)을 따라간다 */
+.side-nav .nav-icon {
+  flex: none;
+  color: var(--color-muted-foreground);
+}
+
+.side-nav a[aria-current="page"] .nav-icon {
+  color: inherit;
 }
 
 .side-nav a:hover {
@@ -1195,7 +1207,8 @@ details.reason > p {
 .side-nav a[aria-current="page"] {
   background: var(--color-selected);
   color: var(--color-link);
-  font-weight: 500;
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--color-link); /* 현재 화면 왼쪽 막대 */
 }
 
 /* 대시보드 숫자 카드(#92): 카드 전체가 링크. 마우스를 올리면 테두리를 파랑으로(밑줄은 빼서 숫자가 지저분해지지 않게) */
@@ -1398,8 +1411,23 @@ details.reason > p {
 /* 슬랙 연결 화면 (app/(app)/slack) */
 .slack-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); padding-bottom: var(--space-sm); margin-bottom: var(--space-md); border-bottom: 1px solid var(--color-border); }
 .slack-steps { display: grid; gap: var(--space-sm); margin: 0 0 var(--space-md); padding-inline-start: 1.4em; }
+.slack-steps li::marker { font-weight: 700; color: var(--color-link); }
+/* 안내 상자(만료·대기): 두 줄(굵은 제목 + 설명)을 회색 상자에 담아 본문 글과 구분한다 */
+.slack-notice { display: grid; gap: 2px; padding: var(--space-md); margin-bottom: var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-unknown-bg); }
+.slack-notice span { font-size: var(--text-sm); color: var(--color-muted-foreground); }
+/* 버튼 줄: 버튼과 보조 설명을 위 내용과 떨어뜨려 나란히 둔다 */
+.slack-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm) var(--space-md); margin-top: var(--space-md); }
 .slack-code { display: grid; gap: var(--space-sm); padding: var(--space-md); margin-bottom: var(--space-md); border: 1px solid var(--color-info); border-radius: var(--radius-md); background: var(--color-selected); }
-.slack-code-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
+.slack-code-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-sm); }
+/* code 태그의 기본 글꼴은 고정폭이라 한글("연결")이 얇고 넓게 갈라져 보인다. 본문 글꼴(Noto Sans KR)로 바꾸고 숫자만 폭을 맞춘다 */
+.slack-code-row code,
+.slack-steps code { font-family: var(--font-sans); }
+.slack-steps code { padding: 1px 6px; border-radius: var(--radius-sm); background: var(--color-unknown-bg); font-weight: 600; }
 .slack-code-row code { font-size: var(--text-xl); font-weight: 700; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; color: var(--color-foreground); }
+/* 연결됨 안내 상자: 초록 바탕으로 "잘 연결됐다"는 결과를 먼저 보여 준다 */
+.slack-linked { display: grid; gap: 2px; padding: var(--space-md); margin-bottom: var(--space-md); border: 1px solid var(--color-ok); border-radius: var(--radius-md); background: var(--color-ok-bg); }
+.slack-linked span { font-size: var(--text-sm); color: var(--color-muted-foreground); }
+/* 연결 해제는 되돌리기 어려운 동작이라 위 정보와 구분선으로 떨어뜨린다 */
+.slack-unlink { padding-top: var(--space-md); border-top: 1px solid var(--color-border); }
 .slack-facts { display: flex; flex-wrap: wrap; gap: var(--space-md) var(--space-xl); margin: 0 0 var(--space-md); }
 .slack-facts dd { margin: var(--space-xs) 0 0; font-weight: 500; overflow-wrap: anywhere; }
