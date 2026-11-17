@@ -6,6 +6,7 @@ import { Suspense, useEffect, useState } from "react"; // 처음 한 번 불러�
 
 import { api } from "../../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText } from "../../../../lib/list"; // 오류 문장
+import { StampSeal } from "../../../../lib/stamp-seal"; // 원형 도장 (#263)
 import { S } from "../../../../lib/styles"; // 화면 공통 스타일
 import { MailPanel } from "./mail-panel"; // 메일 미리보기·발송 (#158)
 
@@ -17,6 +18,8 @@ type Doc = {
   lines: { no: number; product_name: string; product_sku: string; unit: string; quantity: number; unit_price: number; amount: number; note: string }[];
   supply_total: number; vat: number; total: number; total_korean: string;
   due_date: string | null; delivery_address: string | null; payment_terms: string | null; memo: string | null;
+  // 승인 기록 (#263). 승인자·시각은 승인 칸이 빈 발주서면 null. stamp 는 서버가 계산한 값을 그대로 그린다
+  approval: { approver_name: string | null; approved_at: string | null; company_name: string; stamp: { lines: string[]; ratio: number } };
 };
 
 const won = (n: number) => n.toLocaleString("ko-KR"); // 836000 → 836,000
@@ -37,7 +40,7 @@ function Document() {
   if (!doc) return <section><h1>발주서 문서</h1><ErrorText error={error} /><Link href={`/purchase-orders/${id}`}>발주서 상세로</Link></section>;
 
   const blanks = Array.from({ length: Math.max(0, MIN_ROWS - doc.lines.length) }, (_, i) => doc.lines.length + i + 1); // 빈 줄 번호
-  const { supplier: s, buyer: b } = doc;
+  const { supplier: s, buyer: b, approval: ap } = doc;
 
   return (
     <section>
@@ -106,6 +109,18 @@ function Document() {
             </tbody>
           </table>
           <p className="c" style={{ margin: "14px 0 0" }}>위와 같이 발주합니다.</p>
+          {/* 승인 영역: 문서 맨 아래 오른쪽, 결재 도장을 찍는 관례 자리 */}
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, marginTop: 14, fontSize: 12 }}>
+            <div style={{ textAlign: "right", lineHeight: 1.7 }}>
+              <div>승인자 : {ap.approver_name ?? "-"}</div>
+              <div>승인 시각 : {ap.approved_at ?? "-"}</div>
+              {/* 승인 뒤 상호가 바뀐 경우에만 승인 때 이름을 따로 보인다 (같으면 중복 표시 안 함) */}
+              {ap.company_name !== b.name && <div>승인 시점 상호 : {ap.company_name}</div>}
+              {/* "전자 표시": 시스템에 남은 승인 기록을 표시한 것이며 법적 인감을 대체하지 않는다 */}
+              <div style={{ fontSize: 10, color: "#666" }}>전자 표시</div>
+            </div>
+            <StampSeal stamp={ap.stamp} companyName={ap.company_name} />
+          </div>
         </div>
       </div>
     </section>
