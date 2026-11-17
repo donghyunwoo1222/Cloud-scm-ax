@@ -14,7 +14,11 @@ from app.clock import SEOUL  # 서울 시간대 (발주일자)
 from app.errors import AppError  # 공통 오류
 from app.models import Company, Supplier, User  # 표들
 from app.services import purchase_orders as po_service  # 발주서 조회·응답 만들기
-from app.services.export import seoul_time, user_names  # 서울 시각 글자, 사용자 id → 이름
+from app.services.export import (  # 서울 시각 글자, 사용자 id → 이름, 글자 고정 칸
+    seoul_time,
+    user_names,
+    xlsx_cell,
+)
 from app.services.tenant import get_owned  # 회사 조건이 붙은 조회
 
 DOCUMENT_STATUSES = ("APPROVED", "ORDERED", "RECEIVED")  # 승인 이후 상태만 문서를 만든다 (DRAFT·CANCELLED 는 409)
@@ -146,15 +150,16 @@ def build_xlsx(doc: dict) -> bytes:
     ws = wb.active
     ws.title = doc["po_number"]
     bold = Font(bold=True)
+    txt = lambda value: xlsx_cell(ws, value)  # 사용자 입력 유래 글자 칸: "="로 시작하는 글자가 수식이 되지 않게 글자로 고정 (#280)
     ws.append(["발 주 서"])
     ws["A1"].font = Font(bold=True, size=16)
     ws.append(["발주번호", doc["po_number"], "발주일자", doc["order_date"]])
     s, b = doc["supplier"], doc["buyer"]
     ws.append(["[수신처]"])
-    ws.append(["상호", s["name"], "담당자", s["contact_name"], "연락처", s["phone"], "이메일", s["email"]])
+    ws.append(["상호", txt(s["name"]), "담당자", txt(s["contact_name"]), "연락처", txt(s["phone"]), "이메일", txt(s["email"])])
     ws.append(["[발주처]"])
-    ws.append(["상호", b["name"], "사업자번호", fmt_business_number(b["business_number"]), "대표자", b["representative"]])
-    ws.append(["연락처", b["phone"], "주소", b["address"], "담당자(작성자)", b["author_name"]])
+    ws.append(["상호", txt(b["name"]), "사업자번호", txt(fmt_business_number(b["business_number"])), "대표자", txt(b["representative"])])
+    ws.append(["연락처", txt(b["phone"]), "주소", txt(b["address"]), "담당자(작성자)", txt(b["author_name"])])
     ws.append([])
     ws.append([f"합계금액: 일금 {doc['total_korean']} 원정 (₩{doc['total']:,}, 부가세 포함)"])
     header_row = ws.max_row + 1
@@ -163,8 +168,8 @@ def build_xlsx(doc: dict) -> bytes:
         cell.font = bold
         cell.alignment = Alignment(horizontal="center")
     for line in doc["lines"]:
-        ws.append([line["no"], f"{line['product_name']} ({line['product_sku']})", line["unit"], line["quantity"],
-                   line["unit_price"], line["amount"], line["note"]])
+        ws.append([line["no"], txt(f"{line['product_name']} ({line['product_sku']})"), txt(line["unit"]), line["quantity"],
+                   line["unit_price"], line["amount"], txt(line["note"])])
     for label, value in (("공급가액 합계", doc["supply_total"]), ("부가세 (10%)", doc["vat"]), ("합계", doc["total"])):
         ws.append([None, None, None, None, label, value])
         ws.cell(ws.max_row, 5).font = bold
@@ -174,14 +179,12 @@ def build_xlsx(doc: dict) -> bytes:
     ws.append([])
     ws.append(["발주 조건"])
     ws.append(["1) 납기일자", doc["due_date"]])
-    ws.append(["2) 납품장소", doc["delivery_address"]])
-    ws.append(["3) 지불조건", doc["payment_terms"]])
-    ws.append(["4) 기타", doc["memo"]])
+    ws.append(["2) 납품장소", txt(doc["delivery_address"])])
+    ws.append(["3) 지불조건", txt(doc["payment_terms"])])
+    ws.append(["4) 기타", txt(doc["memo"])])
     ap = doc["approval"]  # 승인 줄은 맨 끝에 붙여, 위쪽 줄의 위치·병합이 밀리지 않게 한다 (#263)
     ws.append([])
-    ws.append(["승인", f"{ap['approver_name'] or '-'} (인)", "승인 시각", ap["approved_at"] or "-"])  # 승인 칸이 빈 발주서는 "- (인)", "-"
-    for cell in ws[ws.max_row]:
-        cell.data_type = "s"  # 이름이 "="로 시작해도 수식이 아니라 글자로 저장한다
+    ws.append(["승인", txt(f"{ap['approver_name'] or '-'} (인)"), "승인 시각", txt(ap["approved_at"] or "-")])  # 승인 칸이 빈 발주서는 "- (인)", "-". 이름이 "="로 시작해도 글자로 저장
     for col in (1, 3):
         ws.cell(ws.max_row, col).font = bold  # 라벨 칸은 굵게
     for column, width in zip("ABCDEFGH", (14, 28, 10, 12, 16, 16, 20, 24), strict=True):
