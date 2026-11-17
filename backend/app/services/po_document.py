@@ -1,5 +1,6 @@
 """발주서 문서(#157): 인쇄 화면과 엑셀이 같이 쓰는 값을 서버에서 한 번만 계산한다. 화면·엑셀 숫자가 어긋나지 않게 하려는 것."""
 
+import math  # 도장 글자 크기 계산 (제곱근·내림)
 from io import BytesIO  # 엑셀을 메모리에서 만든다 (디스크 저장 없음)
 from pathlib import Path  # 폰트 파일 위치
 
@@ -21,6 +22,7 @@ DIGITS = "영일이삼사오육칠팔구"  # 숫자 → 한글
 SMALL_UNITS = ("", "십", "백", "천")  # 네 자리 묶음 안의 자릿수
 BIG_UNITS = ("", "만", "억", "조", "경")  # 네 자리 묶음 이름
 STAMP_DROP = ("주식회사", "(주)", "㈜")  # 도장에서 떼는 회사 형태 표기
+STAMP_RADIUS = 37  # 글자 묶음 모서리가 들어갈 반지름 (도장 지름 100 기준, 안쪽 원 41보다 약간 작게)
 FONT_DIR = Path(__file__).resolve().parents[1] / "fonts"  # 한글 폰트(나눔고딕, OFL). 도커 이미지에 한글 폰트가 없어 저장소에 넣었다
 
 
@@ -65,7 +67,9 @@ def stamp_of(name: str) -> dict:
     """회사명 → 원형 도장 글자 배치 (#263). 화면·PDF·메일이 모두 이 결과만 그린다(규칙은 여기 한 곳).
 
     lines: 줄별 글자 (앞줄이 길거나 같게), ratio: 글자 크기 ÷ 도장 지름. 이스케이프는 그리는 쪽이 한다.
-    예) "(주)한빛생활" → {"lines": ["한빛", "생활"], "ratio": 0.35}, 지름 64px 이면 글자 22.4px.
+    ratio 는 "가장 긴 줄의 폭"이 아니라 글자 묶음의 모서리 거리로 맞춘다. 원은 위아래로 갈수록 가로 폭이 좁아져,
+    줄이 많으면 윗줄·아랫줄 모서리가 원을 뚫기 때문이다. 화면(글자 크기 = ratio×100, 줄 간격 ×1.1, 중앙 정렬)과 짝이다.
+    예) "(주)한빛생활" → {"lines": ["한빛", "생활"], "ratio": 0.255}, 지름 64px 이면 글자 16.3px.
     """
     compact = "".join(name.split())  # 앞뒤·안쪽 공백 모두 제거
     text = compact
@@ -79,7 +83,11 @@ def stamp_of(name: str) -> dict:
         size = base + (row < extra)
         lines.append(text[start:start + size])
         start += size
-    ratio = min(0.36, 0.7 / max(rows, len(lines[0])))  # 가장 긴 줄은 첫 줄. 1~2자는 0.36 상한
+    # 글자 묶음의 모서리가 R=37(안쪽 원 41보다 약간 작게) 안에 들어오는 최대 크기. 가장 긴 줄은 첫 줄
+    half_width = len(lines[0]) / 2  # 글자 크기 f 의 절반 폭 단위: 폭 = 글자 수 × f
+    half_height = ((rows - 1) * 1.1 + 1) / 2  # 줄 간격 1.1f, 한 줄 높이 f → 묶음 높이 = ((줄 수−1)×1.1+1)×f
+    ratio = min(0.36, (STAMP_RADIUS / 100) / math.sqrt(half_width**2 + half_height**2))  # 모서리 거리 = f×√(..)
+    ratio = math.floor(ratio * 1000) / 1000  # 소수 셋째 자리 내림 (반올림하면 살짝 넘을 수 있다). 1~2자는 0.36 상한
     return {"lines": lines, "ratio": round(ratio, 3)}
 
 

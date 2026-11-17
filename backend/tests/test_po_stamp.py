@@ -18,27 +18,38 @@ MIGRATION = Path(__file__).resolve().parents[1] / "migrations" / "versions" / "c
 
 @pytest.mark.parametrize(("name", "lines", "ratio"), [
     ("가", ["가"], 0.36),  # 0.7/1 → 상한 0.36
-    ("가나", ["가나"], 0.35),
-    ("가나다", ["가나다"], 0.233),
-    ("가나다라", ["가나", "다라"], 0.35),  # 4~6자는 2줄
-    ("가나다라마", ["가나다", "라마"], 0.233),
-    ("가나다라마바", ["가나다", "라마바"], 0.233),
-    ("가나다라마바사", ["가나다", "라마", "바사"], 0.233),  # 7~9자는 3줄, 남는 글자는 앞줄부터
-    ("가나다라마바사아", ["가나다", "라마바", "사아"], 0.233),
-    ("가나다라마바사아자", ["가나다", "라마바", "사아자"], 0.233),
-    ("가나다라마바사아자차", ["가나다", "라마바", "사아자"], 0.233),  # 10자 이상은 앞 9자
-    ("가" * 20, ["가가가"] * 3, 0.233),
-    ("(주)한빛", ["한빛"], 0.35),
-    ("주식회사 한빛생활", ["한빛", "생활"], 0.35),
-    ("㈜한빛", ["한빛"], 0.35),
-    ("(주)", ["(주)"], 0.233),  # 떼고 나면 비므로 원래 이름
+    ("가나", ["가나"], 0.33),
+    ("가나다", ["가나다"], 0.234),
+    ("가나다라", ["가나", "다라"], 0.255),  # 4~6자는 2줄
+    ("가나다라마", ["가나다", "라마"], 0.202),
+    ("가나다라마바", ["가나다", "라마바"], 0.202),
+    ("가나다라마바사", ["가나다", "라마", "바사"], 0.168),  # 7~9자는 3줄, 남는 글자는 앞줄부터
+    ("가나다라마바사아", ["가나다", "라마바", "사아"], 0.168),
+    ("가나다라마바사아자", ["가나다", "라마바", "사아자"], 0.168),
+    ("가나다라마바사아자차", ["가나다", "라마바", "사아자"], 0.168),  # 10자 이상은 앞 9자
+    ("가" * 20, ["가가가"] * 3, 0.168),
+    ("(주)한빛", ["한빛"], 0.33),
+    ("주식회사 한빛생활", ["한빛", "생활"], 0.255),
+    ("㈜한빛", ["한빛"], 0.33),
+    ("(주)", ["(주)"], 0.234),  # 떼고 나면 비므로 원래 이름
     ("   ", ["인"], 0.36),  # 공백뿐이면 "인"
-    ("A&B<주>", ["A&B", "<주>"], 0.233),  # 이스케이프하지 않고 글자 그대로
-    ("Hanbit Living", ["Han", "bit", "Liv"], 0.233),  # 공백을 지운 뒤 앞 9자
-    (" 한 빛  생 활 ", ["한빛", "생활"], 0.35),  # 안쪽 공백도 지운다
+    ("A&B<주>", ["A&B", "<주>"], 0.202),  # 이스케이프하지 않고 글자 그대로
+    ("Hanbit Living", ["Han", "bit", "Liv"], 0.168),  # 공백을 지운 뒤 앞 9자
+    (" 한 빛  생 활 ", ["한빛", "생활"], 0.255),  # 안쪽 공백도 지운다
 ])
 def test_stamp_of(name, lines, ratio):
     assert stamp_of(name) == {"lines": lines, "ratio": ratio}
+
+
+def test_stamp_fits_inside_inner_circle():
+    """화면 계산식(글자 크기 = ratio×100, 줄 간격 ×1.1, 중앙 정렬)으로 윗줄 모서리 거리가 안쪽 원 반지름 41 이하."""
+    for length in range(1, 10):  # 1~9자 모든 줄 구성
+        stamp = stamp_of("가" * length)
+        size = stamp["ratio"] * 100  # 글자 크기 (viewBox 단위)
+        rows = len(stamp["lines"])
+        top_y = (rows - 1) / 2 * size * 1.1 + size / 2  # 중심에서 윗줄 위 끝까지 세로 거리
+        half_width = len(stamp["lines"][0]) * size / 2  # 가장 긴 줄(첫 줄)의 절반 폭
+        assert (half_width**2 + top_y**2) ** 0.5 <= 41, (length, stamp)
 
 
 def test_approve_saves_company_name_and_document_keeps_it(client, session, world):
@@ -55,7 +66,7 @@ def test_approve_saves_company_name_and_document_keeps_it(client, session, world
         "approver_name": "a-ADMIN",
         "approved_at": seoul_time(saved.approved_at),
         "company_name": "회사A",  # 도장은 승인 때 이름 그대로
-        "stamp": {"lines": ["회사A"], "ratio": 0.233},
+        "stamp": {"lines": ["회사A"], "ratio": 0.234},
     }
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", doc["approval"]["approved_at"])
 
@@ -70,7 +81,7 @@ def test_document_without_approval_fields_uses_current_name(client, session, wor
     assert response.status_code == 200, response.json()
     assert response.json()["data"]["approval"] == {
         "approver_name": None, "approved_at": None, "company_name": "회사A",
-        "stamp": {"lines": ["회사A"], "ratio": 0.233},
+        "stamp": {"lines": ["회사A"], "ratio": 0.234},
     }
 
 
