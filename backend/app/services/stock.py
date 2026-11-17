@@ -29,6 +29,9 @@ from app.schemas.movements import (  # 등록·정정 요청 모양, 이력 응�
     MovementOut,
 )
 from app.schemas.stock import StockTrendDay, StockTrendOut  # 일별 마감 재고 응답
+from app.services.po_states import (
+    ACTION_STATES,  # 발주 상태 표 (purchase_orders 를 부르면 순환 import)
+)
 from app.services.products import products_by_ids  # 이력 목록의 품목명·SKU
 from app.services.recommend import SALES_WINDOW_DAYS  # 최근 30일 (추천 순수 함수와 같은 기간)
 from app.services.tenant import (  # 회사 분리 도우미 (#23)
@@ -330,7 +333,7 @@ def create_correction(
     if original.purchase_order_item_id is not None:  # 원래 이력이 발주 입고면
         item = db.get(PurchaseOrderItem, original.purchase_order_item_id)  # 연결된 발주 품목 (같은 회사 이력이 가리키므로 같은 회사)
         order = get_owned(company_id, db, PurchaseOrder, item.purchase_order_id, lock=True)  # ① 발주서 잠금: 정정 중에 상태가 바뀌지 않게
-        if order.status != "ORDERED":  # RECEIVED·CANCELLED 등이면
+        if order.status not in ACTION_STATES["correct_receipt"]:  # ORDERED 만. RECEIVED·CANCELLED 등이면
             raise AppError(409, "INVALID_STATUS", "발주가 ORDERED 상태일 때만 입고를 정정할 수 있습니다.",
                            {"status": order.status})  # RECEIVED 가 된 발주의 입고는 정정 불가 (erd.md 한계)
 
