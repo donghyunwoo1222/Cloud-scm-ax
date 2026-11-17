@@ -134,3 +134,38 @@ def test_payment_terms_and_delivery_address_on_order(client, session, world):
     assert client.patch(url, json={"payment_terms": None, "delivery_address": ""}).json()["data"]["payment_terms"] is None
     assert client.get(url).json()["data"]["delivery_address"] is None
     assert client.patch(url, json={"payment_terms": "x" * 201}).status_code == 422  # 200자까지
+
+
+# ----- 엑셀 승인 줄 (#263 PR3) -----
+def approval_row(response):
+    """엑셀 마지막 줄(승인 줄)의 셀 4개와 데이터 형식을 돌려준다."""
+    ws = load_workbook(BytesIO(response.content)).active
+    cells = ws[ws.max_row][:4]
+    return [c.value for c in cells], [c.data_type for c in cells]
+
+
+def test_xlsx_approval_row(client, session, world):
+    order, _ = make_order(client, session, world)
+    doc = client.get(f"{URL}/{order['id']}/document").json()["data"]
+    values, _ = approval_row(client.get(f"{URL}/{order['id']}/document.xlsx"))
+    assert values == ["승인", f"{doc['approval']['approver_name']} (인)", "승인 시각", doc["approval"]["approved_at"]]
+
+
+def test_xlsx_approval_row_empty_approval(client, session, world):
+    from app.models import PurchaseOrder  # 승인 칸 없이 직접 만든 ORDERED 발주서
+    order = PurchaseOrder(company_id=world["a_company"].id, supplier_id=world["a_supplier"].id, po_number="PO-X",
+                          status="ORDERED", created_by=world["a_admin"].id)
+    session.add(order)
+    session.commit()
+    login_as(client, "admin@a.test")
+    response = client.get(f"{URL}/{order.id}/document.xlsx")
+    assert response.status_code == 200
+    assert approval_row(response)[0] == ["승인", "- (인)", "승인 시각", "-"]
+
+
+def test_xlsx_approval_name_is_text_not_formula(client, session, world):
+    world["a_admin"].name = "=1+1"
+    session.commit()
+    order, _ = make_order(client, session, world)
+    values, types = approval_row(client.get(f"{URL}/{order['id']}/document.xlsx"))
+    assert values[1] == "=1+1 (인)" and types[1] == "s"
