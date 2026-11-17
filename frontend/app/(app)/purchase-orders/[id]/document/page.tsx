@@ -67,7 +67,15 @@ function Document() {
                 <td rowSpan={4} className="c" style={{ lineHeight: 1.9 }}>발주번호<br /><b style={{ fontWeight: 500 }}>{doc.po_number}</b><br />발주일자<br />{doc.order_date}</td>
                 <th colSpan={2}>발주처</th>
               </tr>
-              <tr><td className="lb">상 호</td><td>{s.name}</td><td className="lb">상 호</td><td>{b.name}</td></tr>
+              <tr><td className="lb">상 호</td><td>{s.name}</td><td className="lb">상 호</td>
+                {/* 도장은 발주처 상호 칸 오른쪽 끝에 글자 위로 겹쳐 찍는다 (실제 도장처럼). multiply+투명도로 밑의 글자가 비쳐 읽히게 한다 (#263) */}
+                <td style={{ position: "relative" }}>
+                  {b.name}
+                  <span style={{ position: "absolute", right: 2, top: "50%", transform: "translateY(-58%)", lineHeight: 0, pointerEvents: "none", mixBlendMode: "multiply", opacity: 0.85 }}>
+                    <StampSeal stamp={ap.stamp} companyName={ap.company_name} size={72} />
+                  </span>
+                </td>
+              </tr>
               <tr><td className="lb">담당자</td><td>{s.contact_name}</td><td className="lb">사업자번호</td><td>{bizNo(b.business_number)}</td></tr>
               <tr><td className="lb">연락처</td><td>{s.phone}</td><td className="lb">대표자</td><td>{b.representative}</td></tr>
               <tr>
@@ -109,18 +117,14 @@ function Document() {
             </tbody>
           </table>
           <p className="c" style={{ margin: "14px 0 0" }}>위와 같이 발주합니다.</p>
-          {/* 승인 영역: 문서 맨 아래 오른쪽, 결재 도장을 찍는 관례 자리 */}
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, marginTop: 14, fontSize: 12 }}>
-            <div style={{ textAlign: "right", lineHeight: 1.7 }}>
-              <div>승인자 : {ap.approver_name ?? "-"}</div>
-              <div>승인 시각 : {ap.approved_at ?? "-"}</div>
-              {/* 승인 뒤 상호가 바뀐 경우에만 승인 때 이름을 따로 보인다 (같으면 중복 표시 안 함) */}
-              {ap.company_name !== b.name && <div>승인 시점 상호 : {ap.company_name}</div>}
-              {/* "전자 표시": 시스템에 남은 승인 기록을 표시한 것이며 법적 인감을 대체하지 않는다 */}
-              <div style={{ fontSize: 10, color: "#666" }}>전자 표시</div>
-            </div>
-            <StampSeal stamp={ap.stamp} companyName={ap.company_name} />
-          </div>
+          {/* 승인 기록: "위와 같이 발주합니다." 아래 가운데 한 줄. 도장은 발주처 상호 칸에 있다 */}
+          <p className="c" style={{ margin: "6px 0 0", fontSize: 12 }}>
+            승인 : {ap.approver_name ?? "-"} · {ap.approved_at ?? "-"}{" "}
+            {/* "전자 승인 표시": 시스템에 남은 승인 기록을 표시한 것이며 법적 인감을 대체하지 않는다 */}
+            <span style={{ fontSize: 10, color: "#666" }}>(전자 승인 표시)</span>
+          </p>
+          {/* 승인 뒤 상호가 바뀐 경우에만 승인 때 이름을 따로 보인다 (같으면 중복 표시 안 함) */}
+          {ap.company_name !== b.name && <p className="c" style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>승인 시점 상호 : {ap.company_name}</p>}
         </div>
       </div>
     </section>
