@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react"; // 폼 제출 이벤트, 화면 상
 
 import { Field } from "../lib/field"; // 라벨이 테두리에 걸리는 입력 항목
 import { api, ApiError } from "../lib/api"; // 공통 API 호출 함수
+import { loginUrlFor } from "../lib/safe-next"; // 로그인 풀림 시 이동할 로그인 주소
 import { S } from "../lib/styles"; // 화면 공통 스타일
 
 // 임시 비밀번호로 로그인한 직원이 처음 오는 비밀번호 변경 화면 (주소 /change-password)
@@ -30,7 +31,7 @@ export default function ChangePasswordPage() {
       router.replace("/dashboard"); // 성공: 표시가 꺼졌으니 대시보드로
     } catch (e) {
       if (e instanceof ApiError && e.code === "UNAUTHENTICATED") {
-        router.replace("/login"); // 로그인 자체가 풀렸으면 로그인 화면으로
+        router.replace(loginUrlFor(window.location.pathname)); // 로그인 자체가 풀렸으면 로그인 화면으로 (/change-password 는 허용 밖이라 결과는 /login)
         return;
       }
       setError(e instanceof ApiError ? e.message : "비밀번호를 바꾸지 못했습니다."); // 서버 문장을 그대로 보여준다

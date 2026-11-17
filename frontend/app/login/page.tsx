@@ -8,7 +8,13 @@ import { Field } from "../lib/field"; // 모바일에서 라벨이 테두리에 
 import { api, ApiError } from "../lib/api"; // 공통 API 호출 함수
 import { Me, NOTICE_KEY } from "../lib/me"; // 로그인 응답 모양, 유예 안내를 넘겨 줄 저장 키
 import { Challenge, OtpStep } from "./otp-step"; // 메일 인증코드 입력 단계
+import { safeNext } from "../lib/safe-next"; // 로그인 뒤 돌아갈 주소 검사 (실패하면 /dashboard)
 import { S } from "../lib/styles"; // 화면 공통 스타일
+
+// 주소창 ?next= 의 원문(디코딩 전)을 검사해 돌아갈 곳을 돌려준다. 원문 그대로는 어디에도 넘기지 않는다. 브라우저에서만 호출한다
+function nextTarget(): string {
+  return safeNext(/[?&]next=([^&#]*)/.exec(window.location.search)?.[1]);
+}
 
 // 왼쪽 소개에 쓰는 세 가지 (실제로 있는 기능만 쓴다)
 const INTRO_ITEMS = ["재고 현황과 부족 품목 확인", "발주 추천과 발주서 초안", "입출고 이력 조회"];
@@ -53,8 +59,8 @@ export default function LoginPage() {
   const passwordRef = useRef<HTMLInputElement>(null); // 실패 후 비밀번호 칸에 포커스를 주려고 잡아 둔다
 
   useEffect(() => {
-    // 이미 로그인한 상태로 /login 을 열면 대시보드로 보낸다 (로그인 안 했으면 401 이지만 여기서는 이동하지 않고 그대로 둔다)
-    api("/me", { redirectOn401: false }).then(() => router.replace("/dashboard")).catch(() => {});
+    // 이미 로그인한 상태로 /login 을 열면 검사한 next(없으면 대시보드)로 보낸다 (로그인 안 했으면 401 이지만 여기서는 이동하지 않고 그대로 둔다)
+    api("/me", { redirectOn401: false }).then(() => router.replace(nextTarget())).catch(() => {});
   }, [router]);
 
   // 키를 누르거나 뗄 때마다 Caps Lock 상태를 확인한다
@@ -62,12 +68,12 @@ export default function LoginPage() {
     setCapsOn(event.getModifierState("CapsLock")); // 브라우저가 알려 주는 Caps Lock 켜짐 여부
   }
 
-  // 로그인이 끝났을 때: 유예 안내가 있으면 레이아웃 배너가 읽도록 남기고 대시보드로 간다
+  // 로그인이 끝났을 때: 유예 안내가 있으면 레이아웃 배너가 읽도록 남기고 검사한 next(없으면 대시보드)로 간다
   function finish(me: Me) {
     try {
       if (me.otp_notice) window.sessionStorage.setItem(NOTICE_KEY, me.otp_notice); // 날짜 문장뿐이다 (코드·토큰·이메일은 저장하지 않는다)
     } catch { /* 저장소를 못 쓰면(비공개 창 등) 안내만 생략한다 */ }
-    router.replace("/dashboard"); // 뒤로 가기로 로그인 화면에 돌아오지 않게 replace
+    router.replace(nextTarget()); // 뒤로 가기로 로그인 화면에 돌아오지 않게 replace
   }
 
   // 코드 단계에서 비밀번호 단계로 돌아온다 (서버 안내가 있으면 오류 칸에 보여 준다)
