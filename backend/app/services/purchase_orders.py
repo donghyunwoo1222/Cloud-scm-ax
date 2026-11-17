@@ -231,6 +231,7 @@ def change_status(company_id: int, db: Session, user_id: int, order_id: int, act
     if action == "approve":
         check_active_for_approval(company_id, db, order)  # 비활성 업체·품목이 들어 있으면 409
         order.approved_by, order.approved_at = user_id, func.now()  # 승인자·승인 시각 (상태 이력 표 대신 칸에 남긴다)
+        order.approved_company_name = db.get_one(Company, company_id).name  # 도장에 쓸 승인 시점 회사명 (#263)
     elif action == "order":
         order.ordered_at = func.now()  # 발주함 표시 시각
     else:
