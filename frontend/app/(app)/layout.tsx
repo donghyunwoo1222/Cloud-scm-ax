@@ -13,23 +13,23 @@ import { ToastProvider } from "../lib/toast"; // 성공 알림 토스트 (화면
 // adminOnly 는 관리자에게만 그룹째 "보이게" 하는 표시일 뿐이다.
 // 메뉴를 숨기는 건 편의이고, 실제 권한은 서버가 검사한다(담당자가 주소를 직접 쳐도 API 가 403 을 준다).
 const MENU = [
-  { links: [{ href: "/dashboard", label: "대시보드" }] }, // 그룹 밖: 첫 화면
+  { links: [{ href: "/dashboard", label: "대시보드", icon: "M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z" }] }, // 그룹 밖: 첫 화면
   { title: "재고 업무", links: [ // 매일 하는 재고 일
-    { href: "/inventory", label: "재고 현황" },
-    { href: "/products", label: "품목" },
-    { href: "/receipts", label: "입고 등록" },
-    { href: "/shipments", label: "출고 등록" },
-    { href: "/sales-import", label: "판매 가져오기" },
-    { href: "/product-import", label: "품목 가져오기" },
-    { href: "/receipt-import", label: "품목·입고 가져오기" },
+    { href: "/inventory", label: "재고 현황", icon: "M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8" },
+    { href: "/products", label: "품목", icon: "M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8zM7.5 7.5h.01" },
+    { href: "/receipts", label: "입고 등록", icon: "M12 3v12M7 10l5 5 5-5M5 21h14" },
+    { href: "/shipments", label: "출고 등록", icon: "M12 21V9M7 14l5-5 5 5M5 3h14" },
+    { href: "/sales-import", label: "판매 가져오기", icon: "M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9zM14 3v6h6M12 18v-6M9 14l3-3 3 3" },
+    { href: "/product-import", label: "품목 가져오기", icon: "M4 17v3h16v-3M12 4v12M7 11l5 5 5-5" },
+    { href: "/receipt-import", label: "품목·입고 가져오기", icon: "M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9zM14 3v6h6M8 13h8M8 17h8" },
   ] },
   { title: "구매 업무", links: [ // 발주 흐름: 추천 → 발주서 → 거래처
-    { href: "/recommendations", label: "발주 추천" },
-    { href: "/purchase-orders", label: "발주" },
-    { href: "/suppliers", label: "공급업체" },
+    { href: "/recommendations", label: "발주 추천", icon: "M9 18h6M10 22h4M12 2a7 7 0 00-4 12.7c.6.5 1 1.2 1 2.3h6c0-1.1.4-1.8 1-2.3A7 7 0 0012 2z" },
+    { href: "/purchase-orders", label: "발주", icon: "M9 3h6v4H9zM9 5H6a2 2 0 00-2 2v13a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-3M9 12h6M9 16h6" },
+    { href: "/suppliers", label: "공급업체", icon: "M2 6h11v10H2zM13 9h5l4 4v3h-9M6 19a2 2 0 100-4 2 2 0 000 4zM17 19a2 2 0 100-4 2 2 0 000 4z" },
   ] },
-  { title: "회사", links: [{ href: "/company", label: "회사 정보" }, { href: "/slack", label: "슬랙 연결" }] }, // 담당자는 읽기만(수정은 서버가 관리자만 허용)
-  { title: "관리", adminOnly: true, links: [{ href: "/users", label: "사용자 관리" }] }, // 관리자에게만 보이는 그룹
+  { title: "회사", links: [{ href: "/company", label: "회사 정보", icon: "M4 21V3h11v18M15 9h5v12M8 7h3M8 11h3M8 15h3M2 21h20" }, { href: "/slack", label: "슬랙 연결", icon: "M21 15a2 2 0 01-2 2H8l-5 4V5a2 2 0 012-2h14a2 2 0 012 2z" }] }, // 담당자는 읽기만(수정은 서버가 관리자만 허용)
+  { title: "관리", adminOnly: true, links: [{ href: "/users", label: "사용자 관리", icon: "M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8" }] }, // 관리자에게만 보이는 그룹
 ];
 
 // 지금 주소에 해당하는 메뉴 이름 (모바일 앱바에 "지금 어느 화면인지" 보여 준다). 없으면 서비스 이름
@@ -249,6 +249,8 @@ function SideNav({ isAdmin, onNavigate }: { isAdmin: boolean; onNavigate: () => 
           {group.links.map((item) => (
             <Link key={item.href} href={item.href} onNavigate={onNavigate}
               aria-current={pathname === item.href || pathname.startsWith(`${item.href}/`) ? "page" : undefined}>
+              <svg className="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={item.icon} /></svg>
+              {/* 아이콘은 글자를 돕는 장식이라 낭독기에서는 숨긴다 */}
               {item.label}
             </Link>
           ))}
