@@ -5,9 +5,9 @@
 - 화면: `frontend/app/(app)/purchase-orders/[id]/document/page.tsx` (문서 JSON `GET /purchase-orders/{id}/document`)
 - 엑셀: `po_document.build_xlsx`
 - PDF(메일 첨부): `po_document.render_pdf` → `build_pdf`
-- 메일 본문: `po_mail.subject_of`(제목), `default_intro`(앞머리 기본 문단), `fixed_html`·`fixed_text`(고정 부분), 머리글은 `build_message`
+- 메일 본문: `po_mail.subject_of`(제목), `default_intro`(앞머리 기본 문단), `fixed_html`·`fixed_text`(머리 표·품목·조건·글자 도장·승인 줄, 칸 목록은 `party_rows`), 머리글은 `build_message`
 
-기준: origin/main `473cdc7` (#297 머지 뒤). 줄 번호 대신 함수 이름을 쓴다(#285).
+기준: origin/main `0ddf53f` (#300 머지 뒤), 메일 본문은 #264 PR3 반영. 줄 번호 대신 함수 이름을 쓴다(#285).
 
 ## 1. 문서 칸 (build_document 결과)
 
@@ -18,24 +18,24 @@
 | `po_number` | `build_document` ← 발주서 | ○ | ○ (시트 이름 포함) | ○ | ○ (제목·본문) | 공개 | 첨부 파일 이름에도 쓰임 |
 | `order_date` | `build_document` (작성일, 서울 기준) | ○ | ○ | ○ | ○ (제목·본문) | 공개 | |
 | `status` | `build_document` ← 발주서 상태 | - (메일 버튼 표시 조건에만 씀) | - | - | - | 내부 전용 | 종이에는 안 그림. 문서 JSON 에만 있다 |
-| `supplier.name` | `build_document` ← 공급업체 | ○ | ○ | ○ | ○ (앞머리) | 공개 | |
-| `supplier.contact_name` | 〃 | ○ | ○ | ○ | ○ (앞머리) | 공개 | |
-| `supplier.phone` | 〃 | ○ | ○ | ○ | - | 공개 | |
-| `supplier.email` | 〃 | ○ | ○ | ○ | - (받는 주소 To 머리글) | 공개 | |
-| `buyer.name` | `build_document` ← 회사 | ○ | ○ | ○ | ○ (제목·앞머리, From 이름) | 공개 | |
-| `buyer.business_number` | 〃 (`fmt_business_number`) | ○ | ○ | ○ | - | 공개 | |
-| `buyer.representative` | 〃 | ○ | ○ | ○ | - | 공개 | |
-| `buyer.phone` | 〃 | ○ | ○ | ○ | - | 공개 | |
-| `buyer.address` | 〃 | ○ | ○ | ○ | - | 공개 | |
-| `buyer.author_name` | `build_document` ← 작성자 이름 | ○ | ○ | ○ | ○ ("답장하시면 ○○ 담당자에게") | **결정 대기** | 현재 공개. 승인자 이름만 공개할지 #281 열린 질문 |
+| `supplier.name` | `build_document` ← 공급업체 | ○ | ○ | ○ | ○ (앞머리·머리 표) | 공개 | |
+| `supplier.contact_name` | 〃 | ○ | ○ | ○ | ○ (앞머리·머리 표) | 공개 | |
+| `supplier.phone` | 〃 | ○ | ○ | ○ | ○ (머리 표 수신처) | 공개 | |
+| `supplier.email` | 〃 | ○ | ○ | ○ | ○ (머리 표 수신처, To 머리글) | 공개 | |
+| `buyer.name` | `build_document` ← 회사 | ○ | ○ | ○ | ○ (제목·앞머리·머리 표·도장 글자, From 이름) | 공개 | |
+| `buyer.business_number` | 〃 (`fmt_business_number`) | ○ | ○ | ○ | ○ (머리 표 발주처) | 공개 | |
+| `buyer.representative` | 〃 | ○ | ○ | ○ | ○ (머리 표 발주처) | 공개 | |
+| `buyer.phone` | 〃 | ○ | ○ | ○ | ○ (머리 표 발주처) | 공개 | |
+| `buyer.address` | 〃 | ○ | ○ | ○ | ○ (머리 표 발주처) | 공개 | |
+| `buyer.author_name` | `build_document` ← 작성자 이름 | ○ | ○ | ○ | ○ (머리 표 작성자, "답장하시면 ○○ 담당자에게") | 공개 (확정) | 담당자가 보이고 Reply-To 와 같은 사람이어야 공급업체가 누구에게 연락할지 안다 |
 | `lines[]` (no·product_name·product_sku·unit·quantity·unit_price·amount·note) | `build_document` ← `po_service.build_out` 에서 칸을 골라 씀 | ○ | ○ | ○ | ○ | 공개 | note 는 박스 환산(예: 1박스=10개) |
 | `supply_total`·`vat`·`total`·`total_korean` | `build_document` (`vat_of`, `korean_amount`) | ○ | ○ | ○ | ○ | 공개 | |
 | `due_date` | `build_document` ← 발주서 | ○ | ○ | ○ | ○ | 공개 | |
 | `delivery_address` | 〃 (비면 회사 주소) | ○ | ○ | ○ | ○ | 공개 | |
 | `payment_terms` | 〃 | ○ | ○ | ○ | ○ | 공개 | |
 | `memo` | 〃 | ○ ("4) 기타") | ○ | ○ | ○ ("기타") | 공개 | 공급업체에 전달되는 칸이다(#281 결정). 작성·수정 화면 라벨: "기타 요청사항 (공급업체에 전달됩니다)" |
-| `approval.approver_name`·`approved_at` | `build_document` (`user_names`, `seoul_time`) | ○ | ○ | ○ | - | 공개 | #263 결정 |
-| `approval.company_name`·`stamp` | `build_document` (`stamp_of`) | ○ | - | ○ (도장, 상호가 바뀌었으면 "승인 시점 상호") | - | 공개 | 엑셀·메일 본문 도장은 #264 PR3 |
+| `approval.approver_name`·`approved_at` | `build_document` (`user_names`, `seoul_time`) | ○ | ○ | ○ | ○ (승인 줄, 비면 "-") | 공개 | #263 결정 |
+| `approval.company_name`·`stamp` | `build_document` (`stamp_of`) | ○ | - | ○ (도장, 상호가 바뀌었으면 "승인 시점 상호") | ○ (글자 도장 "상호 (인)", 상호가 바뀌었으면 "승인 시점 상호"; `stamp` 의 lines·ratio 는 안 씀) | 공개 | 메일 본문 도장은 그림이 아니라 글자(이미지·SVG 차단 대비, #264 PR3). 엑셀 도장은 없음 |
 
 ## 2. 문서에 넣지 않는 내부 전용 정보
 
@@ -48,14 +48,14 @@
 | 메일 발송 이력 `emailed_at`·`emailed_to`·`emailed_by` | 발주서 | 메일 미리보기 응답(`build_preview`, 로그인한 직원용)에는 있다. 공급업체 출력에는 없다 |
 | 내부 id (회사·발주서·사용자·업체·품목·줄 id, `created_by`·`approved_by` 번호) | 각 표 | 문서에 필요 없다 |
 | 멱등 키 | `idempotency_keys` | |
-| 보낸 사용자 로그인 이메일 | 사용자 | 메일 머리글 Reply-To 에만 쓰인다(본문·문서·첨부에는 없음). 아래 결정 대기 참고 |
+| 보낸 사용자 로그인 이메일 | 사용자 | 메일 머리글 Reply-To 에만 쓰인다(본문·문서·첨부에는 없음). Reply-To 유지는 3절에서 확정 |
 | 원가·마진 등 내부 수익성 정보 | (현재 없음) | 앞으로 생겨도 공급업체 문서에는 넣지 않는다 |
 
-## 3. 결정 대기 (지금 동작 그대로 둠)
+## 3. 결정 (#264 PR3에서 확정)
 
-- `buyer.author_name` 공개 여부: 현재 화면·엑셀·PDF·메일 본문에 나간다.
-- 메일 Reply-To(보낸 사용자 이메일) 공개 여부: 현재 머리글 Reply-To 에 들어간다(`build_message`).
-- 파일 속성: PDF 는 제목·작성자를 넣지 않는다(`build_pdf`, `test_po_pdf.py` 가 검사). 엑셀 문서 속성은 openpyxl 기본값(작성자 "openpyxl")이며 내부 정보는 없다. 회사명으로 채울지는 미정.
+- `buyer.author_name` 공개: **확정(공개)**. 화면·엑셀·PDF·메일 본문(머리 표 작성자)에 나간다. 이유: 공급업체가 문의할 담당자를 알아야 하고, 답장(Reply-To)도 그 담당자에게 간다.
+- 메일 Reply-To(보낸 사용자 이메일) 유지: **확정(유지)**. `build_message` 머리글에만 쓰고 본문·첨부에는 넣지 않는다. 이유: 공급업체가 답장하면 담당자 메일함으로 가야 반자동 발송이 의미가 있다.
+- PDF 파일 속성 비움: **확정(비움)**. PDF 는 제목·작성자를 넣지 않는다(`build_pdf`, `test_po_pdf.py` 가 검사). 이유: 파일 속성은 사용자가 보기 어려워 내부 정보가 새도 모른다. 엑셀 문서 속성의 작성자 기본값 "openpyxl" 은 내부 정보는 아니며 후속 정리 예정이다.
 
 ## 4. 규칙: 문서에 칸을 더할 때
 

@@ -38,6 +38,26 @@ def subject_of(doc: dict) -> str:
     return f"[{doc['buyer']['name']}] 발주서 {doc['po_number']} ({doc['order_date']})"
 
 
+def dash(value) -> str:
+    """빈 칸은 "-" (HTML 용: 글자를 escape 한다)."""
+    return escape(str(value)) if value else "-"
+
+
+def flat(value) -> str:
+    """글자 본문용: 줄바꿈·연속 공백을 한 칸으로 접고 비면 "-" (값 안의 줄바꿈이 본문 줄 구조를 깨지 않게)."""
+    return " ".join(str(value or "").split()) or "-"
+
+
+def party_rows(doc: dict) -> tuple[list, list]:
+    """머리 표 두 칸의 (라벨, 값) 목록: 수신처(공급업체) / 발주처(우리 회사). HTML·글자 본문이 같은 목록을 쓴다."""
+    s, b = doc["supplier"], doc["buyer"]
+    return (
+        [("상호", s["name"]), ("담당자", s["contact_name"]), ("연락처", s["phone"]), ("이메일", s["email"])],
+        [("상호", b["name"]), ("사업자번호", po_document.fmt_business_number(b["business_number"])), ("대표자", b["representative"]),
+         ("연락처", b["phone"]), ("주소", b["address"]), ("작성자", b["author_name"])],
+    )
+
+
 def fixed_html(doc: dict) -> str:
     """앞머리 아래 고정 부분(품목표·합계·납기·납품장소·지불조건). 미리보기와 실제 메일이 이 글자를 똑같이 쓴다."""
     cell = "border:1px solid #999;padding:4px 8px"  # 칸 테두리·여백 (메일 프로그램은 <style> 을 자주 버려 칸마다 직접 적는다)
@@ -60,11 +80,24 @@ def fixed_html(doc: dict) -> str:
         for label, value in (("납기일자", doc["due_date"]), ("납품장소", doc["delivery_address"]),
                              ("지불조건", doc["payment_terms"]), ("기타", doc["memo"]))
     )
+    box = f"vertical-align:top;width:50%;{cell}"  # 머리 표 한 칸 (table·인라인 style 만: 메일 프로그램 호환)
+    parties = "".join(
+        f"<td style='{box}'><b>{title}</b><br>" + "<br>".join(f"{label} : {dash(value)}" for label, value in rows) + "</td>"
+        for title, rows in zip(("수신처", "발주처"), party_rows(doc), strict=True)
+    )
+    ap = doc["approval"]  # 승인 기록: 이름·시각이 없으면 "-"
+    changed = (f"<br>(승인 시점 상호 : {escape(ap['company_name'])})"  # 승인 뒤 상호가 바뀐 경우에만 한 줄 더 (PDF 와 같은 조건)
+               if ap["company_name"] != doc["buyer"]["name"] else "")
+    stamp = ("<span style='display:inline-block;color:#c62828;border:2px solid #c62828;border-radius:8px;"
+             f"padding:4px 12px;font-weight:bold'>{escape(ap['company_name'])} (인)</span>")  # 그림이 아니라 글자 도장 (이미지 차단 대비)
     return (
+        f"<table style='border-collapse:collapse;font-size:14px;width:100%'><tr>{parties}</tr></table>"
         f"<p><b>발주번호 {escape(doc['po_number'])}</b> · 발주일자 {doc['order_date']}<br>"
         f"합계금액 : 일금 {doc['total_korean']} 원정 (₩{doc['total']:,}, 부가세 포함)</p>"
         f"<table style='border-collapse:collapse;font-size:14px'><tr>{head}</tr>{rows}{totals}</table>"
         f"<p><b>발주 조건</b></p><ul>{conditions}</ul>"
+        f"<p>위와 같이 발주합니다.</p><p>{stamp}</p>"
+        f"<p>승인 : {dash(ap['approver_name'])} · {dash(ap['approved_at'])} (전자 승인 표시){changed}</p>"
         f"<p>이 메일에 답장하시면 {escape(doc['buyer']['author_name'])} 담당자에게 전달됩니다.</p>"
     )
 
@@ -76,11 +109,20 @@ def fixed_text(doc: dict) -> str:
         f"{line['unit_price']:,} = {line['amount']:,}원 {line['note']}".rstrip()
         for line in doc["lines"]
     )
+    ap = doc["approval"]
+    changed = f"\n(승인 시점 상호 : {flat(ap['company_name'])})" if ap["company_name"] != doc["buyer"]["name"] else ""
+    parties = "\n\n".join(
+        f"[{title}]\n" + "\n".join(f"{label}: {flat(value)}" for label, value in rows)
+        for title, rows in zip(("수신처", "발주처"), party_rows(doc), strict=True)
+    )
     return (
+        f"{parties}\n\n"
         f"발주번호 {doc['po_number']} · 발주일자 {doc['order_date']}\n\n{lines}\n\n"
         f"공급가액 합계 {doc['supply_total']:,}원 / 부가세 {doc['vat']:,}원 / 합계 {doc['total']:,}원 (일금 {doc['total_korean']} 원정)\n\n"
         f"납기일자: {doc['due_date'] or ''}\n납품장소: {doc['delivery_address'] or ''}\n"
         f"지불조건: {doc['payment_terms'] or ''}\n기타: {doc['memo'] or ''}\n\n"
+        f"위와 같이 발주합니다.\n발주처: {flat(ap['company_name'])} (인)\n"
+        f"승인: {flat(ap['approver_name'])} · {flat(ap['approved_at'])} (전자 승인 표시){changed}\n\n"
         f"이 메일에 답장하시면 {doc['buyer']['author_name']} 담당자에게 전달됩니다."
     )
 
