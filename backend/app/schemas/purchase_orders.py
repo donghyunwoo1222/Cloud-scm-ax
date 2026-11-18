@@ -102,6 +102,9 @@ class PurchaseOrderOut(BaseModel):
     supplier_name: str  # 공급업체명
     status: str  # DRAFT / APPROVED / ORDERED / RECEIVED / CANCELLED
     due_date: date | None  # 약속 납기
+    supplier_due_date: date | None  # 공급업체 회신 납기 (#265, 없으면 null)
+    supplier_confirmed_at: datetime | None  # 공급업체 확인 시각 (#265)
+    supplier_reply_count: int  # 공급업체 회신 횟수 (#265)
     memo: str | None  # 메모
     delivery_address: str | None  # 납품장소
     payment_terms: str | None  # 지불조건

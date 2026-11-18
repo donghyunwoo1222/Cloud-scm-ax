@@ -37,6 +37,9 @@ export type PurchaseOrder = {
   has_receipts: boolean; // 발주 취소를 막는 입고 이력 여부
   allowed_actions?: PoAction[]; // 지금 누를 수 있는 동작 (#260, 서버가 상태·역할로 계산). 옛 응답에는 없을 수 있다
   received_at: string | null; // 전량 입고 시각 (실제 입고일)
+  supplier_due_date: string | null; // 공급업체 회신 납기 (YYYY-MM-DD, 없으면 null, #265)
+  supplier_confirmed_at: string | null; // 공급업체 확인 시각 (#265)
+  supplier_reply_count: number; // 공급업체 회신 횟수 (#265)
   cancelled_at: string | null; // 취소 시각
   emailed_at: string | null; // 마지막 메일 발송 시각 (#158)
   emailed_to: string | null; // 마지막 메일 수신 주소 (#158)
@@ -59,7 +62,7 @@ export const STATUS_LABEL: Record<PoStatus, string> = {
 
 // 오류 details 의 칸 이름 → 화면 이름 (422 문장 뒤에 어느 칸인지 덧붙인다)
 export const PO_LABELS = {
-  supplier_id: "공급업체", due_date: "약속 납기", memo: "메모", delivery_address: "납품장소", payment_terms: "지불조건", items: "품목 줄", product_id: "품목", quantity: "수량", unit_price: "단가", movement_date: "입고일",
+  supplier_id: "공급업체", due_date: "약속 납기", supplier_due_date: "회신 납기", supplier_confirmed_at: "공급업체 확인", memo: "메모", delivery_address: "납품장소", payment_terms: "지불조건", items: "품목 줄", product_id: "품목", quantity: "수량", unit_price: "단가", movement_date: "입고일",
   box_quantity: "발주단위 수", reason: "사유",
 };
 
@@ -120,10 +123,23 @@ export function visiblePoItems(items: readonly PoItem[], onlyOutstanding: boolea
   return rows.sort((a, b) => direction * a.product_name.localeCompare(b.product_name, "ko-KR")); // 이름이 같으면 안정 정렬로 등록 순서를 유지한다
 } // 표시용 배열 계산을 마친다
 
-// 화면에서 한 번 구한 서울 날짜와 약속 납기를 비교한다.
-export function overdueDays(order: Pick<PurchaseOrder, "status" | "due_date">, today: string): number {
-  if (order.status !== "ORDERED" || !order.due_date || !today) return 0; // 발주함 상태이고 두 날짜를 모두 알 때만 계산한다
-  const elapsed = Date.parse(today) - Date.parse(order.due_date); // 날짜 전용 문자열을 같은 UTC 자정으로 읽어 달력상의 차이를 구한다
+// 두 날짜 문자열(YYYY-MM-DD)의 달력상 차이(일). 화면의 날짜 계산은 이 함수 하나만 쓴다.
+const dayGap = (later: string, earlier: string) => (Date.parse(later) - Date.parse(earlier)) / 86_400_000; // 같은 UTC 자정으로 읽어 달력 차이를 구한다
+
+// 지연 판단에 쓰는 날짜: 회신 납기가 있으면 회신, 없으면 약속 납기 (서버 coalesce 와 같은 규칙)
+export const effectiveDueDate = (order: Pick<PurchaseOrder, "due_date" | "supplier_due_date">) => order.supplier_due_date ?? order.due_date;
+
+// 회신 납기가 약속 납기보다 며칠 늦은지 (없거나 같거나 빠르면 0). 예) 약속 11-20, 회신 11-22 → 2
+export function replyLateDays(order: Pick<PurchaseOrder, "due_date" | "supplier_due_date">): number {
+  if (!order.due_date || !order.supplier_due_date) return 0; // 둘 다 있어야 비교한다
+  return Math.max(0, dayGap(order.supplier_due_date, order.due_date));
+}
+
+// 화면에서 한 번 구한 서울 날짜와 기준 납기(회신 우선)를 비교한다.
+export function overdueDays(order: Pick<PurchaseOrder, "status" | "due_date" | "supplier_due_date">, today: string): number {
+  const due = effectiveDueDate(order); // 회신 납기가 있으면 회신 날짜가 기준
+  if (order.status !== "ORDERED" || !due || !today) return 0; // 발주함 상태이고 두 날짜를 모두 알 때만 계산한다
+  const elapsed = Date.parse(today) - Date.parse(due); // 날짜 전용 문자열을 같은 UTC 자정으로 읽어 달력상의 차이를 구한다
   return Math.max(0, elapsed / 86_400_000); // 하루의 밀리초로 나누고 당일과 미래는 0으로 표시한다
 }
 

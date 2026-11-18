@@ -128,7 +128,8 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
                   ) : "—"}
                 </td>
                 <td style={S.nowrap}>
-                  {o.due_date ?? "-"}{/* 약속 납기가 없으면 표시할 날짜가 없다 */}
+                  {o.supplier_due_date ?? o.due_date ?? "-"}{/* 회신 납기가 있으면 회신 날짜, 없으면 약속 납기 */}
+                  {o.supplier_due_date && <span style={S.sub}>회신</span>}
                   {delay > 0 && <span style={S.sub}><StatusBadge kind="danger">납기 {delay.toLocaleString("ko-KR")}일 지연</StatusBadge></span>}{/* 납기 다음 날부터 글자와 아이콘으로 지연을 표시한다 */}
                 </td>
               </tr>

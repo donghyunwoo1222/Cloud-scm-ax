@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { can, closedTotal, isClosedWithRemainder } from "./po.ts";
+import { can, closedTotal, isClosedWithRemainder, overdueDays, replyLateDays } from "./po.ts";
 
 test("서버가 준 allowed_actions 에 있는 동작만 true", () => {
   const staffDraft: Parameters<typeof can>[0] = { allowed_actions: ["edit", "cancel"] };
@@ -42,4 +42,19 @@ test("null(RECEIVED 아님)과 값이 없는 옛 응답은 0으로 본다", () =
 test("전량 정정 뒤 마감: 마감 수량이 줄 전체", () => {
   assert.equal(closedTotal(order("RECEIVED", 100, 20)), 120);
   assert.equal(isClosedWithRemainder(order("RECEIVED", 100)), true);
+});
+
+test("지연 일수: 회신 납기가 있으면 회신 날짜가 기준", () => {
+  const base = { status: "ORDERED" as const, due_date: "2026-11-20" };
+  assert.equal(overdueDays({ ...base, supplier_due_date: null }, "2026-11-23"), 3); // 회신 없음: 약속 기준
+  assert.equal(overdueDays({ ...base, supplier_due_date: "2026-11-25" }, "2026-11-23"), 0); // 회신이 더 늦음: 아직 지연 아님
+  assert.equal(overdueDays({ ...base, supplier_due_date: "2026-11-25" }, "2026-11-27"), 2); // 회신 날짜도 지나면 지연
+  assert.equal(overdueDays({ ...base, supplier_due_date: "2026-11-18" }, "2026-11-23"), 5); // 회신이 더 이름
+  assert.equal(overdueDays({ ...base, supplier_due_date: "2026-11-23" }, "2026-11-23"), 0); // 오늘 경계
+});
+
+test("회신이 약속보다 늦은 일수", () => {
+  assert.equal(replyLateDays({ due_date: "2026-11-20", supplier_due_date: "2026-11-22" }), 2);
+  assert.equal(replyLateDays({ due_date: "2026-11-20", supplier_due_date: "2026-11-18" }), 0); // 더 이르면 0
+  assert.equal(replyLateDays({ due_date: "2026-11-20", supplier_due_date: null }), 0);
 });

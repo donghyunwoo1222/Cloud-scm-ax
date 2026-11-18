@@ -254,7 +254,7 @@ def movements(
 
 ORDER_HEADERS = ["발주번호", "상태", "공급업체", "납기", "메모", "납품장소", "지불조건", "작성자", "작성 시각", "승인자", "승인 시각",
                  "발주 시각", "입고 완료 시각", "취소 시각", "SKU", "품목명", "발주단위 수량", "발주단위 이름", "환산계수",
-                 "기본단위 수량", "기본단위 이름", "단가", "발주단위 단가", "금액", "누적 입고량"]
+                 "기본단위 수량", "기본단위 이름", "단가", "발주단위 단가", "금액", "누적 입고량", "회신 납기"]
 
 
 def orders(
@@ -303,12 +303,12 @@ def orders(
                     seoul_time(o.ordered_at), seoul_time(o.received_at), seoul_time(o.cancelled_at)]
             for i in by_order.get(o.id) or [None]:  # 줄이 없으면 빈 품목 칸 한 줄
                 if i is None:
-                    rows.append(head + [None] * (len(ORDER_HEADERS) - len(head)))
+                    rows.append(head + [None] * (len(ORDER_HEADERS) - len(head) - 1) + [day(o.supplier_due_date)])
                     continue
                 p = products[i.product_id]
                 boxed = i.units_per_box is not None  # 발주단위 줄인가
                 rows.append(head + [p.sku, p.name, i.quantity // i.units_per_box if boxed else None, i.order_unit, i.units_per_box,
-                                    i.quantity, p.unit, i.unit_price, i.box_unit_price, po_service.line_total(i), received.get(i.id, 0)])
+                                    i.quantity, p.unit, i.unit_price, i.box_unit_price, po_service.line_total(i), received.get(i.id, 0), day(o.supplier_due_date)])
         return rows
 
     return export(user, "purchase-orders", fmt, ORDER_HEADERS, fetch, to_rows, count_rows)

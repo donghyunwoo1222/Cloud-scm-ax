@@ -12,7 +12,7 @@ import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
 import { useMe } from "../../../lib/me"; // 내 역할 (회사 정보 입력 링크는 관리자에게만. 상태 버튼은 allowed_actions)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { boxLimit, can, fmtDate, fmtTime, formatOrderUnitPrice, isClosedWithRemainder, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, PoAction, PoItem, PoItemSort, PurchaseOrder, quantityLabel, remainingQuantity, totalAmount, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
+import { boxLimit, can, fmtDate, fmtTime, formatOrderUnitPrice, isClosedWithRemainder, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, replyLateDays, PoAction, PoItem, PoItemSort, PurchaseOrder, quantityLabel, remainingQuantity, totalAmount, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 import { ChangeLogSection } from "./change-log"; // 변경 이력 섹션 (#181)
@@ -226,9 +226,17 @@ function Detail() {
             <dt style={S.detailLabel}>약속 납기</dt>
             <dd style={{ ...S.detailValue, ...S.detailTitle }}>
               {order.due_date ?? "납기 미정"}{/* 약속한 날짜가 없으면 미정으로 표시한다. */}
+              {order.supplier_due_date && <span> · 회신 {order.supplier_due_date}{replyLateDays(order) > 0 && ` (${replyLateDays(order)}일 늦음)`}</span>}{/* 회신 납기와 약속과의 차이 */}
+              {replyLateDays(order) > 0 && <StatusBadge kind="danger">약속보다 늦은 회신</StatusBadge>}
               {delay > 0 && <StatusBadge kind="danger">납기 {delay.toLocaleString("ko-KR")}일 지연</StatusBadge>}
             </dd>
           </div>
+          {order.supplier_confirmed_at && (
+            <div>
+              <dt style={S.detailLabel}>공급업체 확인</dt>
+              <dd style={S.detailValue}>{fmtTime(order.supplier_confirmed_at)}</dd>
+            </div>
+          )}
         </dl>
         {/* 상태 기록은 항목명과 날짜를 칸으로 나누고 메모는 별도 줄에 둔다. */}
         <div style={S.detailMeta}>
