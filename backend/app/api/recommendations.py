@@ -21,5 +21,5 @@ def list_recommendations(user: CurrentUser, db: ReadDB) -> dict:  # 현재고·�
 def create_drafts(data: DraftCreate, user: CurrentUser, db: DB) -> dict:
     results = recommendation_service.create_drafts(user.company_id, db, user.id, seoul_today(), data)  # 404·409·422
     db.commit()  # 요청 끝에 한 번만 확정 (여러 업체 초안이 모두 저장되거나 모두 취소된다, 잠금도 여기서 풀린다)
-    outs = po_service.build_out(user.company_id, db, [order for order, _ in results])  # 발주서 응답 모양 (줄·추천 근거 포함)
+    outs = po_service.build_out(user.company_id, db, [order for order, _ in results], user.role)  # 발주서 응답 모양 (줄·추천 근거·allowed_actions)
     return {"data": [{**out, "created": created} for out, (_, created) in zip(outs, results)]}  # created: 새로 만들었으면 true

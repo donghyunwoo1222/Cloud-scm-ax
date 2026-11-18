@@ -110,6 +110,7 @@ class PurchaseOrderOut(BaseModel):
     ordered_at: datetime | None  # 발주함 표시 시각
     received_at: datetime | None  # 전량 입고 시각 (실제 입고일)
     has_receipts: bool  # 전량 정정된 입고 기록도 포함한다.
+    allowed_actions: list[str] = []  # 지금 누를 수 있는 동작 (#260 PR3, po_states.allowed_actions). 화면 버튼은 이것만 따른다
     cancelled_at: datetime | None  # 취소 시각
     emailed_at: datetime | None  # 마지막 메일 발송 시각 (#158, 보낸 적 없으면 비움)
     emailed_to: str | None  # 마지막 메일 수신 주소 (#158)

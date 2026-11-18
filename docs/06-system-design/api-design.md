@@ -58,7 +58,7 @@
 | 자동화 템플릿 | GET /import-templates/{products\|sales}.{xlsx\|csv} | 머리글 + 예시 한 줄이 든 가져오기 템플릿 내려받기(#189). 그 밖의 이름은 404 | 둘 다 |
 | F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 안전재고. 발주 진행 중 수량(`in_transit`), 상태(`status`: 가용재고 ≤ 재주문점이면 SHORTAGE, 추천 제외 품목은 UNKNOWN + `status_reason`, 비활성은 null, 추천과 같은 계산, #76). `q`(최대 100자)는 공백을 다듬어 SKU·품목명 부분 일치 검색에 사용한다(대소문자 무시, `%`·`_`는 글자 그대로). `status`와 함께 주면 두 조건으로 거른 뒤 쪽을 나눈다. | 둘 다 |
 | F5 재고 추이 | GET /stock/{product\_id}/trend | 서울 기준 오늘 포함 30일의 품목별 마감 재고와 입고 기록 (#126) | 둘 다 |
-| F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status`·`receipt_due` 필터, `q` 발주번호 부분 검색), DRAFT 발주서 만들기(직접). 응답의 `has_receipts`는 전량 정정된 입고 이력도 포함한다. | 둘 다 |
+| F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status`·`receipt_due` 필터, `q` 발주번호 부분 검색), DRAFT 발주서 만들기(직접). 응답의 `has_receipts`는 전량 정정된 입고 이력도 포함한다. 발주서 응답(목록·상세·상태 변경·추천 초안)의 `allowed_actions`는 로그인한 사용자가 지금 할 수 있는 동작 목록(`edit, approve, order, cancel, email, receive, document` 중, 역할 반영)이며 화면 버튼은 이것을 따른다(`state-machines.md` 4절). | 둘 다 |
 | F6 | GET /purchase-orders/{id}, PATCH /purchase-orders/{id} | 상세, DRAFT 일 때만 품목·수량 수정 | 둘 다 |
 | 자동화 발주서 문서 | GET /purchase-orders/{id}/document, GET /purchase-orders/{id}/document.xlsx | 승인 이후(APPROVED·ORDERED·RECEIVED) 발주서의 문서 값(수신처·발주처·품목표·금액·한글 금액·발주 조건)과 같은 값의 엑셀 파일 (#157) | 둘 다 |
 | 자동화 메일 발송 | GET /purchase-orders/{id}/email, POST /purchase-orders/{id}/email | 메일 미리보기(받는 사람·답장 주소·제목·기본 앞머리·고정 본문·첨부 이름)와 발송(성공하면 APPROVED → ORDERED, 발송 기록 저장) (#158) | 둘 다 |
@@ -141,7 +141,7 @@
 
 예) 출고 등록 화면의 최근 출고 10건: `GET /inventory-movements?movement_type=SALE&movement_type=DISPOSAL&movement_type=OTHER_OUT&movement_type=ADJUSTMENT&sort=registered&page_size=10`
 
-이력의 `product_unit`은 품목 재고 단위이고, `purchase_order_id`는 연결된 발주서가 있을 때만 값이 있다. `correctable_quantity`는 원본 수량에서 누적 정정을 뺀 값이며 정정 행은 null이다. `include_current_stock=true`를 주면 응답에 포함된 품목들의 `current_stock`을 함께 받는다.
+이력의 `product_unit`은 품목 재고 단위이고, `purchase_order_id`는 연결된 발주서가 있을 때만 값이 있다. `correctable_quantity`는 원본 수량에서 누적 정정을 뺀 값이며 정정 행은 null이다. `can_correct`는 지금 정정할 수 있는지(정정 행 아님 · `correctable_quantity` > 0 · 발주 입고면 발주가 ORDERED)이며 목록에서만 채우고 등록 응답에서는 null이다. `include_current_stock=true`를 주면 응답에 포함된 품목들의 `current_stock`을 함께 받는다.
 
 발주서 응답(상세·목록·작성·수정·상태 변경·입고·추천 초안 공통)의 품목 줄 `items[]`에는 `product_sku`·`product_name`과 함께 품목 마스터의 현재 `unit`(예: "개")이 있다(#93).
 

@@ -31,6 +31,7 @@ from app.schemas.movements import (  # 등록·정정 요청 모양, 이력 응�
 from app.schemas.stock import StockTrendDay, StockTrendOut  # 일별 마감 재고 응답
 from app.services.po_states import (
     ACTION_STATES,  # 발주 상태 표 (purchase_orders 를 부르면 순환 import)
+    STATUS_NAMES,  # 상태 코드 → 한국어 이름 (오류 문장용)
 )
 from app.services.products import products_by_ids  # 이력 목록의 품목명·SKU
 from app.services.recommend import SALES_WINDOW_DAYS  # 최근 30일 (추천 순수 함수와 같은 기간)
@@ -334,8 +335,8 @@ def create_correction(
         item = db.get(PurchaseOrderItem, original.purchase_order_item_id)  # 연결된 발주 품목 (같은 회사 이력이 가리키므로 같은 회사)
         order = get_owned(company_id, db, PurchaseOrder, item.purchase_order_id, lock=True)  # ① 발주서 잠금: 정정 중에 상태가 바뀌지 않게
         if order.status not in ACTION_STATES["correct_receipt"]:  # ORDERED 만. RECEIVED·CANCELLED 등이면
-            raise AppError(409, "INVALID_STATUS", "발주가 ORDERED 상태일 때만 입고를 정정할 수 있습니다.",
-                           {"status": order.status})  # RECEIVED 가 된 발주의 입고는 정정 불가 (erd.md 한계)
+            raise AppError(409, "INVALID_STATUS", f"발주가 {STATUS_NAMES['ORDERED']} 상태일 때만 입고를 정정할 수 있습니다. "
+                           f"지금은 {STATUS_NAMES[order.status]}입니다.", {"status": order.status})  # RECEIVED 가 된 발주의 입고는 정정 불가 (erd.md 한계)
 
     check_ref(company_id, db, Product, original.product_id, "product_id", lock=True)  # ② 품목 잠금: 같은 원래 이력의 동시 정정은 여기서 줄을 선다
     already = corrected_quantity(company_id, db, original.id)  # ③ 잠근 뒤에 읽어야 먼저 끝난 정정이 반영된다
@@ -429,6 +430,10 @@ def enrich_movements(company_id: int, db: Session, rows: list[InventoryMovement]
     ).where(
         InventoryMovement.company_id == company_id, InventoryMovement.reverses_movement_id.in_(original_ids),
     ).group_by(InventoryMovement.reverses_movement_id)).all()) if original_ids else {}
+    linked = set(order_ids.values())  # 이 쪽 이력이 가리키는 발주서들
+    order_statuses = dict(db.execute(select(PurchaseOrder.id, PurchaseOrder.status).where(
+        PurchaseOrder.company_id == company_id, PurchaseOrder.id.in_(linked),
+    )).all()) if linked else {}  # 발주서 id → 상태 (쪽 전체에 한 번, can_correct 용)
     data = []
     for m in rows:
         out = MovementOut.model_validate(m)  # 이력 칸
@@ -439,5 +444,10 @@ def enrich_movements(company_id: int, db: Session, rows: list[InventoryMovement]
         out.current_stock = stocks.get(m.product_id)
         if m.id in original_ids:
             out.correctable_quantity = m.quantity - corrected.get(m.id, 0)  # 품목 SKU·이름 덧붙이기
+        order_id = order_ids.get(m.purchase_order_item_id)
+        out.can_correct = (  # create_correction 이 받아 주는 조건과 같다: 정정 아님 · 남은 수량 · 발주 입고면 발주 상태
+            m.id in original_ids and out.correctable_quantity > 0
+            and (order_id is None or order_statuses[order_id] in ACTION_STATES["correct_receipt"])
+        )
         data.append(out.model_dump(mode="json"))
     return data
