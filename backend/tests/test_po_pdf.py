@@ -9,7 +9,7 @@ from fpdf.recorder import FPDFRecorder  # unbreakable 이 되감을 때 기록�
 from app.services import po_document as pd  # 대상 모듈
 
 
-def make_doc(count=1, buyer="한빛생활용품", company=None, approver="박관리", at="2026-11-18 09:30"):
+def make_doc(count=1, buyer="한빛생활용품", company=None, approver="박관리", at="2026-11-18 09:30", supplier=None):
     """build_document 결과와 같은 모양의 문서 dict. company = 승인 시점 상호(없으면 buyer 와 같음)."""
     lines = [{"no": i + 1, "product_name": f"품목 {i + 1}", "product_sku": f"SKU-{i + 1:03d}", "unit": "개",
               "quantity": 10, "unit_price": 1000, "amount": 10000, "note": ""} for i in range(count)]
@@ -17,7 +17,7 @@ def make_doc(count=1, buyer="한빛생활용품", company=None, approver="박관
     name = company or buyer
     return {
         "po_number": "PO-20261118-001", "status": "APPROVED", "order_date": "2026-11-18",
-        "supplier": {"name": "대한물산", "contact_name": "김대한", "phone": "02-111-2222", "email": "a@b.kr"},
+        "supplier": {"name": "대한물산", "contact_name": "김대한", "phone": "02-111-2222", "email": "a@b.kr"} | (supplier or {}),
         "buyer": {"name": buyer, "business_number": "1234567890", "representative": "홍길동", "phone": "031-000-1111",
                   "address": "경기도 성남시 1-2", "author_name": "이수진"},
         "lines": lines, "supply_total": supply, "vat": supply // 10, "total": supply + supply // 10, "total_korean": "만",
@@ -128,22 +128,32 @@ def test_stamp_rows_match_screen_formula():
         assert row["baseline"] == pytest.approx(row["y"] + 0.37 * f)
 
 
-@pytest.mark.parametrize(("name", "cell_h"), [("한빛", 8.75), ("한빛생활용품유통 주식회사 경기지점 본사 영업 1팀 별관", 14)])
-def test_stamp_center_follows_name_cell(calls, name, cell_h):
-    """도장 세로 중심 = 발주처 상호 칸(접힌 줄 수만큼 높아짐)의 가운데 − 0.08d. 칸 위치·높이는 PDF 에 실제로 그려진 사각형에서 읽는다."""
-    doc = make_doc(1, buyer=name)
+LONG_SUP = "대한물산유통서비스 주식회사 경기남부지점 영업본부"
+LONG_BUY = "한빛생활용품유통 주식회사 경기지점 본사 영업 1팀 별관"
+
+
+@pytest.mark.parametrize(("buyer", "supplier"), [
+    ("한빛", {}), (LONG_BUY, {}),  # 기존: 발주처만 길 때
+    ("한빛", {"name": LONG_SUP}),  # 수신처 상호만 길다
+    (LONG_BUY, {"name": LONG_SUP}),  # 둘 다 길다
+    ("한빛", {"contact_name": "김" * 40}),  # 수신처 담당자가 길다 (상호 아래 행)
+    ("한빛", {"email": "very.long.email.address.for.the.supplier@example-company-name.co.kr"}),  # 수신처 이메일이 길다
+    ("한빛", {"phone": "02-111-2222 / 031-333-4444 / 010-5555-6666 / 팩스 02-777-8888"}),  # 수신처 연락처가 길다
+])
+def test_stamp_center_follows_name_row(calls, buyer, supplier):
+    """도장 세로 중심 = 그려진 발주처 상호 칸(행 높이는 수신처·발주처 칸 중 큰 쪽)의 가운데 − 0.08d. 칸 위치는 PDF 에 그려진 사각형에서 읽는다."""
+    doc = make_doc(1, buyer=buyer, supplier=supplier)
     pdf, mine = render(doc, calls)
     k = 72 / 25.4  # mm → pt
-    page_h = 297 * k
     rects = re.findall(r"([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) re S", bytes(pdf.pages[1].contents).decode("latin-1"))
-    x, y, _w, h = next(tuple(float(v) for v in r) for r in rects if abs(float(r[2]) - 62 * k) < 0.1)  # 폭 62mm: 발주처 상호 칸
-    assert x / k == pytest.approx(195 - 62, abs=0.02)  # 표 오른쪽 끝(195mm)에서 62mm
-    top, height = (page_h - y - h) / k, h / k
-    assert height == pytest.approx(cell_h, abs=0.02)  # 한 줄이면 발주번호 칸(35mm)을 네 행이 나눠 8.75mm, 두 줄로 접히면 14mm
+    _x, y, _w, h = next(tuple(float(v) for v in r) for r in rects if abs(float(r[2]) - 62 * k) < 0.1)  # 폭 62mm: 발주처 상호 칸
+    top, height = (297 * k - y - h) / k, h / k
     f = doc["approval"]["stamp"]["ratio"] * pd.PDF_STAMP_D
     drawn = [c for c in mine if c[5] == "text"]
     cy = drawn[0][3] - 0.37 * f + (len(drawn) - 1) / 2 * 1.1 * f  # 그려진 기준선에서 거꾸로 구한 도장 중심
     assert cy == pytest.approx(top + height / 2 - 0.08 * pd.PDF_STAMP_D, abs=0.02)
+    if buyer == "한빛" and not supplier:
+        assert height == pytest.approx(8.75, abs=0.02)  # 한 줄이면 발주번호 칸(35mm)을 네 행이 나눠 8.75mm
 
 
 def test_approval_lines(calls):
