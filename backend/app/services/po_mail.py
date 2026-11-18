@@ -17,10 +17,10 @@ from app.config import settings  # SMTP 설정 (환경 변수)
 from app.errors import AppError  # 공통 오류
 from app.models import PurchaseOrder, User  # 표들
 from app.services import po_document  # 문서 값·PDF·엑셀
-from app.services.po_change_log import log_change  # 변경 이력 (#181)
+from app.services import purchase_orders as po_service  # 상태 변경 함수 set_status (#260)
+from app.services.po_states import ACTION_STATES  # 보낼 수 있는 상태 (#260)
 from app.services.tenant import get_owned  # 회사 조건이 붙은 조회 (다른 회사 404)
 
-MAIL_STATUSES = ("APPROVED", "ORDERED")  # 보낼 수 있는 상태: 승인됨(첫 발송) · 발주함(다시 보내기)
 SMTP_TIMEOUT = 10  # 메일 서버 응답을 기다리는 최대 초 (그동안 발주서 행이 잠겨 있다)
 INTRO_MAX = 2000  # 앞머리 문단 최대 글자 수 (스키마와 같은 값)
 
@@ -87,7 +87,7 @@ def fixed_text(doc: dict) -> str:
 
 def load_mail_document(company_id: int, db: Session, order: PurchaseOrder) -> dict:
     """보낼 수 있는 상태인지 보고 문서 값을 만든다. DRAFT·RECEIVED·CANCELLED 는 409."""
-    if order.status not in MAIL_STATUSES:
+    if order.status not in ACTION_STATES["email"]:  # 승인됨(첫 발송) · 발주함(다시 보내기)
         raise AppError(409, "INVALID_STATUS", "승인됨·발주함 상태의 발주서만 메일로 보낼 수 있습니다.", {"status": order.status})
     return po_document.build_document(company_id, db, order.id)
 
@@ -168,9 +168,9 @@ def send_order(company_id: int, db: Session, user: User, order_id: int, intro: s
         deliver(build_message(doc, intro, user.email))  # 실제 발송 (최대 SMTP_TIMEOUT 초)
     except (smtplib.SMTPException, OSError) as exc:  # 메일 서버 거부·연결 실패·시간 초과
         raise failure(exc) from exc
-    if order.status == "APPROVED":
-        log_change(db, company_id, order.id, user.id, [("status", "APPROVED", "ORDERED")])  # 변경 이력 (#181)
-        order.status, order.ordered_at = "ORDERED", func.now()  # 첫 발송: 발주함으로 (주문 완료 표시와 같은 효과)
+    if order.status == "APPROVED":  # 첫 발송: 발주함으로 (주문 완료 표시와 같은 효과). 다시 보내기는 상태·이력 그대로
+        po_service.set_status(db, company_id, order, user.id, "email")  # 이력 → ORDERED (#260)
+        order.ordered_at = func.now()
     order.emailed_at, order.emailed_to, order.emailed_by = func.now(), to, user.id  # 마지막 1건만 남긴다 (다시 보내면 덮어씀)
     db.flush()
     db.refresh(order)  # func.now() 값을 실제 시각으로 다시 읽는다

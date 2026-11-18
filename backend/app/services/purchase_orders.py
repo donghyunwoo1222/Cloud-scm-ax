@@ -38,6 +38,10 @@ from app.services.po_change_log import (  # 변경 이력 (#181)
     log_change,
     text_of,
 )
+from app.services.po_states import (  # 상태 표 (#260). TRANSITIONS 는 여기서도 다시 내보낸다
+    ACTION_STATES,
+    TRANSITIONS,
+)
 from app.services.stock import (  # 이력을 쓰는 유일한 함수 (품목 잠금·flush)와 입력 검사 (#190)
     check_movement_date,
     movement_warnings,
@@ -167,7 +171,7 @@ def update_order(company_id: int, db: Session, user_id: int, order_id: int, data
     바뀐 칸은 변경 이력(po_change_log)에 같은 트랜잭션으로 남긴다(#181). 변경 전 값은 값을 바꾸기 전에 읽어 둔다.
     """
     order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # 발주서 잠금(잠금 순서: 발주서 → 품목). 다른 회사 404
-    if order.status != "DRAFT":  # 승인 이후에는 수정 불가 (R5)
+    if order.status not in ACTION_STATES["edit"]:  # DRAFT 만. 승인 이후에는 수정 불가 (R5)
         raise AppError(409, "INVALID_STATUS", "작성 중(DRAFT)인 발주서만 수정할 수 있습니다.", {"status": order.status})
     changes: list[Change] = []  # 이력에 남길 (항목, 전, 후)
     if data.items is not None:  # 품목 줄을 보냈으면
@@ -206,13 +210,18 @@ def update_order(company_id: int, db: Session, user_id: int, order_id: int, data
     return order
 
 
-# 허용되는 상태 이동 표 (#34). 동작 → 출발할 수 있는 상태들. 여기 없는 이동은 409 INVALID_STATUS
-# RECEIVED 로의 이동은 입고(#35)가 누적 입고량을 보고 정한다
-TRANSITIONS = {
-    "approve": ({"DRAFT"}, "APPROVED"),  # 승인 (관리자만, 경로에서 검사)
-    "order": ({"APPROVED"}, "ORDERED"),  # 공급업체에 발주했음 표시
-    "cancel": ({"DRAFT", "APPROVED", "ORDERED"}, "CANCELLED"),  # 취소 (입고 기록이 한 번도 없을 때만)
-}
+def set_status(db: Session, company_id: int, order: PurchaseOrder, user_id: int, action: str,
+               reason: str | None = None) -> None:
+    """발주서 상태를 바꾸는 유일한 함수 (#260): TRANSITIONS 표 확인 → 변경 이력(log_change) → status 대입.
+
+    잠금을 잡지 않는다: 호출한 쪽이 이미 발주서 행을 FOR UPDATE 로 잠갔다는 전제다(잠금 순서: 회사 → 발주서 → 품목).
+    사전 조건(입고 기록·사유·비활성 등)은 호출한 쪽이 먼저 검사한다. 표에 없는 이동이면 409 INVALID_STATUS (안전망).
+    """
+    sources, target = TRANSITIONS[action]  # 이 동작이 출발할 수 있는 상태, 도착 상태
+    if order.status not in sources:
+        raise AppError(409, "INVALID_STATUS", f"{order.status} 상태의 발주서는 이 작업을 할 수 없습니다.", {"status": order.status})
+    log_change(db, company_id, order.id, user_id, [("status", order.status, target)], reason)  # 바꾸기 전 상태 → 새 상태 (#181)
+    order.status = target  # 한 단계만 바꾼다
 
 
 def change_status(company_id: int, db: Session, user_id: int, order_id: int, action: str,
@@ -225,7 +234,7 @@ def change_status(company_id: int, db: Session, user_id: int, order_id: int, act
     """
     reason = (reason or "").strip() or None  # 공백뿐인 사유는 없는 것으로
     order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # 발주서 잠금. 다른 회사·없는 id 는 404
-    sources, target = TRANSITIONS[action]  # 이 동작이 출발할 수 있는 상태, 도착 상태
+    sources, _ = TRANSITIONS[action]  # 이 동작이 출발할 수 있는 상태 (사전 조건보다 먼저 본다)
     if order.status not in sources:  # 예) DRAFT 에서 바로 order, RECEIVED·CANCELLED 에서 cancel
         raise AppError(409, "INVALID_STATUS", f"{order.status} 상태의 발주서는 이 작업을 할 수 없습니다.", {"status": order.status})
     if action == "approve":
@@ -241,9 +250,7 @@ def change_status(company_id: int, db: Session, user_id: int, order_id: int, act
             raise AppError(422, "VALIDATION_ERROR", "발주함 상태의 발주서를 취소하려면 사유를 입력해 주세요.",
                            [{"field": "reason", "reason": "required"}])
         order.cancelled_at = func.now()  # 취소 시각
-    log_change(db, company_id, order.id, user_id, [("status", order.status, target)],
-               reason if action == "cancel" else None)  # 바꾸기 전 상태 → 새 상태
-    order.status = target  # 한 단계만 바꾼다
+    set_status(db, company_id, order, user_id, action, reason if action == "cancel" else None)  # 이력 → 상태 대입
     db.flush()  # DB 에 보낸다 (확정은 API 가 요청 끝에)
     db.refresh(order)  # func.now() 로 넣은 시각을 실제 값으로 다시 읽는다
     return order
@@ -326,7 +333,7 @@ def receive_order(company_id: int, db: Session, user_id: int, order_id: int, dat
     → ④ 누적 입고량으로 상태 결정. commit 은 API 가 요청 끝에 한 번만 해서, 여러 줄이 모두 저장되거나 모두 취소된다.
     """
     order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # ① 발주서 잠금(잠금 순서: 회사 → 발주서 → 품목). 다른 회사 404
-    if order.status != "ORDERED":  # DRAFT·APPROVED 는 아직 주문 전, RECEIVED·CANCELLED 는 끝
+    if order.status not in ACTION_STATES["receive"]:  # ORDERED 만. DRAFT·APPROVED 는 아직 주문 전, RECEIVED·CANCELLED 는 끝
         raise AppError(409, "INVALID_STATUS", f"발주함(ORDERED) 상태의 발주서만 입고할 수 있습니다. 지금은 {order.status}입니다.",
                        {"status": order.status})
     today = seoul_today()  # 서울 기준 오늘
@@ -371,8 +378,7 @@ def receive_order(company_id: int, db: Session, user_id: int, order_id: int, dat
         )
         received[item.id] = received.get(item.id, 0) + quantity  # 누적 갱신
     if all(received.get(i.id, 0) >= i.quantity for i in items.values()):  # ④ 모든 줄이 다 찼으면
-        log_change(db, company_id, order.id, user_id, [("status", order.status, "RECEIVED")])  # 변경 이력 (#181)
-        order.status = "RECEIVED"  # 전량 입고 (부분이면 ORDERED 그대로)
+        set_status(db, company_id, order, user_id, "complete_receipt")  # 이력 → RECEIVED (부분이면 ORDERED 그대로)
         last = db.scalar(select(func.max(InventoryMovement.movement_date)).join(
             PurchaseOrderItem, PurchaseOrderItem.id == InventoryMovement.purchase_order_item_id).where(
             PurchaseOrderItem.purchase_order_id == order.id, InventoryMovement.company_id == company_id,
