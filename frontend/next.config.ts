@@ -10,6 +10,18 @@ const nextConfig: NextConfig = {
     // 브라우저가 보낸 /api/* 요청을 백엔드로 그대로 전달한다 (브라우저 입장에선 같은 주소라 CORS가 필요 없다)
     return [{ source: "/api/:path*", destination: `${backendUrl}/api/:path*` }];
   },
+  async headers() {
+    // 공급업체 확인 화면(#265, 로그인 없음): 주소 # 뒤 토큰이 다른 사이트로 새거나(Referer) 검색·캐시에 남지 않게
+    const supplierReply = [
+      { key: "Referrer-Policy", value: "no-referrer" },
+      { key: "X-Robots-Tag", value: "noindex" },
+      { key: "Cache-Control", value: "no-store" },
+    ];
+    return [
+      { source: "/supplier-reply", headers: supplierReply },
+      { source: "/supplier-reply/:path*", headers: supplierReply },
+    ];
+  },
 };
 
 export default nextConfig; // 이 설정을 Next.js가 읽는다

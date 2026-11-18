@@ -67,6 +67,7 @@
 | F6 | POST /purchase-orders/{id}/receipts | 발주 품목 입고(부분 가능). 이력 등록 + 상태 갱신을 한 번에 | 둘 다 |
 | F6 | POST /purchase-orders/{id}/cancel | 입고 이력이 없는 발주만 취소. 선택 본문 `{"reason": "사유(500자 이하)"}`, 발주함(ORDERED) 취소는 사유 필수(없거나 공백이면 422) | 둘 다 |
 | F6 | GET /purchase-orders/{id}/change-log | 발주서 변경 이력(#181): DRAFT 수정·상태 변경의 변경 전·후 값, 수정자 이름(이메일 없음), 시각, 사유. 최신순, 쪽 나누기. 다른 회사 404. 수정·삭제 API는 없다 | 둘 다 |
+| 자동화 공급업체 확인 링크 | POST /supplier-reply/view, POST /supplier-reply/confirm | 로그인 없는 공개 경로(#265). 발주 메일 링크의 토큰(본문 `token`)으로 발주 내용 보기·확인 버튼(+회신 납기). 회사·발주 id 는 받지 않는다. `SUPPLIER_LINK_ENABLED=false` 면 404 | 공급업체(메일 링크) |
 | F7 대시보드 | GET /dashboard | 부족·과잉·장기재고·진행 중 발주·이번 달 입출고 요약. 입고 예정과 월 입출고는 각각 `incoming_by_unit`, `in_by_unit`, `out_by_unit`에 재고 단위별 합계를 반환한다. | 둘 다 |
 | F8 발주 추천 | GET /recommendations | 현재 시점 추천 목록 계산·반환 | 둘 다 |
 | F8 | POST /recommendations/drafts | 선택한 품목으로 공급업체별 DRAFT 발주서 생성·품목 추가 | 둘 다 |
@@ -175,8 +176,18 @@
 
 - `GET /purchase-orders/{id}/email`: `to`(공급업체 이메일, 없으면 null), `supplier_id`, `reply_to`(지금 사용자 이메일), `subject`(`[회사명] 발주서 PO-… (발주일자)`), `intro`(기본 앞머리), `fixed_html`(품목표·합계·발주 조건, 서버가 escape), `attachments`(PDF·엑셀 이름), `status`, `emailed_at`·`emailed_to`, `mail_ready`(SMTP 설정 여부). APPROVED·ORDERED만, 그 밖은 409 `INVALID_STATUS`.
 - `POST /purchase-orders/{id}/email` 본문 `{"intro": "앞머리(1~2000자)", "resend": false}`. 받는 사람·제목·고정 본문은 서버가 만들고 본문으로 바꿀 수 없다(모르는 칸 422). 발주서 행을 잠근 뒤 검사 → SMTP 발송 → 성공이면 APPROVED는 ORDERED(+`ordered_at`), `emailed_at`·`emailed_to`·`emailed_by`를 덮어쓰고 커밋한다. 응답은 발주서 하나.
-- 오류: ORDERED인데 `resend`가 없으면 409 `ALREADY_ORDERED`(더블클릭 두 번째 요청도 여기서 막힌다), 공급업체 이메일 없음 409 `NO_SUPPLIER_EMAIL`, SMTP 설정 없음 503 `MAIL_NOT_CONFIGURED`, 메일 서버 거부·연결 실패 502 `MAIL_FAILED`(상태는 APPROVED 그대로), 메일은 나갔는데 저장 실패 500 `MAIL_SENT_NOT_SAVED`(다시 보내지 말고 확인 후 "주문 완료 표시"). 다른 회사 404. 권한은 "주문 완료 표시"와 같이 관리자·담당자 둘 다.
+- 오류: ORDERED인데 `resend`가 없으면 409 `ALREADY_ORDERED`(더블클릭 두 번째 요청도 여기서 막힌다), 공급업체 이메일 없음 409 `NO_SUPPLIER_EMAIL`, SMTP 설정 없음 503 `MAIL_NOT_CONFIGURED`, 메일 서버 거부·연결 실패 502 `MAIL_FAILED`(상태는 APPROVED 그대로), 메일은 나갔는데 저장 실패 500 `MAIL_SENT_NOT_SAVED`(다시 보내지 말고 확인 후 "주문 완료 표시". 확인 링크를 넣어 보낸 경우에는 그 링크가 열리지 않으니 필요하면 '다시 보내기'를 누르라는 문장이 덧붙는다, #265). 다른 회사 404. 권한은 "주문 완료 표시"와 같이 관리자·담당자 둘 다.
 - 보내는 주소는 시스템 주소 하나(`SMTP_FROM`, 표시 이름은 회사명), `Reply-To`는 보낸 사용자. SMTP 계정은 환경 변수(`SMTP_HOST`·`SMTP_PORT`·`SMTP_USER`·`SMTP_PASSWORD`·`SMTP_FROM`·`SMTP_SECURITY`)로만 받는다. 로컬 Docker는 가짜 메일함 mailpit(http://localhost:8025)으로 보낸다.
+
+### 공급업체 확인 링크 (#265 PR2)
+
+로그인 의존성이 없는 공개 경로다. 메일 링크 토큰이 인증이고, 토큰은 주소가 아니라 POST 본문으로 받는다(서버 접근 로그·Referer 에 남지 않게). 상태는 바꾸지 않는다(`state-machines.md` 2절).
+
+- 링크 발급: 메일 발송(`POST /purchase-orders/{id}/email`)이 성공한 뒤에만 `secrets.token_urlsafe(32)` 토큰의 SHA-256 해시를 `purchase_orders.supplier_token_hash` 에, 만료(발송 시각 + 30일, DB 시각)를 `supplier_token_expires_at` 에 저장한다. 다시 보내면 새 토큰으로 덮어써 옛 링크는 무효. 발송이 실패하면 옛 토큰이 그대로 유효하다. 원본 토큰은 메일 본문에만 있다. 링크 형식은 `channels-and-deeplinks.md` B절.
+- `POST /supplier-reply/view` 본문 `{"token": "…"}`: 발주 내용(허용 칸만, `supplier-document-fields.md` 5절). 아무것도 바꾸지 않는다.
+- `POST /supplier-reply/confirm` 본문 `{"token": "…", "due_date": "YYYY-MM-DD"(선택)}`: 발주서 행을 잠근 뒤(FOR UPDATE) ORDERED 일 때만(부분 입고 포함) 처리한다. 판단 순서: ① 날짜 범위(서울 기준 오늘 ~ 1년 뒤, 밖이면 422 `VALIDATION_ERROR`, details `[{"field": "due_date", "reason": "out_of_range"}]`) → ② 토큰 → ③ 상태 → ④ 처음 확인이면 `supplier_confirmed_at` 기록 → ⑤ 날짜가 지금 회신 납기와 같으면 변화 없음(제한 검사 전) → ⑥ 날짜가 실제로 바뀔 때만 회신 5번 제한 → 갱신·`supplier_reply_count` +1. 날짜 없이 보내면 확인만(횟수 불변, 5번을 다 써도 성공). 이력은 `po_change_log` 에 `supplier_confirmed_at`(없음 → 시각)·`supplier_due_date`(이전 → 이후) 행, 행위자 NULL(화면 이름 "공급업체(메일 링크)"). 응답은 view 와 같은 모양.
+- 두 경로 모두 요청 본문의 모르는 칸(예: `company_id`, `purchase_order_id`)은 422, 토큰은 1~100자. 응답 머리글 `Cache-Control: no-store`. 검증 오류 응답은 칸 이름·사유만 담고 입력값(토큰)을 되돌려 주지 않는다(`app/errors.py`).
+- 앱 안의 IP 기반 속도 제한은 없다(배포 플랫폼 몫, #43). 토큰은 32바이트 난수라 추측이 어렵고, 회신 변경은 5번으로 막는다. IP 는 저장하지 않는다.
 
 ### 회사 정보 (#156)
 
@@ -366,6 +377,9 @@
 | DUPLICATE\_SKU | 409 | 같은 회사에 같은 SKU의 품목을 등록하거나 그 SKU로 바꿈(공백 제거·대문자로 비교, 다른 회사는 허용) | F3 |
 | CONFIRM\_REQUIRED | 409 | 큰 수량(30일 판매 × 3 초과)·비활성 품목 직접 입출고를 확인 없이 보냄. details.warnings 에 `LARGE_QUANTITY`·`INACTIVE_PRODUCT`, `confirm_warnings: true` 로 다시 보내면 처리(#190) | 입력 검증 |
 | IDEMPOTENCY\_KEY\_REUSED | 422 | 같은 `Idempotency-Key` 로 다른 내용의 요청을 보냄(#190) | 입력 검증 |
+| SUPPLIER\_LINK\_INVALID | 404 | 공급업체 확인 링크: 없는·만료·옛 토큰, 스위치 꺼짐, 토큰이 생길 수 없는 상태. 문장은 "링크가 만료되었거나 더 이상 쓸 수 없습니다" 하나로 같다(#265) | 공개 경로 |
+| SUPPLIER\_REPLY\_CLOSED | 409 | 취소·입고 완료 발주에 확인·회신(보기만 가능, #265) | 공개 경로 |
+| SUPPLIER\_REPLY\_LIMIT | 409 | 회신 납기를 이미 5번 바꾼 뒤 다른 날짜를 보냄. 같은 날짜 재전송·확인만은 해당 없음(#265) | 공개 경로 |
 | HTTP\_ERROR | 400·405 등 | 위 코드에 해당하지 않는 프레임워크 오류(깨진 요청 본문, 허용하지 않는 메서드 등). 없는 경로는 NOT\_FOUND(`app/errors.py`) | 공통 |
 
 에러가 날 때 어느 칸이 문제인지는 `details`에 칸 이름과 사유로 담는다(VALIDATION\_ERROR). 401과 403은 왜 실패했는지 최소한만 알려준다.

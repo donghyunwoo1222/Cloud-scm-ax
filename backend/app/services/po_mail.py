@@ -3,7 +3,10 @@
 메일 문장은 고정 틀이다(LLM 아님). 사용자는 앞머리 한 문단(intro)만 고친다. 숫자는 발주서 문서(build_document)와 같은 값을 쓴다.
 """
 
+import re  # 로컬 시험 주소 검사
+import secrets  # 공급업체 링크 토큰 (#265)
 import smtplib  # 표준 SMTP 클라이언트 (새 라이브러리 없음)
+from datetime import timedelta  # 링크 유효 기간
 from email.message import EmailMessage  # 표준 메일 만들기 (본문·첨부·머리글)
 from email.utils import formataddr  # "회사명 <주소>" 모양 만들기
 from html import (
@@ -13,6 +16,9 @@ from html import (
 from sqlalchemy import func  # DB 의 현재 시각
 from sqlalchemy.orm import Session  # DB 세션 타입
 
+from app.auth.security import (
+    hash_reset_token,  # 링크 토큰 → SHA-256 해시 (재설정 링크와 같은 함수, #170)
+)
 from app.config import settings  # SMTP 설정 (환경 변수)
 from app.errors import AppError  # 공통 오류
 from app.models import PurchaseOrder, User  # 표들
@@ -23,6 +29,29 @@ from app.services.tenant import get_owned  # 회사 조건이 붙은 조회 (다
 
 SMTP_TIMEOUT = 10  # 메일 서버 응답을 기다리는 최대 초 (그동안 발주서 행이 잠겨 있다)
 INTRO_MAX = 2000  # 앞머리 문단 최대 글자 수 (스키마와 같은 값)
+LINK_DAYS = 30  # 공급업체 확인 링크 유효 기간 (#265, 발송 시각부터)
+LINK_PREVIEW = "[발송할 때 이 발주서 전용 확인 링크가 들어갑니다]"  # 미리보기에는 진짜 토큰 대신 이 문구
+LOCAL_HTTP = re.compile(r"http://localhost(:\d+)?")  # https 가 아니어도 되는 유일한 주소: 로컬 시험
+
+
+def supplier_link_base() -> str | None:
+    """공급업체 링크의 앞부분. 스위치가 켜져 있고 주소가 https(로컬 시험은 http://localhost 만)일 때만, 아니면 None(링크 없음)."""
+    base = settings.app_base_url.rstrip("/")
+    if settings.supplier_link_enabled and (base.startswith("https://") or LOCAL_HTTP.fullmatch(base)):
+        return base
+    return None
+
+
+def link_html(link: str) -> str:
+    """본문의 확인 링크 문단. 미리보기 문구는 링크가 아니라 글자로만 보인다."""
+    target = escape(link) if link == LINK_PREVIEW else f"<a href='{escape(link)}'>{escape(link)}</a>"
+    return (f"<p><b>발주 확인·납기 회신</b><br>아래 링크에서 발주 내용을 확인하고 납기일을 알려 주세요"
+            f"(로그인 없음, {LINK_DAYS}일 동안 유효).<br>{target}</p>")
+
+
+def link_text(link: str) -> str:
+    """글자 본문의 확인 링크 부분 (빈 줄로 끝난다)."""
+    return f"발주 확인·납기 회신: 아래 링크에서 발주 내용을 확인하고 납기일을 알려 주세요(로그인 없음, {LINK_DAYS}일 동안 유효).\n{link}\n\n"
 
 
 def default_intro(doc: dict) -> str:
@@ -58,8 +87,10 @@ def party_rows(doc: dict) -> tuple[list, list]:
     )
 
 
-def fixed_html(doc: dict) -> str:
-    """앞머리 아래 고정 부분(품목표·합계·납기·납품장소·지불조건). 미리보기와 실제 메일이 이 글자를 똑같이 쓴다."""
+def fixed_html(doc: dict, link: str | None = None) -> str:
+    """앞머리 아래 고정 부분(품목표·합계·납기·납품장소·지불조건). 미리보기와 실제 메일이 이 글자를 똑같이 쓴다.
+
+    link 가 None 이면 #265 이전 본문과 글자 하나까지 같다(test_supplier_reply_mail 이 해시로 고정)."""
     cell = "border:1px solid #999;padding:4px 8px"  # 칸 테두리·여백 (메일 프로그램은 <style> 을 자주 버려 칸마다 직접 적는다)
     num = cell + ";text-align:right"  # 숫자 칸은 오른쪽 정렬
     rows = "".join(
@@ -98,12 +129,13 @@ def fixed_html(doc: dict) -> str:
         f"<p><b>발주 조건</b></p><ul>{conditions}</ul>"
         f"<p>위와 같이 발주합니다.</p><p>{stamp}</p>"
         f"<p>승인 : {dash(ap['approver_name'])} · {dash(ap['approved_at'])} (전자 승인 표시){changed}</p>"
+        f"{link_html(link) if link else ''}"
         f"<p>이 메일에 답장하시면 {escape(doc['buyer']['author_name'])} 담당자에게 전달됩니다.</p>"
     )
 
 
-def fixed_text(doc: dict) -> str:
-    """HTML 을 못 보는 메일 프로그램용 글자 본문 (같은 값)."""
+def fixed_text(doc: dict, link: str | None = None) -> str:
+    """HTML 을 못 보는 메일 프로그램용 글자 본문 (같은 값). link 가 None 이면 #265 이전과 같다."""
     lines = "\n".join(
         f"{line['no']}. {line['product_name']} ({line['product_sku']}) {line['quantity']:,}{line['unit']} × "
         f"{line['unit_price']:,} = {line['amount']:,}원 {line['note']}".rstrip()
@@ -123,6 +155,7 @@ def fixed_text(doc: dict) -> str:
         f"지불조건: {doc['payment_terms'] or ''}\n기타: {doc['memo'] or ''}\n\n"
         f"위와 같이 발주합니다.\n발주처: {flat(ap['company_name'])} (인)\n"
         f"승인: {flat(ap['approver_name'])} · {flat(ap['approved_at'])} (전자 승인 표시){changed}\n\n"
+        f"{link_text(link) if link else ''}"
         f"이 메일에 답장하시면 {doc['buyer']['author_name']} 담당자에게 전달됩니다."
     )
 
@@ -144,7 +177,7 @@ def build_preview(company_id: int, db: Session, user: User, order_id: int) -> di
         "reply_to": user.email,  # 답장 받을 주소 = 지금 보내는 사람
         "subject": subject_of(doc),
         "intro": default_intro(doc),
-        "fixed_html": fixed_html(doc),
+        "fixed_html": fixed_html(doc, LINK_PREVIEW if supplier_link_base() else None),  # 진짜 토큰은 발송할 때만 만든다
         "attachments": [f"{doc['po_number']}.pdf", f"{doc['po_number']}.xlsx"],
         "status": order.status,
         "emailed_at": order.emailed_at, "emailed_to": order.emailed_to,  # 이미 보냈으면 확인창에서 한 번 더 묻는다
@@ -152,16 +185,16 @@ def build_preview(company_id: int, db: Session, user: User, order_id: int) -> di
     }
 
 
-def build_message(doc: dict, intro: str, reply_to: str) -> EmailMessage:
+def build_message(doc: dict, intro: str, reply_to: str, link: str | None = None) -> EmailMessage:
     """보낼 메일 한 통: 시스템 주소에서 공급업체로, 답장은 담당자에게, PDF·엑셀 첨부."""
     msg = EmailMessage()
     msg["Subject"] = subject_of(doc)
     msg["From"] = formataddr((doc["buyer"]["name"], settings.smtp_from))  # 보내는 주소는 시스템 주소 하나, 이름만 회사명
     msg["To"] = doc["supplier"]["email"]
     msg["Reply-To"] = reply_to  # 공급업체가 답장하면 담당자 메일함으로 간다
-    msg.set_content(f"{intro}\n\n{fixed_text(doc)}")  # 글자 본문
+    msg.set_content(f"{intro}\n\n{fixed_text(doc, link)}")  # 글자 본문
     intro_html = escape(intro).replace("\n", "<br>")  # 사용자가 쓴 줄바꿈만 살리고 태그는 글자로 보이게
-    msg.add_alternative(f"<div style='font-family:sans-serif'><p>{intro_html}</p>{fixed_html(doc)}</div>", subtype="html")
+    msg.add_alternative(f"<div style='font-family:sans-serif'><p>{intro_html}</p>{fixed_html(doc, link)}</div>", subtype="html")
     msg.add_attachment(po_document.build_pdf(doc), maintype="application", subtype="pdf", filename=f"{doc['po_number']}.pdf")
     msg.add_attachment(po_document.build_xlsx(doc), maintype="application",
                        subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename=f"{doc['po_number']}.xlsx")
@@ -206,14 +239,20 @@ def send_order(company_id: int, db: Session, user: User, order_id: int, intro: s
         raise AppError(409, "NO_SUPPLIER_EMAIL", "공급업체 이메일이 없어 보낼 수 없습니다. 공급업체 정보에 이메일을 넣어 주세요.")
     if not (settings.smtp_host and settings.smtp_from):
         raise AppError(503, "MAIL_NOT_CONFIGURED", "메일 서버 설정이 없어 보낼 수 없습니다. 관리자에게 문의하세요.")
+    base = supplier_link_base()
+    token = secrets.token_urlsafe(32) if base else None  # 원본 토큰은 메일 본문에만 들어간다 (DB·응답·로그에는 없음)
+    link = f"{base}/supplier-reply#{token}" if token else None  # # 뒤는 서버로 가지 않아 서버 로그·Referer 에 남지 않는다
     try:
-        deliver(build_message(doc, intro, user.email))  # 실제 발송 (최대 SMTP_TIMEOUT 초)
+        deliver(build_message(doc, intro, user.email, link))  # 실제 발송 (최대 SMTP_TIMEOUT 초)
     except (smtplib.SMTPException, OSError) as exc:  # 메일 서버 거부·연결 실패·시간 초과
         raise failure(exc) from exc
     if order.status == "APPROVED":  # 첫 발송: 발주함으로 (주문 완료 표시와 같은 효과). 다시 보내기는 상태·이력 그대로
         po_service.set_status(db, company_id, order, user.id, "email")  # 이력 → ORDERED (#260)
         order.ordered_at = func.now()
     order.emailed_at, order.emailed_to, order.emailed_by = func.now(), to, user.id  # 마지막 1건만 남긴다 (다시 보내면 덮어씀)
+    if token:  # 발송이 성공한 뒤에만 새 토큰으로 덮어쓴다: 발송이 실패하면 옛 링크가 그대로 유효하다
+        order.supplier_token_hash = hash_reset_token(token)  # 해시만 저장 (옛 링크는 여기서 무효)
+        order.supplier_token_expires_at = func.now() + timedelta(days=LINK_DAYS)  # DB 시각 기준 30일
     db.flush()
     db.refresh(order)  # func.now() 값을 실제 시각으로 다시 읽는다
     return order

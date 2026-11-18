@@ -53,6 +53,8 @@ stateDiagram-v2
 | 입고 정정 `POST /inventory-movements/{id}/corrections` | 입고 없음 | 입고 없음 | ○ | ✕ | 도달 불가 |
 | 문서 보기·엑셀 `GET /{id}/document(.xlsx)` | ✕ | ○ | ○ | ○ | ✕ |
 | 메일 미리보기 `GET /{id}/email` | ✕ | ○ | ○ | ✕ | ✕ |
+| 공급업체 보기 `POST /supplier-reply/view` (#265, 로그인 없음) | 404 | 404 | ○ | ○ (잔량 마감이면 "입고 완료(남은 수량은 받지 않기로 함)") | ○ ("취소된 발주입니다"만) |
+| 공급업체 확인·회신 `POST /supplier-reply/confirm` (#265) | 404 | 404 | ○ (부분 입고 포함, 상태 그대로) | 409 `SUPPLIER_REPLY_CLOSED` | 409 `SUPPLIER_REPLY_CLOSED` |
 
 - 권한: 승인만 관리자, 나머지는 관리자·담당자 둘 다 (`backend/app/api/purchase_orders.py:139-151`, 정정은 `backend/app/api/movements.py:77`).
 - 검사 순서: 담당자 승인은 상태보다 권한을 먼저 본다(어느 상태든 403). 취소는 ① 상태 → ② 입고 기록 → ③ 사유 순이라, ORDERED + 입고 있음 + 사유 없음은 422 가 아니라 409 `CANNOT_CANCEL_RECEIVED`. 메일은 ① 상태 → ② `ALREADY_ORDERED` → ③ `NO_SUPPLIER_EMAIL` → ④ 503 `MAIL_NOT_CONFIGURED` → ⑤ 발송 실패 502 `MAIL_FAILED`(APPROVED 그대로).
@@ -60,6 +62,7 @@ stateDiagram-v2
 - 잔량 마감 수량(#252): 저장하지 않고 줄별 `발주 − 누적 입고(입고 − 정정)` 로 계산한다(응답 `items[].closed_quantity`, RECEIVED 에서만 값, 그 외 null). RECEIVED 뒤에는 입고·정정이 모두 막혀(`ACTION_STATES["receive"]`·`["correct_receipt"]` 가 ORDERED 만) 이 값이 다시 바뀌지 않는다. `received_at` 은 마감한 날이 아니라 마지막 입고일(`purchase_orders.last_receipt_at`, 입고 완료와 같은 값). 변경 이력에는 status 행(사유 포함)과 남은 수량이 있는 줄마다 `items[SKU].closed_quantity`(없음 → 마감 수량) 행을 남긴다. 잠금은 발주서 하나뿐이라 입고·정정(발주서 → 품목 순)과 교착이 없다.
 - **"CANCELLED + 입고 이력"은 도달 불가**: 입고 기록이 있으면 취소가 막히므로 API 로 만들 수 없다. 그래서 테스트도 없다.
 - 상태 변경은 모두 `po_change_log` 에 `field="status"` 행(이전 → 이후)으로 남는다. 부분 입고와 메일 다시 보내기는 행이 없다.
+- **공급업체 확인·회신은 상태를 바꾸지 않는다(#265).** `set_status` 를 부르지 않고 `supplier_confirmed_at`·`supplier_due_date`·`supplier_reply_count` 칸과 변경 이력(행위자 NULL)만 남긴다. DRAFT·APPROVED 는 토큰이 없어(발송 성공 때만 발급) 404. 확인도 발주서 행을 FOR UPDATE 로 잠가 취소·입고와 한 줄로 선다: 취소가 먼저면 확인은 409, 확인이 먼저면 취소는 그대로 된다(확인 기록이 취소 이력보다 앞에 남는다).
 - 승인 시 회사명 스냅샷(#263): 승인하면 `approved_by`·`approved_at` 과 함께 그때의 회사명을 `approved_company_name` 에 저장한다(문서 도장용, 새 상태·변경 이력 행 없음).
 
 ## 3. 표 밖 전이 2곳

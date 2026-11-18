@@ -60,3 +60,25 @@
 ## 4. 규칙: 문서에 칸을 더할 때
 
 `build_document` 결과에 칸을 더하거나 엑셀·PDF·메일 본문이 새 값을 쓰게 바꾸는 PR은, 먼저 이 표에 그 칸의 출처·출력별 노출·분류(공개/내부 전용/결정 대기)를 적는다. 그다음 `backend/tests/test_supplier_doc_leak.py` 의 `ALLOWED_KEYS` 에 더한다. 이 테스트는 문서 키가 허용 목록과 하나라도 다르면 실패하고, 내부 전용 값(추천 사유·변경 이력·발송 이력·로그인 이메일·내부 id)에 넣은 표식 글자가 문서 JSON·엑셀(모든 시트·문서 속성)·PDF 글자·메일 제목·본문 어디에든 나오면 실패한다. 내부 전용 칸을 새로 만들면 그 테스트의 표식 목록에도 더한다. 화면에서 CSS로 숨기는 것은 차단이 아니다: 외부 출력에는 공개 칸만 골라 넣는다.
+
+## 5. 공급업체 확인 화면 응답 칸 (#265 PR2)
+
+로그인 없는 공개 API `POST /supplier-reply/view`·`confirm` 의 응답이다(`backend/app/services/supplier_reply.py` `PUBLIC_KEYS`·`ITEM_KEYS`). 링크는 전달될 수 있으므로 메일 첨부 문서(1절)보다 적게 내보낸다. 값은 `po_service.build_out` 에서 칸을 골라 쓰고(허용 목록 방식), `build_document`·`ALLOWED_KEYS` 는 바꾸지 않는다(회신 납기는 문서에 넣지 않는다). 키 목록은 상태와 무관하게 항상 같고 해당 없는 칸은 null·빈 목록이다. `backend/tests/test_supplier_reply.py` 가 view·confirm 응답 둘 다 키 목록을 고정하고, 단가·이메일·연락처·사업자번호·메모 등 표식 글자가 응답에 없는지 검사한다.
+
+| 칸 | 내용 | 이유 |
+| --- | --- | --- |
+| `state` | `REPLYABLE`(ORDERED, 부분 입고 포함) / `RECEIVED` / `RECEIVED_CLOSED`(잔량 마감) / `CANCELLED` | 화면 분기. 내부 상태 코드를 그대로 내보내지 않는다 |
+| `notice` | 안내 문장: "취소된 발주입니다" / "입고 완료된 발주입니다" / "입고 완료(남은 수량은 받지 않기로 함)", 회신 가능이면 null | 문구를 서버 한 곳에서 |
+| `can_reply` | 확인·회신 가능 여부(ORDERED 면 true) | |
+| `replies_left` | 회신 납기를 바꿀 수 있는 남은 횟수(5 − 회신 횟수) | 6번째에 갑자기 막히지 않게 |
+| `po_number` | 발주 번호 | 메일 제목에도 있다 |
+| `buyer_name` | 보내는 회사 상호(지금 회사 이름, 메일 제목과 같은 값) | |
+| `order_date` | 발주일(작성일, 서울 기준, 1절 `order_date` 와 같은 계산) | |
+| `due_date` | 약속 납기 | |
+| `supplier_due_date` | 회신 납기(없으면 null) | |
+| `supplier_confirmed_at` | 공급업체가 처음 확인한 시각(없으면 null) | |
+| `items[]` | `name`(품목명), `options`(색·사이즈·규격을 " / "로, 없으면 null), `quantity`·`unit`(박스 줄은 문서처럼 박스 수량·발주 단위) | |
+
+- **CANCELLED** 는 `state`·`notice`·`can_reply`(false)만 채우고 나머지는 null, `items` 는 빈 목록이다.
+- **내보내지 않는 칸**: 단가·금액·합계, SKU 코드(결정: 넣지 않음), 재고, 내부 id(회사·발주·품목·줄·사용자), 추천 사유, 담당자 이름·연락처·이메일, 사업자번호·대표자·주소, 승인자, 메모·납품장소·지불조건, 메일 발송 기록, 토큰 해시·만료 시각.
+- 응답 칸을 더할 때는 이 표와 `PUBLIC_KEYS`·`ITEM_KEYS`·테스트를 함께 고친다.

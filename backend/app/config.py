@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     smtp_password: str = ""  # SMTP_PASSWORD: 로그인 비밀번호 (앱 비밀번호)
     smtp_from: str = ""  # SMTP_FROM: 보내는 주소 하나 (시스템 주소). 답장은 Reply-To 로 담당자에게 간다
     app_base_url: str = ""  # APP_BASE_URL: 재설정 메일 링크의 앞부분 (예: https://scm.example.com). 비면 재설정 요청은 503 (#170)
+    supplier_link_enabled: bool = False  # SUPPLIER_LINK_ENABLED: 발주 메일에 공급업체 확인 링크를 넣고 공개 확인 API 를 연다(#265). false 면 링크 없음 + 공개 API 404
     smtp_security: str = "starttls"  # SMTP_SECURITY: starttls / ssl / none (none 은 로컬 전용)
     admin_otp_enabled: bool = True  # ADMIN_OTP_ENABLED: 관리자 로그인 메일 인증코드(#179) 비상 스위치. false 면 코드 없이 로그인 (메일 장애 때만)
     # LLM 공통 호출(#180). 기본은 모두 "꺼짐": 하나라도 꺼져 있으면 LLM 을 부르지 않고 수동 입력으로 안내한다

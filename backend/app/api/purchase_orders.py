@@ -118,8 +118,11 @@ def send_email(order_id: PathId, data: OrderEmailSend, user: CurrentUser, db: DB
         db.commit()  # 확정 (발주서 잠금도 여기서 풀린다)
     except Exception as exc:  # 메일은 이미 나갔는데 저장만 실패한 드문 경우: 다시 보내지 않게 알린다
         db.rollback()
+        # 링크를 넣어 보냈다면 새 토큰도 저장되지 않아 그 링크는 열리지 않는다(#265). 버튼 이름은 document/mail-panel.tsx 와 같게
+        link_note = (" 이번 메일의 확인 링크는 열리지 않습니다. 공급업체가 링크로 회신해야 하면 발주함 상태에서 '다시 보내기'를 눌러 주세요."
+                     if po_mail.supplier_link_base() else "")
         raise AppError(500, "MAIL_SENT_NOT_SAVED", "메일은 보냈지만 발송 기록을 저장하지 못했습니다. 다시 보내지 말고, "
-                       "공급업체에 도착했는지 확인한 뒤 '주문 완료 표시'를 눌러 주세요.") from exc
+                       "공급업체에 도착했는지 확인한 뒤 '주문 완료 표시'를 눌러 주세요." + link_note) from exc
     return one(user, db, order)
 
 
