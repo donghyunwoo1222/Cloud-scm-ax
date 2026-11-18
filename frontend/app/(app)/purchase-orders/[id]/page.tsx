@@ -4,6 +4,7 @@ import Link from "next/link"; // 목록·수정 화면 링크
 import { useParams } from "next/navigation"; // 주소의 [id]
 import { Suspense, FormEvent, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 연결용 ID, 상태
 import { useToast } from "../../../lib/toast"; // 성공 알림 토스트
+import { useSubmitLock } from "../../../lib/submit-lock"; // 중복 클릭 잠금
 
 import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { useConfirmedPost } from "../../../lib/confirmed-post"; // 멱등 키 + 확인 경고 재전송 (#190)
@@ -37,6 +38,7 @@ function Detail() {
   const toast = useToast(); // 성공 알림 토스트
   const [receiving, setReceiving] = useState(false); // 입고 등록 폼을 열었는지
   const [busy, setBusy] = useState(false); // 입고 등록 중이면 버튼을 잠근다
+  const actLock = useSubmitLock(); // 승인·주문 완료 중복 클릭 잠금
   const post = useConfirmedPost(); // 같은 입고 재전송은 같은 키, 큰 수량이면 확인창
   const sending = useRef(false); // 아주 빠른 더블클릭을 즉시 막는 표시 (상태값은 늦게 바뀐다)
   const receiptTitle = useRef<HTMLHeadingElement>(null);
@@ -85,6 +87,10 @@ function Detail() {
   // 승인·발주함 표시·취소: 바뀐 발주서를 돌려받아 화면에 반영한다
   async function act(action: string) {
     if (action === "approve" && companyEmpty && !window.confirm(`${COMPANY_WARNING} 그대로 승인할까요?`)) return; // 경고와 같은 문장으로 한 번 더 확인 (취소하면 아무 일도 없다)
+    await actLock.run(() => doAct(action));
+  }
+
+  async function doAct(action: string) {
     try {
       setOrder(await api<PurchaseOrder>(`/purchase-orders/${id}/${action}`, { method: "POST" })); // 서버가 한 단계만 바꾼다
       setError(null); // 이전 오류 지우기
@@ -231,7 +237,7 @@ function Detail() {
         {can(order, "edit") && <Link href={`/purchase-orders/${order.id}/edit`} style={S.linkButtonGhost}>수정</Link>}
         {can(order, "document") && <Link href={`/purchase-orders/${order.id}/document`} style={S.linkButtonGhost}>발주서 문서</Link>}
         {/* 수정(작성 중)·문서(승인 이후)도 서버의 allowed_actions 를 따른다 */}
-        {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving || cancelOpen || busy}
+        {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving || cancelOpen || busy || actLock.busy}
           className={action === "cancel" ? undefined : "primary-action"} onClick={() => (action === "cancel" ? setCancelling(true) : act(action))}>{label}</button>)}
         {can(order, "receive") && !receiving && <button ref={receiptButton} className="primary-action" type="button" disabled={cancelOpen}
           onClick={() => { setError(null); setReceiving(true); }}>입고 등록</button>}

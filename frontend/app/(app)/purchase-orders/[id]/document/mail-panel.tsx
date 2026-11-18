@@ -4,6 +4,7 @@ import Link from "next/link"; // 공급업체 이메일 넣으러 가기
 import { useEffect, useState } from "react"; // 미리보기 불러오기, 상태
 
 import { api, ApiError } from "../../../../lib/api"; // 공통 API 호출 함수
+import { useSubmitLock } from "../../../../lib/submit-lock"; // 중복 클릭 잠금
 import { ErrorText } from "../../../../lib/list"; // 오류 문장
 import { fmtTime } from "../../../../lib/po"; // 시각 표시 (서울 기준)
 import { StatusBadge } from "../../../../lib/status-badge"; // "이미 보냄" 배지
@@ -22,7 +23,7 @@ export function MailPanel({ id, onSent }: { id: string; onSent: () => void }) {
   const [preview, setPreview] = useState<Preview | null>(null); // 미리보기 값
   const [intro, setIntro] = useState(""); // 사용자가 고치는 앞머리
   const [error, setError] = useState<unknown>(null); // 불러오기·발송 오류
-  const [busy, setBusy] = useState(false); // 보내는 중 (더블클릭 막기, 서버도 잠금으로 한 번 더 막는다)
+  const { run, busy } = useSubmitLock(); // 보내는 중 (더블클릭 막기, 서버도 잠금으로 한 번 더 막는다)
   const [sent, setSent] = useState<Sent | null>(null); // 방금 보낸 결과
   const [version, setVersion] = useState(0); // 바꾸면 미리보기를 다시 불러온다
 
@@ -35,13 +36,15 @@ export function MailPanel({ id, onSent }: { id: string; onSent: () => void }) {
   const resend = preview.status === "ORDERED"; // 이미 발주함: 확인창에서 한 번 더 묻는다
   const blocked = !preview.to ? "공급업체 이메일이 없어 보낼 수 없습니다." : !preview.mail_ready ? "메일 서버 설정이 없어 보낼 수 없습니다. 관리자에게 문의하세요." : !intro.trim() ? "앞머리 문단을 적어 주세요." : "";
 
-  async function send() {
+  // 확인창부터 잠금 안에서 연다: 보내는 중 온 클릭은 무시하고, 확인창을 취소하면 바로 풀린다
+  const send = () => run(doSend);
+
+  async function doSend() {
     if (!preview?.to) return;
     const question = resend
       ? `이미 발주함 상태인 발주서입니다${preview.emailed_at ? ` (마지막 발송 ${fmtTime(preview.emailed_at)}, ${preview.emailed_to})` : ""}.\n${preview.to}로 다시 보낼까요? 발송 기록은 이번 것으로 바뀝니다.`
       : `${preview.to}로 발주서를 보냅니다.\n보내면 발주서가 발주함 상태로 바뀝니다. 보낼까요?`;
     if (!window.confirm(question)) return; // 확인창
-    setBusy(true);
     setError(null);
     try {
       const order = await api<Sent>(`/purchase-orders/${id}/email`, { method: "POST", body: { intro, resend } });
@@ -51,8 +54,6 @@ export function MailPanel({ id, onSent }: { id: string; onSent: () => void }) {
     } catch (e) {
       setError(e);
       if (e instanceof ApiError && e.code === "ALREADY_ORDERED") setVersion((v) => v + 1); // 다른 사람이 먼저 보냈다: 미리보기를 다시 불러 상태를 맞춘다
-    } finally {
-      setBusy(false);
     }
   }
 

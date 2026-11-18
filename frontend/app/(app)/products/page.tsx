@@ -12,6 +12,7 @@ import { type Product, ProductDetail } from "../../lib/product-detail"; // 품�
 import { unitConversion } from "../../lib/po"; // 발주단위 환산 미리보기
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { useToast } from "../../lib/toast"; // 성공 알림 토스트
+import { useSubmitLock } from "../../lib/submit-lock"; // 중복 클릭 잠금
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 type SupplierOption = { id: number; name: string; lead_time_days: number; is_active: boolean }; // 활성·비활성 공급업체 선택지
@@ -113,6 +114,7 @@ export default function ProductsPage() {
   }
 
   const toast = useToast(); // 성공 알림 토스트
+  const { run, busy } = useSubmitLock(); // 요청이 끝나기 전 두 번째 클릭은 무시한다
 
   async function save(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
@@ -167,7 +169,7 @@ export default function ProductsPage() {
       <details ref={registration} className="smooth-details" style={S.sectionCard}>
       <summary>{editing ? `${editing.name} 수정` : "품목 등록"}</summary>
       {!editing && activeSuppliers.length === 0 && <p>기본 공급업체가 필요합니다. <Link href="/suppliers">공급업체 등록</Link></p>}
-      <form className="form-compact field-form" data-box-open={boxShown} onSubmit={save} style={S.formGrid}>
+      <form className="form-compact field-form" data-box-open={boxShown} onSubmit={(e) => { e.preventDefault(); run(() => save(e)); }} style={S.formGrid}>
         {/* 등록·수정 폼. 모바일에서는 짧은 항목을 두 칸씩 묶고 박스 설정은 접는다(값이 하나라도 있으면 펼친다) */}
         <Field label="SKU*" className="field-half fld-sku"><input value={form.sku} onChange={(e) => set("sku", e.target.value)} /></Field>
         <Field label="품목명*" className="fld-name"><input value={form.name} onChange={(e) => set("name", e.target.value)} /></Field>
@@ -206,10 +208,10 @@ export default function ProductsPage() {
           {/* 최소 주문량 미리보기 예: "최소 5BOX = 500EA", 발주단위 설정이 없으면 "최소 20EA" */}
           박스·팩 등으로 구매할 때 환산계수와 단가를 채우세요. 둘 다 비워 저장하면 발주단위 설정을 해제합니다.</p>
         <div className="form-actions" style={S.buttons}>
-          <button type="submit" disabled={!editing && activeSuppliers.length === 0}>{editing === null ? "등록" : "수정 저장"}</button>
+          <button type="submit" disabled={busy || (!editing && activeSuppliers.length === 0)}>{editing === null ? "등록" : "수정 저장"}</button>
           {editing !== null && <button type="button" onClick={reset}>취소</button>}
           {/* 비활성·다시 활성은 목록 표가 아니라 수정 폼 안에서만 한다 (잘못 누르기 어렵게) */}
-          {editing !== null && <button type="button" onClick={() => setActive(editing, !editing.is_active)}>{editing.is_active ? "비활성" : "다시 활성"}</button>}
+          {editing !== null && <button type="button" disabled={busy} onClick={() => run(() => setActive(editing, !editing.is_active))}>{editing.is_active ? "비활성" : "다시 활성"}</button>}
         </div>
       </form>
       </details>

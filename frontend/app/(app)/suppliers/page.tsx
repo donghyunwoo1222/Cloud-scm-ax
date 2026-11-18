@@ -8,6 +8,7 @@ import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리�
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { useToast } from "../../lib/toast"; // 성공 알림 토스트
+import { useSubmitLock } from "../../lib/submit-lock"; // 중복 클릭 잠금
 import { InfoTip } from "../../lib/tip"; // 보조 설명 말풍선
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
@@ -79,6 +80,7 @@ export default function SuppliersPage() {
   }
 
   const toast = useToast(); // 성공 알림 토스트
+  const { run, busy } = useSubmitLock(); // 요청이 끝나기 전 두 번째 클릭은 무시한다
 
   async function save(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
@@ -103,7 +105,7 @@ export default function SuppliersPage() {
       {created && <p role="status" style={S.ok}>공급업체를 등록했습니다. <Link href="/products">품목 등록으로 이동</Link></p>}
       <details ref={registration} className="smooth-details" style={S.sectionCard}>
       <summary>{editingId === null ? "공급업체 등록" : "공급업체 수정"}</summary>
-      <form className="form-compact field-form" onSubmit={save} style={S.formGrid}>
+      <form className="form-compact field-form" onSubmit={(e) => { e.preventDefault(); run(() => save(e)); }} style={S.formGrid}>
         {/* 등록·수정 폼: 칸을 가로로 나열 */}
         <Field label="업체명*"><input value={form.name} onChange={(e) => set("name", e.target.value)} /></Field>
         <Field label={<>입고 소요일(일)* <InfoTip label="입고 소요일 설명" detail="발주 후 입고까지 걸리는 기간(리드타임)" /></>}><input type="number" inputMode="numeric" value={form.lead_time_days} onChange={(e) => set("lead_time_days", e.target.value)} /></Field>
@@ -114,7 +116,7 @@ export default function SuppliersPage() {
         <Field label={<>지불조건 <InfoTip label="지불조건 설명" detail="발주서 문서에 기본으로 들어갈 결제 조건 (예: 월말 마감 익월 10일 현금)" /></>} short="지불조건"><input value={form.payment_terms} onChange={(e) => set("payment_terms", e.target.value)} /></Field>
         <Field label="메모"><input value={form.memo} onChange={(e) => set("memo", e.target.value)} /></Field>
         <div className="form-actions" style={S.buttons}>
-          <button type="submit">{editingId === null ? "등록" : "수정 저장"}</button>
+          <button type="submit" disabled={busy}>{editingId === null ? "등록" : "수정 저장"}</button>
           {editingId !== null && <button type="button" onClick={reset}>취소</button>}
           {/* 수정 중일 때만 취소 */}
         </div>
