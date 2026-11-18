@@ -1226,6 +1226,8 @@ details.reason > p {
   font-size: 12px;
   line-height: 1.5;
   max-width: 794px; /* A4 폭(96dpi) */
+  print-color-adjust: exact; /* 인쇄 설정의 "배경 그래픽"이 꺼져 있어도 표 머리 연초록 배경을 찍는다 (#264) */
+  -webkit-print-color-adjust: exact; /* 같은 설정의 옛 이름 (Chrome·Safari) */
 }
 .po-paper table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .po-paper td, .po-paper th { border: 1px solid #444; padding: 5px 7px; font-weight: 400; vertical-align: middle; word-break: break-all; }
@@ -1245,6 +1247,8 @@ details.reason > p {
   .po-paper { border: 0; padding: 0; max-width: none; }
   .po-paper .po-scroll { overflow: visible; }
   .po-paper tr { break-inside: avoid; }
+  .po-paper thead { display: table-header-group; } /* 품목표 머리를 쪽마다 반복 (#264) */
+  .po-paper .po-keep { break-inside: avoid; page-break-inside: avoid; } /* 발주 조건~승인 줄을 한 쪽에 (옛 이름 page-break-inside 도 함께) */
 }
 
 /* 메일 미리보기 머리(#158): 메일 쓰기 창처럼 한 줄에 항목 하나, 줄 사이 구분선, 왼쪽 이름 칸 폭 고정 */

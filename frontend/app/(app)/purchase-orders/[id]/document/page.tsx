@@ -92,8 +92,11 @@ function Document() {
 
           <table style={{ borderTop: 0 }}>
             <colgroup><col style={{ width: 34 }} /><col /><col style={{ width: 46 }} /><col style={{ width: 58 }} /><col style={{ width: 76 }} /><col style={{ width: 92 }} /><col style={{ width: 100 }} /></colgroup>
-            <tbody>
+            {/* 머리 줄은 thead: 인쇄하면 2쪽째부터도 쪽마다 다시 나온다 (#264). 합계 줄은 쪽마다 반복되면 안 되니 tfoot 이 아니라 tbody */}
+            <thead>
               <tr><th>No.</th><th>품목명 (SKU)</th><th>단위</th><th>수량</th><th>단가</th><th>공급가액</th><th>비고</th></tr>
+            </thead>
+            <tbody>
               {doc.lines.map((l) => (
                 <tr key={l.no}>
                   <td className="c">{l.no}</td><td>{l.product_name} ({l.product_sku})</td><td className="c">{l.unit}</td>
@@ -108,6 +111,8 @@ function Document() {
             </tbody>
           </table>
 
+          {/* 발주 조건 ~ 승인 줄은 한 묶음: 인쇄 때 쪽 경계에서 갈리지 않게 한다 (승인 줄만 다음 쪽으로 떨어지지 않게, #264) */}
+          <div className="po-keep">
           <table style={{ borderTop: 0 }}>
             <tbody>
               <tr><td className="lb" rowSpan={4}>발주<br />조건</td><td>1) 납기일자 : {doc.due_date ?? ""}</td></tr>
@@ -125,6 +130,7 @@ function Document() {
           </p>
           {/* 승인 뒤 상호가 바뀐 경우에만 승인 때 이름을 따로 보인다 (같으면 중복 표시 안 함) */}
           {ap.company_name !== b.name && <p className="c" style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>승인 시점 상호 : {ap.company_name}</p>}
+          </div>
         </div>
       </div>
     </section>
