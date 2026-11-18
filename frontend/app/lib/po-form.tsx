@@ -188,7 +188,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         <Field label="약속 납기" className="field-half"><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
         <Field label="납품장소" className="field-half"><input value={deliveryAddress} maxLength={200} placeholder="비우면 회사 주소" onChange={(e) => setDeliveryAddress(e.target.value)} /></Field>
         <Field label="지불조건" className="field-half"><input value={paymentTerms} maxLength={200} placeholder={order ? "" : "비우면 공급업체 기본값"} onChange={(e) => setPaymentTerms(e.target.value)} /></Field>
-        <Field label="메모"><input value={memo} onChange={(e) => setMemo(e.target.value)} /></Field>
+        <Field label="기타 요청사항 (공급업체에 전달됩니다)"><input value={memo} placeholder="발주서 '4) 기타'에 그대로 나갑니다. 내부 메모는 적지 마세요" onChange={(e) => setMemo(e.target.value)} /></Field>
       </div>
 
       <div className="table-box">
