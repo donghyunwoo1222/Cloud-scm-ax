@@ -57,17 +57,21 @@ def test_allowed_actions_match_matrix_both_ways(state, role):
 @pytest.mark.parametrize("role", ROLES)
 @pytest.mark.parametrize("state", STATES)
 def test_receipts_only_remove_cancel(state, role):
-    """입고 기록이 있으면 취소만 빠진다 (change_status 의 409 CANNOT_CANCEL_RECEIVED 와 같은 조건)."""
+    """입고 기록이 있으면 취소만 빠지고(CANNOT_CANCEL_RECEIVED), ORDERED 면 그 자리에 잔량 마감이 생긴다(#252, NO_RECEIPTS 의 반대)."""
     without = allowed_actions(state, role, has_receipts=False)
-    assert allowed_actions(state, role, has_receipts=True) == [a for a in without if a != "cancel"]
+    added = ["close_remaining"] if state == "ORDERED" else []
+    assert "close_remaining" not in without  # 입고 0건이면 잔량 마감 없음
+    assert allowed_actions(state, role, has_receipts=True) == [
+        b for a in without for b in (added if a == "cancel" else [a])]  # 취소 자리를 잔량 마감이 대신한다
 
 
 def test_allowed_actions_examples():
-    """눈으로 읽는 예: 순서는 edit, approve, order, cancel, email, receive, document."""
+    """눈으로 읽는 예: 순서는 edit, approve, order, cancel, close_remaining, email, receive, document."""
     assert allowed_actions("DRAFT", "ADMIN", False) == ["edit", "approve", "cancel"]
     assert allowed_actions("DRAFT", "STAFF", False) == ["edit", "cancel"]
     assert allowed_actions("APPROVED", "STAFF", False) == ["order", "cancel", "email", "document"]
-    assert allowed_actions("ORDERED", "STAFF", True) == ["email", "receive", "document"]
+    assert allowed_actions("ORDERED", "STAFF", True) == ["close_remaining", "email", "receive", "document"]
+    assert allowed_actions("ORDERED", "ADMIN", True) == ["close_remaining", "email", "receive", "document"]
     assert allowed_actions("RECEIVED", "ADMIN", True) == ["document"]
     assert allowed_actions("CANCELLED", "ADMIN", False) == []
 
@@ -88,7 +92,7 @@ def test_api_list_and_detail_carry_allowed_actions(client, world, product):  # n
 def test_api_partial_receipt_hides_cancel(client, world, product):  # noqa: F811
     po = make_po(client, world, product, "ORDERED", received=40)
     assert po["has_receipts"] is True
-    assert po["allowed_actions"] == ["email", "receive", "document"]
+    assert po["allowed_actions"] == ["close_remaining", "email", "receive", "document"]  # 취소 대신 잔량 마감 (#252)
 
 
 # ----- can_correct 5가지 -----

@@ -52,10 +52,11 @@ def test_transitions_match_matrix():
     changed = {(action, before, after) for action, cells in ALLOWED.items()
                for before, (_, after) in cells.items() if after != before}  # (동작, 전, 후)
     from_table = {(action, before, target) for action, (sources, target) in TRANSITIONS.items()
-                  if action != "complete_receipt" for before in sources}
+                  if action not in ("complete_receipt", "close_remaining") for before in sources}
     assert changed == from_table
     # 입고 완료: test_partial_receipt_keeps_ordered_then_full_makes_received 가 고정한 ORDERED → RECEIVED
     assert TRANSITIONS["complete_receipt"] == ({"ORDERED"}, "RECEIVED")
+    assert TRANSITIONS["close_remaining"] == ({"ORDERED"}, "RECEIVED")  # 잔량 마감 (#252, PR1 행렬 이후 추가. test_po_close_remaining.py)
 
 
 def test_action_states_keep_old_values():

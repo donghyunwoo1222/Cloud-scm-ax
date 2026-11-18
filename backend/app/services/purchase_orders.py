@@ -1,4 +1,4 @@
-"""발주서 작성·수정·조회(#33), 상태 변경 approve·order·cancel(#34), 발주 입고(#35) (F6). 모든 함수는 company_id 를 첫 번째 인자로 받는다(R1).
+"""발주서 작성·수정·조회(#33), 상태 변경 approve·order·cancel(#34), 발주 입고(#35), 잔량 마감(#252) (F6). 모든 함수는 company_id 를 첫 번째 인자로 받는다(R1).
 
 저장 확정(commit)은 하지 않는다. API 경로 함수가 요청 끝에 한 번만 한다.
 """
@@ -382,12 +382,51 @@ def receive_order(company_id: int, db: Session, user_id: int, order_id: int, dat
         received[item.id] = received.get(item.id, 0) + quantity  # 누적 갱신
     if all(received.get(i.id, 0) >= i.quantity for i in items.values()):  # ④ 모든 줄이 다 찼으면
         set_status(db, company_id, order, user_id, "complete_receipt")  # 이력 → RECEIVED (부분이면 ORDERED 그대로)
-        last = db.scalar(select(func.max(InventoryMovement.movement_date)).join(
-            PurchaseOrderItem, PurchaseOrderItem.id == InventoryMovement.purchase_order_item_id).where(
-            PurchaseOrderItem.purchase_order_id == order.id, InventoryMovement.company_id == company_id,
-            InventoryMovement.movement_type == "RECEIPT"))  # 이 발주서의 모든 입고 중 가장 늦은 입고일
-        order.received_at = datetime.combine(last, time(), SEOUL)  # 실제 입고일 (서울 자정). 예) 11/12 에 입고일 11/10 으로 등록 → 11/10
+        order.received_at = last_receipt_at(company_id, db, order.id)
     db.flush()
+    return order
+
+
+def last_receipt_at(company_id: int, db: Session, order_id: int) -> datetime:
+    """이 발주서의 모든 입고 중 가장 늦은 입고일 (서울 자정). 입고 완료와 잔량 마감이 같은 값을 쓴다.
+
+    예) 11/12 에 입고일 11/10 으로 등록 → 11/10. 잔량 마감을 11/20 에 해도 마지막 입고가 11/10 이면 11/10.
+    """
+    last = db.scalar(select(func.max(InventoryMovement.movement_date)).join(
+        PurchaseOrderItem, PurchaseOrderItem.id == InventoryMovement.purchase_order_item_id).where(
+        PurchaseOrderItem.purchase_order_id == order_id, InventoryMovement.company_id == company_id,
+        InventoryMovement.movement_type == "RECEIPT"))
+    return datetime.combine(last, time(), SEOUL)
+
+
+def close_remaining(company_id: int, db: Session, user_id: int, order_id: int, reason: str | None) -> PurchaseOrder:
+    """POST /purchase-orders/{id}/close-remaining (#252): 부분 입고된 ORDERED 발주를 사유를 적어 닫는다(→ RECEIVED).
+
+    못 온 수량(줄별 발주 − 누적 입고)은 저장하지 않는다: RECEIVED 뒤에는 입고·정정이 모두 막혀 그 값이 다시 바뀌지 않으므로
+    응답(build_out 의 closed_quantity)이 계산해도 늘 같다. 변경 이력에는 줄별 마감 수량을 남긴다.
+    잠금은 발주서 하나뿐이다(품목 행은 건드리지 않는다). 입고·정정도 발주서를 먼저 잠그므로 그 둘과 한 줄로 서고 교착이 없다.
+    예) 100개 중 95개 입고 → 마감 → RECEIVED, 이력 items[P1].closed_quantity: 없음 → 5
+    """
+    reason = (reason or "").strip() or None  # 공백뿐인 사유는 없는 것으로
+    order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # 발주서 잠금. 다른 회사·없는 id 는 404
+    if order.status not in TRANSITIONS["close_remaining"][0]:  # 상태를 먼저 본다 (change_status 와 같은 순서·문장)
+        raise AppError(409, "INVALID_STATUS", f"{STATUS_NAMES[order.status]} 상태의 발주서는 이 작업을 할 수 없습니다.", {"status": order.status})
+    if not reason:
+        raise AppError(422, "VALIDATION_ERROR", "잔량 마감 사유를 입력해 주세요.", [{"field": "reason", "reason": "required"}])
+    if not orders_with_receipts(company_id, db, [order.id]):  # 취소와 정확히 반대 조건. 전량 정정한 입고도 기록이 있으면 마감 가능
+        raise AppError(409, "NO_RECEIPTS", "입고 기록이 없는 발주서는 잔량 마감할 수 없습니다. 입고 전이면 취소해 주세요.")
+    rows = db.execute(select(PurchaseOrderItem.id, PurchaseOrderItem.quantity, Product.sku).join(
+        Product, Product.id == PurchaseOrderItem.product_id).where(
+        PurchaseOrderItem.company_id == company_id, PurchaseOrderItem.purchase_order_id == order.id,
+    ).order_by(Product.sku)).all()  # (줄 id, 발주 수량, SKU)
+    received = received_quantities(company_id, db, [r.id for r in rows])  # 잠근 뒤에 읽어 먼저 끝난 입고·정정이 반영된다
+    set_status(db, company_id, order, user_id, "close_remaining", reason)  # 이력(사유 포함) → RECEIVED
+    log_change(db, company_id, order.id, user_id, [  # 줄별 마감 수량. 다 찬 줄(0)은 남기지 않는다
+        (f"items[{r.sku}].closed_quantity", None, str(r.quantity - received.get(r.id, 0)))
+        for r in rows if r.quantity > received.get(r.id, 0)], reason)
+    order.received_at = last_receipt_at(company_id, db, order.id)  # 마감한 날이 아니라 마지막 입고일
+    db.flush()
+    db.refresh(order)
     return order
 
 
@@ -412,9 +451,11 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder], role: s
     suppliers = {s.id: s for s in db.scalars(scoped(company_id, Supplier).where(
         Supplier.id.in_({o.supplier_id for o in orders})))} if orders else {}  # 업체 id → 업체
     received = received_quantities(company_id, db, [i.id for i in items])  # 줄 id → 누적 입고량
+    statuses = {o.id: o.status for o in orders}  # 발주서 id → 상태 (마감 수량은 RECEIVED 에서만)
     by_order = defaultdict(list)  # 발주서 id → 줄 응답들
     for i in items:
         p = products[i.product_id]
+        done = int(received.get(i.id, 0))
         box_quantity = i.quantity // i.units_per_box if i.units_per_box is not None else None
         by_order[i.purchase_order_id].append(ItemOut(
             id=i.id, product_id=i.product_id, product_sku=p.sku, product_name=p.name, color=p.color, size=p.size, spec=p.spec, group_code=p.group_code, unit=p.unit, quantity=i.quantity,
@@ -423,7 +464,8 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder], role: s
             order_unit=i.order_unit or p.unit, unit_factor=i.units_per_box or 1,  # 발주 당시 스냅샷. 박스 줄이 아니면 재고 단위·1
             min_order_units=i.min_order_units,  # 발주 당시 최소 주문량 (#194)
             line_total=line_total(i),
-            recommendation_reason=i.recommendation_reason, received_quantity=int(received.get(i.id, 0)),
+            recommendation_reason=i.recommendation_reason, received_quantity=done,
+            closed_quantity=max(0, i.quantity - done) if statuses[i.purchase_order_id] == "RECEIVED" else None,  # 잔량 마감 수량 (#252, 저장 안 함)
         ))
     return [
         PurchaseOrderOut(
