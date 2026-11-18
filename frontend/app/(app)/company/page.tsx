@@ -9,6 +9,7 @@ import { useMe } from "../../lib/me"; // 내 정보(역할)
 import { InfoTip } from "../../lib/tip"; // 보조 설명 말풍선
 import { S } from "../../lib/styles"; // 화면 공통 스타일
 import { useToast } from "../../lib/toast"; // 성공 알림 토스트
+import { useSubmitLock } from "../../lib/submit-lock"; // 중복 클릭 잠금
 
 // GET /api/v1/company 응답 (회사는 로그인 토큰으로만 정해진다)
 type Company = { name: string; business_number: string | null; representative: string | null; address: string | null; phone: string | null };
@@ -37,6 +38,7 @@ export default function CompanyPage() {
   }, []);
 
   const toast = useToast(); // 성공 알림 토스트
+  const { run, busy } = useSubmitLock(); // 요청이 끝나기 전 두 번째 클릭은 무시한다
 
   async function save(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
@@ -60,7 +62,7 @@ export default function CompanyPage() {
       {!isAdmin && <p style={S.hint}>관리자만 고칠 수 있습니다.</p>}
       <ErrorText error={error} labels={LABELS} />
       {company && (
-        <form className="form-compact field-form" onSubmit={save} style={{ ...S.sectionCard, ...S.formGrid }}>
+        <form className="form-compact field-form" onSubmit={(e) => { e.preventDefault(); run(() => save(e)); }} style={{ ...S.sectionCard, ...S.formGrid }}>
           <Field label="회사명"><input value={company.name} readOnly disabled /></Field>
           <Field label={<>사업자등록번호 <InfoTip label="사업자등록번호 설명" detail="숫자 10자리. 123-45-67890처럼 하이픈을 넣어도 됩니다." /></>} short="사업자번호">
             <input inputMode="numeric" value={form.business_number} readOnly={!isAdmin} onChange={(e) => setForm({ ...form, business_number: e.target.value })} />
@@ -68,7 +70,7 @@ export default function CompanyPage() {
           <Field label="대표자"><input value={form.representative} readOnly={!isAdmin} onChange={(e) => setForm({ ...form, representative: e.target.value })} /></Field>
           <Field label="주소"><input value={form.address} readOnly={!isAdmin} onChange={(e) => setForm({ ...form, address: e.target.value })} /></Field>
           <Field label="대표 연락처"><input value={form.phone} readOnly={!isAdmin} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
-          {isAdmin && <div className="form-actions" style={S.buttons}><button type="submit">저장</button></div>}
+          {isAdmin && <div className="form-actions" style={S.buttons}><button type="submit" disabled={busy}>저장</button></div>}
         </form>
       )}
     </section>

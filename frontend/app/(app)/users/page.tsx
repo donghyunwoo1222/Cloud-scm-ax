@@ -8,6 +8,7 @@ import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목
 import { Me, ROLE_LABEL, useMe } from "../../lib/me"; // 내 정보·역할 한글 이름
 import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { useToast } from "../../lib/toast"; // 성공 알림 토스트
+import { useSubmitLock } from "../../lib/submit-lock"; // 중복 클릭 잠금
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/users 의 한 행 (비밀번호 해시는 서버가 아예 보내지 않는다)
@@ -43,6 +44,7 @@ function UsersAdmin({ me }: { me: Me }) {
   }
 
   const toast = useToast(); // 성공 알림 토스트
+  const { run, busy } = useSubmitLock(); // 요청이 끝나기 전 두 번째 클릭은 무시한다
 
   async function create(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
@@ -81,7 +83,7 @@ function UsersAdmin({ me }: { me: Me }) {
     <section>
       <h1>사용자 관리</h1>
 
-      <form className="form-compact field-form" onSubmit={create} style={S.formGrid}>
+      <form className="form-compact field-form" onSubmit={(e) => { e.preventDefault(); run(() => create(e)); }} style={S.formGrid}>
         {/* 계정 생성 폼 */}
         <Field label="이름*" className="field-half"><input value={form.name} onChange={(e) => set("name", e.target.value)} /></Field>
         <Field label="이메일*" className="field-half"><input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} autoComplete="off" /></Field>
@@ -95,7 +97,7 @@ function UsersAdmin({ me }: { me: Me }) {
             <option value="ADMIN">관리자</option>
           </select>
         </Field>
-        <div className="form-actions"><button type="submit">계정 만들기</button></div>
+        <div className="form-actions"><button type="submit" disabled={busy}>계정 만들기</button></div>
       </form>
       <ErrorText error={error} labels={LABELS} />
 
@@ -117,7 +119,7 @@ function UsersAdmin({ me }: { me: Me }) {
               {/* 내 계정 표시 (이메일은 전체에서 하나뿐이라 이걸로 알아본다) */}
               <td>{u.email}</td>
               <td>
-                <select value={u.role} onChange={(e) => update(u, { role: e.target.value as User["role"] })} aria-label={`${u.name} 역할`}>
+                <select value={u.role} disabled={busy} onChange={(e) => run(() => update(u, { role: e.target.value as User["role"] }))} aria-label={`${u.name} 역할`}>
                   {/* 대상과 변경할 역할을 확인한 뒤 저장한다. */}
                   <option value="ADMIN">{ROLE_LABEL.ADMIN}</option>
                   <option value="STAFF">{ROLE_LABEL.STAFF}</option>
@@ -126,8 +128,8 @@ function UsersAdmin({ me }: { me: Me }) {
               <td style={S.nowrap}>{u.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}</td>
               <td style={S.nowrap}>
                 {u.is_active
-                  ? <button type="button" onClick={() => update(u, { is_active: false })}>비활성</button>
-                  : <button type="button" onClick={() => update(u, { is_active: true })}>다시 활성</button>}
+                  ? <button type="button" disabled={busy} onClick={() => run(() => update(u, { is_active: false }))}>비활성</button>
+                  : <button type="button" disabled={busy} onClick={() => run(() => update(u, { is_active: true }))}>다시 활성</button>}
               </td>
             </tr>
           ))}
