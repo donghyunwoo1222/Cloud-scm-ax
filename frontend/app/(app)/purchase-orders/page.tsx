@@ -9,7 +9,7 @@ import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리�
 import { ExportButton } from "../../lib/export-button"; // 내보내기 (#191)
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { seoulToday } from "../../lib/movement-form"; // 상세 화면과 같은 서울 날짜
-import { overdueDays, PurchaseOrder, remainingQuantity, STATUS_LABEL } from "../../lib/po"; // 상세와 같은 입고 잔량 기준
+import { closedTotal, isClosedWithRemainder, overdueDays, PurchaseOrder, remainingQuantity, STATUS_LABEL } from "../../lib/po"; // 상세와 같은 입고 잔량 기준
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../lib/status-badge"; // 상세 화면과 같은 상태·납기 지연 배지
 import { S } from "../../lib/styles"; // 화면 공통 스타일
 
@@ -115,13 +115,15 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
               <tr key={o.id} style={S.row}>
                 <td style={S.nowrap}><Link href={"/purchase-orders/" + o.id}>{o.po_number}</Link></td>{/* 상세로 가는 링크는 발주번호에만 둔다 */}
                 <td>{o.supplier_name}</td>{/* 서버의 공급업체 이름 */}
-                <td style={S.nowrap}><PurchaseOrderStatusBadge status={o.status} /></td>{/* 발주 상태를 글자와 아이콘으로 표시한다 */}
+                <td style={S.nowrap}><PurchaseOrderStatusBadge status={o.status} />{isClosedWithRemainder(o) && <span style={S.sub}>(잔량 마감)</span>}</td>{/* 발주 상태를 글자와 아이콘으로 표시한다 */}
                 <td style={S.num}>{o.items.length}</td>{/* 품목 줄 수는 오른쪽 정렬한다 */}
                 <td style={S.num}>
                   {showReceiptProgress ? (
                     <>
-                      <strong>{outstanding.length.toLocaleString("ko-KR")}개</strong>
-                      {partialCount > 0 && <span style={S.sub}>부분 입고 {partialCount.toLocaleString("ko-KR")}개</span>}
+                      {isClosedWithRemainder(o)
+                        ? <strong>마감 {closedTotal(o).toLocaleString("ko-KR")}</strong> /* 입고 완료지만 못 받은 수량을 마감함: 미입고로 보이지 않게 (#252) */
+                        : <strong>{outstanding.length.toLocaleString("ko-KR")}개</strong>}
+                      {!isClosedWithRemainder(o) && partialCount > 0 && <span style={S.sub}>부분 입고 {partialCount.toLocaleString("ko-KR")}개</span>}
                     </>
                   ) : "—"}
                 </td>

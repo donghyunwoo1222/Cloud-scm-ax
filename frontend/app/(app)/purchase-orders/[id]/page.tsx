@@ -12,7 +12,7 @@ import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
 import { useMe } from "../../../lib/me"; // 내 역할 (회사 정보 입력 링크는 관리자에게만. 상태 버튼은 allowed_actions)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { boxLimit, can, fmtDate, fmtTime, formatOrderUnitPrice, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, PoAction, PoItemSort, PurchaseOrder, quantityLabel, remainingQuantity, totalAmount, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
+import { boxLimit, can, fmtDate, fmtTime, formatOrderUnitPrice, isClosedWithRemainder, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, PoAction, PoItem, PoItemSort, PurchaseOrder, quantityLabel, remainingQuantity, totalAmount, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 import { ChangeLogSection } from "./change-log"; // 변경 이력 섹션 (#181)
@@ -20,6 +20,16 @@ import styles from "./receipt.module.css";
 
 // 상태 버튼의 이름표: [서버 동사 경로, 버튼 이름]. 보일지 말지는 서버의 allowed_actions 가 정한다 (#260)
 // 입고 등록은 아래 폼 여는 버튼이 따로 있다
+// 줄의 입고 현황 글자. 잔량 마감된 줄은 "남음" 대신 "마감"으로 적어 미입고로 오해하지 않게 한다 (#252)
+// 예) 95/100 입고 후 마감 → "95 / 100개 입고 · 마감 5개", 전량 정정 뒤 마감 → "입고 0 / 100개 · 마감 100개"
+function receiptText(i: PoItem): string {
+  const remaining = remainingQuantity(i); // 발주 − 누적 입고
+  const fmt = (n: number) => n.toLocaleString("ko-KR");
+  const closed = i.closed_quantity ?? 0; // 마감 수량 (RECEIVED 이고 못 받은 수량)
+  if (closed > 0) return i.received_quantity === 0 ? `입고 0 / ${fmt(i.quantity)}${i.unit} · 마감 ${fmt(closed)}${i.unit}` : `${fmt(i.received_quantity)} / ${fmt(i.quantity)}${i.unit} 입고 · 마감 ${fmt(closed)}${i.unit}`;
+  return remaining === 0 ? "전량 입고" : `${fmt(i.received_quantity)} / ${fmt(i.quantity)}${i.unit} 입고 · ${fmt(remaining)}${i.unit} 남음`;
+}
+
 const ACTIONS: [PoAction, string][] = [["approve", "승인"], ["order", "공급업체에 주문 완료 표시"], ["cancel", "취소"]];
 
 // 승인 전 경고(#157): 회사 정보 중 비어 있으면 문서 머리말에 빠지는 칸. 지불조건·납품장소·메모는 비어도 정상이라 검사하지 않는다
@@ -50,6 +60,9 @@ function Detail() {
   const [company, setCompany] = useState<CompanyInfo | null>(null); // 회사 정보 (작성 중일 때만 읽는다. 못 읽으면 경고를 생략)
   const [cancelling, setCancelling] = useState(false); // 취소 패널을 열었는지 (#181)
   const [cancelReason, setCancelReason] = useState(""); // 취소 사유 입력 (실패해도 지우지 않는다)
+  const [closing, setClosing] = useState(false); // 잔량 마감 패널을 열었는지 (#252)
+  const [closeReason, setCloseReason] = useState(""); // 마감 사유 입력 (실패해도 지우지 않는다)
+  const closeLock = useSubmitLock(); // 마감 확정 중복 클릭 잠금
   const [logKey, setLogKey] = useState(0); // 바뀔 때마다 변경 이력을 다시 불러온다
   const [itemView, setItemView] = useState({ scope: "", ...DEFAULT_ITEM_VIEW }); // 발주서와 상태별로 표의 선택을 기억한다
 
@@ -126,6 +139,25 @@ function Detail() {
     }
   }
 
+  // 잔량 마감 확정: 사유를 담아 보낸다. 성공하면 RECEIVED 발주서가 돌아온다 (되돌릴 수 없음). 실패하면 사유를 그대로 둔다
+  async function closeRemaining() {
+    const reason = closeReason.trim();
+    if (!reason) return; // 서버 422 와 별개로 화면에서도 막는다
+    await closeLock.run(async () => {
+      try {
+        setOrder(await api<PurchaseOrder>(`/purchase-orders/${id}/close-remaining`, { method: "POST", body: { reason } }));
+        setError(null);
+        setClosing(false);
+        setCloseReason(""); // 성공했을 때만 비운다
+        toast("남은 수량을 마감했어요");
+        setLogKey((k) => k + 1); // 마감 사유가 든 이력을 다시 불러온다
+      } catch (e) {
+        setError(e); // 409 NO_RECEIPTS·INVALID_STATUS, 422 문장 그대로
+        load(); // 다른 사람이 먼저 바꿨을 수 있으니 최신 상태로
+      }
+    });
+  }
+
   // 입고 등록: 수량을 적은 줄만 한 번에 보낸다 (하나라도 넘치면 서버가 아무것도 저장하지 않는다)
   async function receive(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
@@ -160,6 +192,9 @@ function Detail() {
 
   const buttons = ACTIONS.filter(([action]) => can(order, action)); // 서버가 허용한 동작만 (담당자 승인·입고 있는 취소는 서버가 빼서 준다)
   const cancelOpen = cancelling && can(order, "cancel"); // 상태가 바뀌어 취소할 수 없게 되면 패널을 닫은 것으로 본다
+  const closeOpen = closing && can(order, "close_remaining"); // 상태가 바뀌어 마감할 수 없게 되면 패널을 닫은 것으로 본다
+  const closeLines = order.items.filter((i) => remainingQuantity(i) > 0); // 마감하면 닫히는 줄 (남은 수량이 있는 줄)
+  const closeBusy = closeLock.busy; // 마감 요청 중
   const reasonRequired = order.status === "ORDERED"; // 발주함 취소만 사유 필수
   const approvalBlocked = order.status === "DRAFT" && !can(order, "approve"); // 작성 중인데 승인할 수 없다 = 담당자 (승인은 관리자만)
   const cancelBlocked = order.status === "ORDERED" && !can(order, "cancel"); // 발주함인데 취소할 수 없다 = 입고 기록이 있다
@@ -176,6 +211,7 @@ function Detail() {
         <div style={S.detailTitle}>
           <h1 style={{ margin: 0 }}>발주서 {order.po_number}</h1>
           <PurchaseOrderStatusBadge status={order.status} />
+          {isClosedWithRemainder(order) && <span style={S.hint}>(잔량 마감)</span>}{/* 입고 완료 중에서도 못 받은 수량을 닫은 발주서 */}
         </div>
         <Link href="/purchase-orders" style={S.linkButtonGhost}>발주 목록</Link>
       </header>
@@ -237,9 +273,11 @@ function Detail() {
         {can(order, "edit") && <Link href={`/purchase-orders/${order.id}/edit`} style={S.linkButtonGhost}>수정</Link>}
         {can(order, "document") && <Link href={`/purchase-orders/${order.id}/document`} style={S.linkButtonGhost}>발주서 문서</Link>}
         {/* 수정(작성 중)·문서(승인 이후)도 서버의 allowed_actions 를 따른다 */}
-        {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving || cancelOpen || busy || actLock.busy}
+        {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving || cancelOpen || closeOpen || busy || actLock.busy}
           className={action === "cancel" ? undefined : "primary-action"} onClick={() => (action === "cancel" ? setCancelling(true) : act(action))}>{label}</button>)}
-        {can(order, "receive") && !receiving && <button ref={receiptButton} className="primary-action" type="button" disabled={cancelOpen}
+        {can(order, "close_remaining") && <button type="button" disabled={receiving || cancelOpen || closeOpen || busy || actLock.busy}
+          onClick={() => { setError(null); setClosing(true); }}>잔량 마감</button>}
+        {can(order, "receive") && !receiving && <button ref={receiptButton} className="primary-action" type="button" disabled={cancelOpen || closeOpen}
           onClick={() => { setError(null); setReceiving(true); }}>입고 등록</button>}
       </div>
       {cancelOpen && (
@@ -258,6 +296,26 @@ function Detail() {
           </div>
         </form>
       )}
+      {closeOpen && (
+        <form style={S.sectionCard} aria-labelledby="close-heading" onSubmit={(e) => { e.preventDefault(); closeRemaining(); }}>
+          <h2 id="close-heading" style={{ marginTop: 0 }}>잔량 마감</h2>
+          <p style={S.hint}>
+            못 받은 수량을 더 받지 않기로 하고 발주를 입고 완료로 닫습니다. 마감될 수량:{" "}
+            {closeLines.map((i) => `${i.product_name} ${quantityLabel(remainingQuantity(i), i.unit)}`).join(", ")}.
+            {" "}되돌릴 수 없습니다. 남은 수량을 다시 받으려면 새 발주서를 만들어야 합니다.
+          </p>
+          <label htmlFor="close-reason">마감 사유 (필수)</label>
+          <textarea id="close-reason" rows={3} maxLength={500} style={{ display: "block", width: "100%" }} value={closeReason} disabled={closeBusy}
+            onChange={(e) => setCloseReason(e.target.value)} />
+          <span style={S.sub}>{closeReason.length}/500자</span>
+          <ErrorText error={error} labels={PO_LABELS} />
+          <div style={S.buttons}>
+            <button type="button" disabled={closeBusy} onClick={() => { setClosing(false); setError(null); }}>닫기</button>
+            <button type="submit" disabled={closeBusy || !closeReason.trim()}>{closeBusy ? "마감 중…" : "마감 확정"}</button>
+            {!closeReason.trim() && <span style={S.hint}>잔량 마감은 사유가 필요합니다.</span>}
+          </div>
+        </form>
+      )}
       {companyEmpty && (
         <p role="status" style={S.hint}>
           {COMPANY_WARNING}{" "}
@@ -267,7 +325,7 @@ function Detail() {
       {approvalBlocked && <p>승인은 관리자만 할 수 있습니다. 관리자에게 승인을 요청하세요.</p>}
       {/* 서버도 403 으로 막지만 화면에서도 안내한다 */}
 
-      {cancelBlocked && <p style={S.hint}>입고 기록이 있어 발주를 취소할 수 없습니다.</p>}
+      {cancelBlocked && <p style={S.hint}>입고 기록이 있어 발주를 취소할 수 없습니다. 남은 수량은 &lsquo;잔량 마감&rsquo;으로 닫을 수 있습니다.</p>}
       {can(order, "order") && <p style={S.hint}>공급업체에 주문한 뒤 완료 표시를 누르세요.</p>}
       {receiving ? (
         <form style={{ ...S.sectionCard, padding: 0 }} onSubmit={receive} aria-labelledby="receipt-heading">
@@ -385,7 +443,6 @@ function Detail() {
             </tr>
           )}
           {shownItems.map((i) => { // 표시할 행만 그리며 입고 입력은 기존대로 발주 품목 ID에 연결한다
-            const remaining = remainingQuantity(i); // 필터와 같은 기준으로 입고 잔량을 구한다
             const ordered = i.quantity.toLocaleString("ko-KR"); // 발주 수량과 입고 현황에 같은 쉼표 표기를 쓴다
             return (
               <tr key={i.id} style={S.row}>
@@ -400,7 +457,7 @@ function Detail() {
                 <td style={S.num}>{lineAmount(i).toLocaleString("ko-KR")}</td>
                 <td style={S.num}>
                   {/* 품목마다 실제 단위를 붙여 누적 입고와 남은 수량을 보여준다. */}
-                  {remaining === 0 ? "전량 입고" : `${i.received_quantity.toLocaleString("ko-KR")} / ${ordered}${i.unit} 입고 · ${remaining.toLocaleString("ko-KR")}${i.unit} 남음`}
+                  {receiptText(i)}
                 </td>
               </tr>
             );
@@ -425,7 +482,6 @@ function Detail() {
         )}
         <ul className="compact-list" aria-label="발주 품목">
           {shownItems.map((i) => {
-            const remaining = remainingQuantity(i); // 표와 같은 잔량 계산
             const ordered = i.quantity.toLocaleString("ko-KR"); // 표와 같은 쉼표 표기
             return (
               <li key={i.id} className="compact-row">
@@ -436,7 +492,7 @@ function Detail() {
                 </div>
                 <div className="compact-sub">
                   <span>{skuWithOptions(i.product_sku, i)}</span>
-                  <span>{remaining === 0 ? "전량 입고" : `${i.received_quantity.toLocaleString("ko-KR")} / ${ordered}${i.unit} 입고 · ${remaining.toLocaleString("ko-KR")}${i.unit} 남음`}</span>
+                  <span>{receiptText(i)}</span>
                   <span>금액 {lineAmount(i).toLocaleString("ko-KR")}원</span>
                   {/* 2줄: SKU · 입고 현황 · 금액 (단가는 표에서) */}
                 </div>
@@ -450,7 +506,7 @@ function Detail() {
       </>
       )}
 
-      {!receiving && !cancelOpen && <ErrorText error={error} labels={PO_LABELS} />}
+      {!receiving && !cancelOpen && !closeOpen && <ErrorText error={error} labels={PO_LABELS} />}
       {!receiving && <ChangeLogSection orderId={id} refreshKey={logKey} />}
     </section>
   );

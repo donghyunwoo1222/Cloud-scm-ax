@@ -18,6 +18,7 @@ export type PoItem = {
   min_order_units?: number | null; // 발주 당시 최소 주문량(발주단위 수) 스냅샷 (#194)
   line_total?: number; // 서버가 계산한 줄 금액(원), 이전 API 응답에는 없을 수 있다
   received_quantity: number; // 누적 입고량 (입고 − 입고 정정)
+  closed_quantity?: number | null; // 잔량 마감 수량 (#252): RECEIVED 일 때만 값(발주 − 누적 입고, 0 이상), 그 밖은 null. 옛 응답에는 없을 수 있다
 };
 
 // 발주서 하나 (목록·상세·상태 변경·입고 응답이 모두 같은 모양)
@@ -45,7 +46,7 @@ export type PurchaseOrder = {
 export type PoStatus = "DRAFT" | "APPROVED" | "ORDERED" | "RECEIVED" | "CANCELLED"; // 서버가 쓰는 상태 5개
 
 // 서버 po_states.allowed_actions 가 주는 동작 이름 (backend/app/services/po_states.py)
-export type PoAction = "edit" | "approve" | "order" | "cancel" | "email" | "receive" | "document";
+export type PoAction = "edit" | "approve" | "order" | "cancel" | "close_remaining" | "email" | "receive" | "document";
 
 // 이 발주서에서 action 을 할 수 있는지. 화면 버튼은 이것만 본다 (서버 규칙과 같은 값)
 // 칸이 없는 옛 응답은 빈 목록으로 본다: 버튼이 숨는 쪽이 안전하다 (누르면 409 가 나는 버튼보다 낫다)
@@ -59,7 +60,7 @@ export const STATUS_LABEL: Record<PoStatus, string> = {
 // 오류 details 의 칸 이름 → 화면 이름 (422 문장 뒤에 어느 칸인지 덧붙인다)
 export const PO_LABELS = {
   supplier_id: "공급업체", due_date: "약속 납기", memo: "메모", delivery_address: "납품장소", payment_terms: "지불조건", items: "품목 줄", product_id: "품목", quantity: "수량", unit_price: "단가", movement_date: "입고일",
-  box_quantity: "발주단위 수", reason: "취소 사유",
+  box_quantity: "발주단위 수", reason: "사유",
 };
 
 // 변경 이력 한 행 (GET /purchase-orders/{id}/change-log, #181). 서버 ChangeLogOut 과 칸 이름이 같다
@@ -104,6 +105,12 @@ export const totalAmount = (order: PurchaseOrder) => order.items.reduce((sum, it
 export type PoItemSort = "registered" | "name-asc" | "name-desc"; // 등록 순서와 품목명 정렬의 두 방향
 
 export const remainingQuantity = (item: PoItem) => item.quantity - item.received_quantity; // 발주 수량에서 누적 입고량을 빼 남은 수량을 구한다
+
+// 발주서 전체의 마감 수량 합 (null·없는 옛 응답은 0). 예) 마감 5 + null → 5
+export const closedTotal = (order: Pick<PurchaseOrder, "items">) => order.items.reduce((sum, item) => sum + (item.closed_quantity ?? 0), 0);
+
+// 입고 완료지만 못 받은 수량을 마감한 발주서인지 (상태 이름 옆 "(잔량 마감)" 표시용)
+export const isClosedWithRemainder = (order: Pick<PurchaseOrder, "status" | "items">) => order.status === "RECEIVED" && closedTotal(order) > 0;
 
 // 표시할 행만 골라 등록 순서나 한글 품목명순으로 돌려준다.
 export function visiblePoItems(items: readonly PoItem[], onlyOutstanding: boolean, sort: PoItemSort): PoItem[] {
