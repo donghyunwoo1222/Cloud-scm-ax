@@ -71,11 +71,13 @@ stateDiagram-v2
 | # | 무엇 | 위치 | 연결 이슈 |
 |---|---|---|---|
 | 1 | 입고 기록이 한 번이라도 있으면 취소 불가. 전부 정정해 누적 입고가 0 이어도 막힌다. 잔량을 마감할 방법이 없어 부분 입고 발주는 ORDERED 로 남는다 | `purchase_orders.py:237-238` | #252 |
-| 2 | RECEIVED 가 되면 입고 정정 불가(409 `INVALID_STATUS`). 마지막 입고를 잘못 넣으면 되돌릴 길이 없고, 다음에 할 일 안내도 없다 | `backend/app/services/stock.py:331-335` | #259 |
-| 3 | 오류 문장에 영어 상태값이 섞인다 (`"{status} 상태의 발주서는…"`, `"지금은 {status}입니다"`, `"발주가 ORDERED 상태일 때만…"`) | `purchase_orders.py:230`, `:329`, `stock.py:334` | #259 |
-| 4 | 거절 details 가 `{"status"}` 뿐이라 화면이 다음 할 일을 모른다. `CANNOT_CANCEL_RECEIVED`·`NO_SUPPLIER_EMAIL` 은 details 가 `null` | 위 각 위치 | #259 |
+| 2 | RECEIVED 가 되면 입고 정정 불가(409 `INVALID_STATUS`). 마지막 입고를 잘못 넣으면 되돌릴 길이 없다. #260 PR3 부터 이력 응답의 `can_correct` 가 false 라 화면이 버튼을 숨길 수 있다(정정 불가 자체는 그대로) | `stock.create_correction`, `stock.enrich_movements` | #259 |
+| 3 | ~~오류 문장에 영어 상태값이 섞인다~~ → #260 PR3 에서 `po_states.STATUS_NAMES` 로 한국어 상태명을 쓴다 (예: "작성 중인 발주서만 수정할 수 있습니다. 지금은 승인됨입니다.") | `purchase_orders.update_order`·`set_status`·`change_status`·`receive_order`, `stock.create_correction` | #259 |
+| 4 | 거절 details 는 `{"status"}` 뿐이고 `CANNOT_CANCEL_RECEIVED`·`NO_SUPPLIER_EMAIL` 은 `null` (그대로 둔다: `test_po_transitions.py` 가 details 를 값 전체로 고정). 다음 할 일은 details 대신 발주서 응답의 `allowed_actions` 로 알린다(화면은 409 뒤 다시 불러온다) | 위 각 위치 | #259 |
 | 5 | 공급업체당 DRAFT 1장: DRAFT 가 있으면 409 `DUPLICATE_DRAFT`, 그 발주서를 승인하면 새 DRAFT 를 만들 수 있다 | `purchase_orders.py:142-149` | #251 |
-| 6 | 상태별 버튼 규칙이 화면에 따로 있다 (아래 5번 목록). 서버 규칙과 어긋날 수 있다 | 프런트 | #259 |
+| 6 | 상태별 버튼 규칙이 화면에 따로 있다 (아래 5번 목록). 서버는 #260 PR3 부터 `allowed_actions` 를 주지만 화면 전환은 PR4 | 프런트 | #259 |
+
+**allowed_actions (#260 PR3)**: 발주서 응답(목록·상세·추천 초안)에 `po_states.allowed_actions(status, role, has_receipts)` 결과가 들어간다. 값은 `edit, approve, order, cancel, email, receive, document` 중 지금 되는 것(이 순서). 상태 조건은 `TRANSITIONS`·`ACTION_STATES` 에서 읽고, 상태 밖 조건은 둘: 승인은 관리자만, 취소는 입고 기록 0건일 때만. `email` 은 ORDERED 에서 다시 보내기를 뜻한다. `backend/tests/test_po_allowed_actions.py` 가 2절 표(`test_po_transitions.ALLOWED`)와 양쪽 방향으로 같은지 검사한다. 새 동작을 넣으면 `allowed_actions` 와 그 테스트의 `MATRIX` 도 고친다.
 
 ## 5. 프런트가 상태를 직접 보는 곳
 
@@ -134,7 +136,7 @@ stateDiagram-v2
 
 ## 8. 이 문서가 다루지 않는 것 (후속 PR 범위)
 
-- 응답에 `allowed_actions`·`can_correct` 추가, 거절 `details` 표준화 (#260 PR3, #259)
+- 거절 `details` 표준화: 하지 않기로 했다(4절 4번). 응답에 `allowed_actions`·`can_correct` 추가는 #260 PR3 에서 했다
 - 화면이 `allowed_actions` 로 버튼 표시 (#260 PR4, #259)
 - 잔량 마감 (#252)
 

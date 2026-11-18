@@ -42,7 +42,7 @@ router = APIRouter(prefix="/purchase-orders")  # 이 파일의 경로는 모두 
 
 def one(user, db, order) -> dict:
     """발주서 하나의 응답 {"data": ...}."""
-    return {"data": po_service.build_out(user.company_id, db, [order])[0]}
+    return {"data": po_service.build_out(user.company_id, db, [order], user.role)[0]}  # 역할: 승인 버튼(allowed_actions)용
 
 
 @router.get("")  # 목록 (공급업체별 조회는 ?supplier_id=)
@@ -56,7 +56,7 @@ def list_orders(
     receipt_due: Annotated[ReceiptDue | None, Query()] = None,  # 발주함 발주의 납기 구간
 ) -> dict:
     rows, meta = po_service.list_orders(user.company_id, db, page, supplier_id, status, q, receipt_due)
-    return {"data": po_service.build_out(user.company_id, db, rows), "meta": meta}
+    return {"data": po_service.build_out(user.company_id, db, rows, user.role), "meta": meta}
 
 
 @router.get("/export")  # 내보내기 (#191). /{order_id} 보다 먼저 선언해야 "export" 를 번호로 읽지 않는다

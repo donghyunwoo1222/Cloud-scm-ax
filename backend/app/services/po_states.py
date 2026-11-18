@@ -21,3 +21,31 @@ ACTION_STATES = {
     "correct_receipt": ("ORDERED",),  # 발주 입고 정정 (RECEIVED 가 되면 정정 불가)
     "document": ("APPROVED", "ORDERED", "RECEIVED"),  # 발주서 문서(PDF·엑셀) 보기: 승인 이후만
 }
+
+# 상태 코드 → 화면에 보이는 한국어 이름 (오류 문장용, 프런트 lib/po.ts STATUS_LABEL 과 같은 글자)
+STATUS_NAMES = {
+    "DRAFT": "작성 중",
+    "APPROVED": "승인됨",
+    "ORDERED": "발주함",
+    "RECEIVED": "입고 완료",
+    "CANCELLED": "취소됨",
+}
+
+
+def allowed_actions(status: str, role: str, has_receipts: bool) -> list[str]:
+    """이 발주서에서 지금 누를 수 있는 동작 (#260 PR3). 화면 버튼은 이 목록만 따른다.
+
+    상태 조건은 위 두 표에서 읽는다(표를 두 벌 두지 않는다). 상태 밖 조건은 두 개뿐이다:
+    승인은 관리자만(api 의 AdminUser), 취소는 입고 기록이 0건일 때만(change_status 의 CANNOT_CANCEL_RECEIVED).
+    예) ORDERED · 담당자 · 입고 없음 → ["cancel", "email", "receive", "document"]
+    """
+    checks = {
+        "edit": status in ACTION_STATES["edit"],
+        "approve": status in TRANSITIONS["approve"][0] and role == "ADMIN",
+        "order": status in TRANSITIONS["order"][0],
+        "cancel": status in TRANSITIONS["cancel"][0] and not has_receipts,
+        "email": status in ACTION_STATES["email"],  # ORDERED 는 다시 보내기
+        "receive": status in ACTION_STATES["receive"],
+        "document": status in ACTION_STATES["document"],
+    }
+    return [action for action, ok in checks.items() if ok]  # 순서는 위 딕셔너리 순서 그대로

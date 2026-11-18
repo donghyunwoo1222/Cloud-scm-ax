@@ -40,7 +40,9 @@ from app.services.po_change_log import (  # 변경 이력 (#181)
 )
 from app.services.po_states import (  # 상태 표 (#260). TRANSITIONS 는 여기서도 다시 내보낸다
     ACTION_STATES,
+    STATUS_NAMES,
     TRANSITIONS,
+    allowed_actions,
 )
 from app.services.stock import (  # 이력을 쓰는 유일한 함수 (품목 잠금·flush)와 입력 검사 (#190)
     check_movement_date,
@@ -172,7 +174,8 @@ def update_order(company_id: int, db: Session, user_id: int, order_id: int, data
     """
     order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # 발주서 잠금(잠금 순서: 발주서 → 품목). 다른 회사 404
     if order.status not in ACTION_STATES["edit"]:  # DRAFT 만. 승인 이후에는 수정 불가 (R5)
-        raise AppError(409, "INVALID_STATUS", "작성 중(DRAFT)인 발주서만 수정할 수 있습니다.", {"status": order.status})
+        raise AppError(409, "INVALID_STATUS", f"작성 중인 발주서만 수정할 수 있습니다. 지금은 {STATUS_NAMES[order.status]}입니다.",
+                       {"status": order.status})
     changes: list[Change] = []  # 이력에 남길 (항목, 전, 후)
     if data.items is not None:  # 품목 줄을 보냈으면
         existing = {i.product_id: i for i in db.scalars(scoped(company_id, PurchaseOrderItem).where(
@@ -219,7 +222,7 @@ def set_status(db: Session, company_id: int, order: PurchaseOrder, user_id: int,
     """
     sources, target = TRANSITIONS[action]  # 이 동작이 출발할 수 있는 상태, 도착 상태
     if order.status not in sources:
-        raise AppError(409, "INVALID_STATUS", f"{order.status} 상태의 발주서는 이 작업을 할 수 없습니다.", {"status": order.status})
+        raise AppError(409, "INVALID_STATUS", f"{STATUS_NAMES[order.status]} 상태의 발주서는 이 작업을 할 수 없습니다.", {"status": order.status})
     log_change(db, company_id, order.id, user_id, [("status", order.status, target)], reason)  # 바꾸기 전 상태 → 새 상태 (#181)
     order.status = target  # 한 단계만 바꾼다
 
@@ -236,7 +239,7 @@ def change_status(company_id: int, db: Session, user_id: int, order_id: int, act
     order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # 발주서 잠금. 다른 회사·없는 id 는 404
     sources, _ = TRANSITIONS[action]  # 이 동작이 출발할 수 있는 상태 (사전 조건보다 먼저 본다)
     if order.status not in sources:  # 예) DRAFT 에서 바로 order, RECEIVED·CANCELLED 에서 cancel
-        raise AppError(409, "INVALID_STATUS", f"{order.status} 상태의 발주서는 이 작업을 할 수 없습니다.", {"status": order.status})
+        raise AppError(409, "INVALID_STATUS", f"{STATUS_NAMES[order.status]} 상태의 발주서는 이 작업을 할 수 없습니다.", {"status": order.status})
     if action == "approve":
         check_active_for_approval(company_id, db, order)  # 비활성 업체·품목이 들어 있으면 409
         order.approved_by, order.approved_at = user_id, func.now()  # 승인자·승인 시각 (상태 이력 표 대신 칸에 남긴다)
@@ -334,7 +337,7 @@ def receive_order(company_id: int, db: Session, user_id: int, order_id: int, dat
     """
     order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # ① 발주서 잠금(잠금 순서: 회사 → 발주서 → 품목). 다른 회사 404
     if order.status not in ACTION_STATES["receive"]:  # ORDERED 만. DRAFT·APPROVED 는 아직 주문 전, RECEIVED·CANCELLED 는 끝
-        raise AppError(409, "INVALID_STATUS", f"발주함(ORDERED) 상태의 발주서만 입고할 수 있습니다. 지금은 {order.status}입니다.",
+        raise AppError(409, "INVALID_STATUS", f"발주함 상태의 발주서만 입고할 수 있습니다. 지금은 {STATUS_NAMES[order.status]}입니다.",
                        {"status": order.status})
     today = seoul_today()  # 서울 기준 오늘
     movement_date = data.movement_date or today  # 비우면 오늘 (#29 와 같은 규칙)
@@ -395,8 +398,11 @@ def line_total(i: PurchaseOrderItem) -> int:
     return (i.quantity // i.units_per_box) * i.box_unit_price
 
 
-def build_out(company_id: int, db: Session, orders: list[PurchaseOrder]) -> list[dict]:
-    """발주서들을 응답 모양으로. 줄·품목·업체·누적 입고량을 목록 전체에 대해 각각 한 번의 조회로 가져온다(N+1 없음)."""
+def build_out(company_id: int, db: Session, orders: list[PurchaseOrder], role: str = "STAFF") -> list[dict]:
+    """발주서들을 응답 모양으로. 줄·품목·업체·누적 입고량을 목록 전체에 대해 각각 한 번의 조회로 가져온다(N+1 없음).
+
+    role 은 allowed_actions(승인 버튼) 계산용. 기본값은 권한이 적은 담당자: 역할을 모르는 호출은 승인을 보여 주지 않는다.
+    """
     ids = [o.id for o in orders]
     has_receipts = orders_with_receipts(company_id, db, ids)  # 취소 검사와 같은 기준을 화면에 전달한다.
     items = list(db.scalars(scoped(company_id, PurchaseOrderItem).where(
@@ -421,8 +427,10 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder]) -> list
         ))
     return [
         PurchaseOrderOut(
-            **{c: getattr(o, c) for c in PurchaseOrderOut.model_fields if c not in ("supplier_name", "items", "has_receipts")},
+            **{c: getattr(o, c) for c in PurchaseOrderOut.model_fields
+               if c not in ("supplier_name", "items", "has_receipts", "allowed_actions")},
             supplier_name=suppliers[o.supplier_id].name, items=by_order[o.id], has_receipts=o.id in has_receipts,
+            allowed_actions=allowed_actions(o.status, role, o.id in has_receipts),  # 이미 읽은 값만 쓴다 (추가 조회 없음)
         ).model_dump(mode="json")
         for o in orders
     ]

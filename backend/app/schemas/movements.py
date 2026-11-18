@@ -56,6 +56,7 @@ class MovementOut(BaseModel):
     product_unit: str | None = None  # 재고 수량의 단위
     purchase_order_id: int | None = None  # 이력에서 발주서로 이동할 때 쓴다.
     correctable_quantity: int | None = None  # 이력의 원래 수량에서 누적 정정을 뺀 값
+    can_correct: bool | None = None  # 지금 정정할 수 있는지 (#260 PR3). 목록에서만 채우고 등록 응답은 비운다
     current_stock: int | None = None  # 요청 시 이력에 나온 품목의 현재고
 
 
