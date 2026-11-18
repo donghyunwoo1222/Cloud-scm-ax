@@ -109,6 +109,17 @@ export type PoItemSort = "registered" | "name-asc" | "name-desc"; // 등록 순�
 
 export const remainingQuantity = (item: PoItem) => item.quantity - item.received_quantity; // 발주 수량에서 누적 입고량을 빼 남은 수량을 구한다
 
+// 줄의 입고 현황 글자 (#252). 잔량 마감된 줄은 "남음" 대신 "마감", 취소된 발주서는 "남음"을 보이지 않는다
+// 예) 95/100 입고 후 마감 → "95 / 100개 입고 · 마감 5개", 전량 정정 뒤 마감 → "입고 0 / 100개 · 마감 100개", 취소 → "취소됨"
+export function receiptText(i: PoItem, status: PoStatus): string {
+  const fmt = (n: number) => n.toLocaleString("ko-KR");
+  if (status === "CANCELLED") return "취소됨"; // 취소는 입고가 없을 때만 되므로 입고·남음 수량을 적지 않는다
+  const remaining = remainingQuantity(i); // 발주 − 누적 입고
+  const closed = i.closed_quantity ?? 0; // 마감 수량 (RECEIVED 이고 못 받은 수량)
+  if (closed > 0) return i.received_quantity === 0 ? `입고 0 / ${fmt(i.quantity)}${i.unit} · 마감 ${fmt(closed)}${i.unit}` : `${fmt(i.received_quantity)} / ${fmt(i.quantity)}${i.unit} 입고 · 마감 ${fmt(closed)}${i.unit}`;
+  return remaining === 0 ? "전량 입고" : `${fmt(i.received_quantity)} / ${fmt(i.quantity)}${i.unit} 입고 · ${fmt(remaining)}${i.unit} 남음`;
+}
+
 // 발주서 전체의 마감 수량 합 (null·없는 옛 응답은 0). 예) 마감 5 + null → 5
 export const closedTotal = (order: Pick<PurchaseOrder, "items">) => order.items.reduce((sum, item) => sum + (item.closed_quantity ?? 0), 0);
 

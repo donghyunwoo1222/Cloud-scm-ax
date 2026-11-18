@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { can, closedTotal, isClosedWithRemainder, overdueDays, replyLateDays } from "./po.ts";
+import { can, closedTotal, isClosedWithRemainder, overdueDays, receiptText, replyLateDays } from "./po.ts";
 
 test("서버가 준 allowed_actions 에 있는 동작만 true", () => {
   const staffDraft: Parameters<typeof can>[0] = { allowed_actions: ["edit", "cancel"] };
@@ -57,4 +57,20 @@ test("회신이 약속보다 늦은 일수", () => {
   assert.equal(replyLateDays({ due_date: "2026-11-20", supplier_due_date: "2026-11-22" }), 2);
   assert.equal(replyLateDays({ due_date: "2026-11-20", supplier_due_date: "2026-11-18" }), 0); // 더 이르면 0
   assert.equal(replyLateDays({ due_date: "2026-11-20", supplier_due_date: null }), 0);
+});
+
+const rLine = { quantity: 100, received_quantity: 0, unit: "개", closed_quantity: null } as Parameters<typeof receiptText>[0];
+
+test("취소된 발주서 줄: 남음을 보이지 않고 취소됨", () => {
+  assert.equal(receiptText(rLine, "CANCELLED"), "취소됨");
+});
+
+test("발주함 줄은 남음, 잔량 마감 줄은 마감을 보인다", () => {
+  assert.equal(receiptText(rLine, "ORDERED"), "0 / 100개 입고 · 100개 남음");
+  assert.equal(receiptText({ ...rLine, received_quantity: 95, closed_quantity: 5 }, "RECEIVED"), "95 / 100개 입고 · 마감 5개");
+});
+
+test("잔량 마감 표시는 RECEIVED 이고 마감 수량이 있을 때만 (공급업체 상세 목록도 같은 함수)", () => {
+  assert.equal(isClosedWithRemainder(order("RECEIVED", 5)), true);
+  assert.equal(isClosedWithRemainder({ status: "CANCELLED", items: [] }), false);
 });

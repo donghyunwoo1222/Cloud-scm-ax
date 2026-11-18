@@ -152,6 +152,7 @@ def build_document(company_id: int, db: Session, order_id: int) -> dict:
 def build_xlsx(doc: dict) -> bytes:
     """문서 응답과 같은 값으로 엑셀 한 장을 만든다. 숫자는 숫자 칸으로 넣어 합계 계산에 쓸 수 있다."""
     wb = Workbook()
+    wb.properties.creator = ""  # 파일 속성 작성자 기본값 "openpyxl" 을 비운다 (PDF 속성이 빈 것과 같은 정책, #281)
     ws = wb.active
     ws.title = doc["po_number"]
     bold = Font(bold=True)

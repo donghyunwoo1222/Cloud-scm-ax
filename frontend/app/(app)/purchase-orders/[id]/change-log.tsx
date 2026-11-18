@@ -46,6 +46,9 @@ function Group({ rows }: { rows: ChangeLog[] }) {
   const long = rows.length > PREVIEW_LINES;
   const shown = long && !open ? rows.slice(0, PREVIEW_LINES - 1) : rows; // 6줄을 넘으면 5줄만
   const title = rows.every((r) => r.field === "status") ? "상태 변경" : "수정";
+  // 잔량 마감 = 같은 묶음에 items[SKU].closed_quantity 행이 있다 (서버가 마감 때만 같이 남긴다). 사유는 상태 줄에만 보이게 한다
+  // shortcut: 20건 쪽 경계에서 묶음이 갈리면 "(잔량 마감)" 표시가 빠질 수 있다, 이력 데이터에 마감 표시가 생기면 그걸 쓴다
+  const isClose = rows.some((r) => /\.closed_quantity$/.test(r.field));
   return (
     <li style={{ ...S.sectionCard, marginTop: "var(--space-sm)" }}>
       <strong>{rows[0].changed_by_name || "알 수 없음"}</strong>{" "}
@@ -53,8 +56,8 @@ function Group({ rows }: { rows: ChangeLog[] }) {
       <ul style={{ margin: "var(--space-xs) 0 0", paddingLeft: "1.2em" }}>
         {shown.map((r) => (
           <li key={r.id}>
-            {describeChange(r)}
-            {r.reason && <div style={S.hint}>사유: {r.reason}</div>}
+            {describeChange(r)}{isClose && r.field === "status" && r.new_value === "RECEIVED" && " (잔량 마감)"}
+            {r.reason && !r.field.endsWith(".closed_quantity") && <div style={S.hint}>사유: {r.reason}</div>}
           </li>
         ))}
       </ul>

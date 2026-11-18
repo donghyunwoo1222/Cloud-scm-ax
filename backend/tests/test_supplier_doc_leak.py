@@ -20,8 +20,9 @@ REASON = "SECRET-REASON-281"  # 추천 사유 (발주 줄)
 CHANGE = "SECRET-CHANGELOG-281"  # 변경 이력 내용
 EMAILED = "secret-emailed-281@internal.test"  # 메일 발송 이력 (emailed_to)
 USER_EMAIL = "secret-user-281@internal.test"  # 작성자·승인자 로그인 이메일 (Reply-To 에만 쓰임)
+CLOSED = "7654321"  # 잔량 마감 수량 표식 (다른 숫자와 겹치지 않는 값)
 MEMO = "PUBLIC-MEMO-281"  # 메모는 공개 칸: 반드시 나가야 한다
-SECRETS = (REASON, CHANGE, EMAILED, USER_EMAIL)
+SECRETS = (REASON, CHANGE, EMAILED, USER_EMAIL, CLOSED)
 INTERNAL_IDS = ("987650001", "987650002", "987650003", "987650004", "987650005", "987650006", "987650007")  # 회사·발주서·사용자·업체·품목·줄 id 2개
 
 # build_document 결과의 키 경로. 새 칸을 문서에 넣으면 이 테스트가 실패한다 → 분류표를 먼저 갱신하고 여기에 더한다
@@ -59,6 +60,7 @@ def item(item_id, name, boxed):
         "box_unit_price": 5000 if boxed else None, "box_quantity": 2 if boxed else None,
         "order_unit": "박스" if boxed else "개", "unit_factor": 10 if boxed else 1, "min_order_units": None,
         "line_total": 10000 if boxed else 3500, "recommendation_reason": REASON, "received_quantity": 0,
+        "closed_quantity": int(CLOSED),  # 잔량 마감 수량 (#252): 내부 전용, 공급업체 문서에 새면 안 된다
     }
 
 
@@ -127,3 +129,8 @@ def test_memo_is_intentionally_public(doc, calls):  # noqa: F811
     # 메모("4) 기타")는 공급업체에 전달되는 칸이다(#281 결정). 화면 라벨도 그렇게 안내한다
     for name, text in outputs(doc, calls).items():
         assert MEMO in text, f"공개 칸 memo 가 {name} 출력에서 빠졌습니다"
+
+
+def test_xlsx_author_property_is_empty(doc):
+    # 엑셀 파일 속성의 작성자 기본값 "openpyxl" 이 남지 않는다 (PDF 속성이 빈 것과 같은 정책)
+    assert not load_workbook(BytesIO(pd.build_xlsx(doc))).properties.creator
