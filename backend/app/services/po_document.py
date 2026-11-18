@@ -5,6 +5,7 @@ from io import BytesIO  # 엑셀을 메모리에서 만든다 (디스크 저장 
 from pathlib import Path  # 폰트 파일 위치
 
 from fpdf import FPDF  # PDF 만들기 (메일 첨부, #158)
+from fpdf.enums import MethodReturnValue  # multi_cell 이 높이만 돌려주게 (도장 위치 계산)
 from fpdf.fonts import FontFace  # 표 머리 칸 글씨 모양
 from openpyxl import Workbook  # .xlsx 쓰기 (#154에서 설치한 라이브러리)
 from openpyxl.styles import Alignment, Font  # 가운데 정렬·굵은 글씨
@@ -27,6 +28,10 @@ SMALL_UNITS = ("", "십", "백", "천")  # 네 자리 묶음 안의 자릿수
 BIG_UNITS = ("", "만", "억", "조", "경")  # 네 자리 묶음 이름
 STAMP_DROP = ("주식회사", "(주)", "㈜")  # 도장에서 떼는 회사 형태 표기
 STAMP_RADIUS = 37  # 글자 묶음 모서리가 들어갈 반지름 (도장 지름 100 기준, 안쪽 원 41보다 약간 작게)
+PDF_STAMP_D = 19  # PDF 도장 지름 (mm). 화면 도장 72px(약 19mm)과 같은 크기
+PDF_STAMP_RED = (198, 40, 40)  # 도장 색 #c62828 (화면과 같음)
+PDF_TABLE_RIGHT = 195  # 표 오른쪽 끝 (mm): 왼쪽 여백 15 + 본문 폭 180
+PDF_MIN_ROWS = 5  # 품목 표 최소 줄 수 (화면 MIN_ROWS 와 같게)
 FONT_DIR = Path(__file__).resolve().parents[1] / "fonts"  # 한글 폰트(나눔고딕, OFL). 도커 이미지에 한글 폰트가 없어 저장소에 넣었다
 
 
@@ -194,8 +199,39 @@ def build_xlsx(doc: dict) -> bytes:
     return buffer.getvalue()
 
 
-def build_pdf(doc: dict) -> bytes:
-    """문서 응답과 같은 값으로 A4 한 장 PDF 를 만든다 (메일 첨부용). 화면(.po-paper)과 같은 칸·같은 숫자, 모양은 비슷하게만."""
+def stamp_pdf_rows(stamp: dict, cx: float, cy: float, d: float) -> dict:
+    """도장 글자 배치를 mm 좌표로 (PDF 객체 없이 계산, 화면 stampRows 와 같은 식). cx·cy = 도장 중심, d = 지름.
+
+    줄 중심 y_i = cy + (i − (n−1)/2) × 1.1 × f, 기준선 = y_i + 0.37 × f. 가로 위치는 글자 폭이 필요해 그리는 쪽이 정한다.
+    예) 2줄, d=19, ratio 0.255 → f=4.845mm, 줄 간격 5.33mm, 윗줄 중심 cy−2.66, 아랫줄 cy+2.66.
+    """
+    font_mm = stamp["ratio"] * d  # 글자 크기 f(mm)
+    count = len(stamp["lines"])
+    rows = []
+    for i, text in enumerate(stamp["lines"]):
+        y = cy + (i - (count - 1) / 2) * 1.1 * font_mm  # 줄 중심 (묶음 전체가 원 세로 중앙)
+        rows.append({"text": text, "y": y, "baseline": y + 0.37 * font_mm})
+    return {"font_mm": font_mm, "font_pt": font_mm / 0.3528, "rows": rows}
+
+
+def draw_stamp(pdf: FPDF, stamp: dict, cx: float, cy: float, d: float = PDF_STAMP_D) -> None:
+    """원 2개 + 글자를 벡터로 그린다 (화면 StampSeal 과 같은 비율). 밑의 글자가 비치게 곱하기 혼합 + 투명도 0.85."""
+    unit = d / 100  # 지름 100 단위 → mm
+    layout = stamp_pdf_rows(stamp, cx, cy, d)
+    with pdf.local_context(fill_opacity=0.85, stroke_opacity=0.85, blend_mode="Multiply"):
+        pdf.set_draw_color(*PDF_STAMP_RED)
+        pdf.set_text_color(*PDF_STAMP_RED)
+        pdf.set_line_width(4 * unit)
+        pdf.circle(cx, cy, 46 * unit, style="D")  # 바깥 굵은 원
+        pdf.set_line_width(1 * unit)
+        pdf.circle(cx, cy, 41 * unit, style="D")  # 안쪽 가는 원
+        pdf.set_font("Nanum", "B", layout["font_pt"])
+        for row in layout["rows"]:
+            pdf.text(cx - pdf.get_string_width(row["text"]) / 2, row["baseline"], row["text"])  # 가운데 맞춤
+
+
+def render_pdf(doc: dict) -> FPDF:
+    """문서 응답과 같은 값으로 A4 PDF(FPDF 객체)를 만든다. 여러 쪽이면 표 머리가 반복되고, 발주 조건~승인 줄은 쪽 경계에서 갈리지 않는다."""
     pdf = FPDF(format="A4")  # 단위 mm, 폭 210
     pdf.set_margins(15, 15)  # 좌우 15mm → 본문 폭 180mm
     pdf.add_font("Nanum", "", FONT_DIR / "NanumGothic-Regular.ttf")  # 보통 글씨
@@ -207,6 +243,17 @@ def build_pdf(doc: dict) -> bytes:
     head = FontFace(emphasis="BOLD", fill_color=(238, 245, 228))  # 머리 칸: 굵게 + 화면(.po-paper th)과 같은 옅은 초록 #eef5e4
     s, b = doc["supplier"], doc["buyer"]
     blank = lambda v: v or ""
+    table_top = pdf.get_y()  # 수신처 표의 윗선 (도장 위치 계산용)
+    # 상호 칸의 위치·높이 (도장을 가운데에 찍으려고). 값 칸이 길어 접히면 그 줄 수만큼 행이 높아지고(수신처 칸 폭 46, 발주처 칸 폭 62),
+    # 발주번호 칸(4행 합침)이 네 행 합보다 높으면 fpdf2 가 모자란 만큼을 네 행에 똑같이 나눠 더한다 (table.py 의 row_span_padding).
+    fold = lambda width, text: pdf.multi_cell(width, 7, blank(text), dry_run=True, output=MethodReturnValue.HEIGHT)
+    natural = [7, max(7, fold(46, s["name"]), fold(62, b["name"])),  # 머리 줄, 상호 줄
+               max(7, fold(46, s["contact_name"]), fold(62, fmt_business_number(b["business_number"]))),
+               max(7, fold(46, s["phone"]), fold(62, b["representative"]))]  # shortcut: 라벨 칸·이메일 줄은 한 줄로 본다, 라벨이 접히게 바꾸면 여기도 고친다
+    po_h = fold(32, f"발주번호\n{doc['po_number']}\n\n발주일자\n{doc['order_date']}")  # 발주번호 칸 (rowspan=4) 글자 높이
+    extra = max(0, po_h - sum(natural)) / 4  # 합친 칸이 모자란 높이를 네 행이 나눠 갖는다
+    name_row_top = table_top + natural[0] + extra
+    name_row_h = natural[1] + extra
 
     # 1) 수신처 | 발주번호·일자 | 발주처 (화면 표와 같은 5칸)
     with pdf.table(col_widths=(18, 46, 32, 22, 62), text_align="LEFT", line_height=7, first_row_as_headings=False) as t:
@@ -256,21 +303,44 @@ def build_pdf(doc: dict) -> bytes:
             row = t.row()
             for value, align in zip(values, aligns, strict=True):
                 row.cell(value, align=align)
+        for _ in range(PDF_MIN_ROWS - len(doc["lines"])):  # 품목이 적으면 빈 줄로 채워 양식 모양을 유지한다 (화면과 같음)
+            row = t.row()
+            for _ in aligns:
+                row.cell("")
         for label, value in (("공급가액 합계", doc["supply_total"]), ("부가세 (10%)", doc["vat"]), ("합계", doc["total"])):
             row = t.row()
             row.cell(label, colspan=5, style=head, align="C")
             row.cell(f"{value:,}", colspan=2, align="R")
 
     pdf.ln(3)
-    # 3) 발주 조건
-    with pdf.table(col_widths=(18, 162), line_height=7, text_align="LEFT", first_row_as_headings=False) as t:
-        conditions = (("1) 납기일자", doc["due_date"]), ("2) 납품장소", doc["delivery_address"]),
-                      ("3) 지불조건", doc["payment_terms"]), ("4) 기타", doc["memo"]))
-        for index, (label, value) in enumerate(conditions):
-            row = t.row()
-            if index == 0:
-                row.cell("발주\n조건", rowspan=4, style=head, align="C")
-            row.cell(f"{label} : {blank(value)}")
-    pdf.ln(6)
-    pdf.cell(0, 8, "위와 같이 발주합니다.", align="C")
-    return bytes(pdf.output())
+    # 3) 발주 조건 ~ 승인 줄: 쪽 경계에서 갈리지 않게 한 묶음으로 그린다
+    with pdf.unbreakable() as block:  # 반드시 block 으로 그려야 쪽이 넘어갈 때 다시 그려진다 (pdf 로 직접 그리면 사라짐)
+        with block.table(col_widths=(18, 162), line_height=7, text_align="LEFT", first_row_as_headings=False) as t:
+            conditions = (("1) 납기일자", doc["due_date"]), ("2) 납품장소", doc["delivery_address"]),
+                          ("3) 지불조건", doc["payment_terms"]), ("4) 기타", doc["memo"]))
+            for index, (label, value) in enumerate(conditions):
+                row = t.row()
+                if index == 0:
+                    row.cell("발주\n조건", rowspan=4, style=head, align="C")
+                row.cell(f"{label} : {blank(value)}")
+
+        block.ln(6)
+        block.cell(0, 8, "위와 같이 발주합니다.", align="C", new_x="LMARGIN", new_y="NEXT")
+        ap = doc["approval"]  # 승인 기록 (#263): 이름·시각이 없으면 "-"
+        block.cell(0, 6, f"승인 : {ap['approver_name'] or '-'} · {ap['approved_at'] or '-'} (전자 승인 표시)", align="C",
+                 new_x="LMARGIN", new_y="NEXT")
+        if ap["company_name"] != b["name"]:  # 승인 뒤 상호가 바뀐 경우에만 한 줄 더
+            block.cell(0, 6, f"(승인 시점 상호 : {ap['company_name']})", align="C", new_x="LMARGIN", new_y="NEXT")
+
+    # 4) 도장: 표를 다 그린 뒤 1쪽 맨 위에 찍는다 (unbreakable 안에서는 local_context 를 못 쓴다)
+    last_page = pdf.page
+    pdf.page = 1
+    draw_stamp(pdf, doc["approval"]["stamp"], PDF_TABLE_RIGHT - 0.5 - PDF_STAMP_D / 2,
+               name_row_top + name_row_h / 2 - 0.08 * PDF_STAMP_D)
+    pdf.page = last_page
+    return pdf
+
+
+def build_pdf(doc: dict) -> bytes:
+    """문서 응답과 같은 값으로 PDF 를 만든다 (메일 첨부용). 그리는 일은 render_pdf 가 한다. 파일 속성(제목·작성자)은 넣지 않는다(#281)."""
+    return bytes(render_pdf(doc).output())
