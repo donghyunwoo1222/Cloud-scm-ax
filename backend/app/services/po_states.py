@@ -11,6 +11,7 @@ TRANSITIONS = {
     "cancel": ({"DRAFT", "APPROVED", "ORDERED"}, "CANCELLED"),  # 취소 (입고 기록이 한 번도 없을 때만)
     "email": ({"APPROVED"}, "ORDERED"),  # 메일 첫 발송 (po_mail.py, 발송 성공 뒤에만). 다시 보내기는 상태가 안 바뀐다
     "complete_receipt": ({"ORDERED"}, "RECEIVED"),  # 입고 완료 (모든 줄이 다 찼을 때만, 부분 입고는 ORDERED 그대로)
+    "close_remaining": ({"ORDERED"}, "RECEIVED"),  # 잔량 마감 (#252): 입고 기록이 있을 때만, 사유 필수. 못 온 수량은 더 기다리지 않는다
 }
 
 # 상태를 바꾸지 않는(또는 바꾸기 전에 먼저 보는) 동작 → 허용 상태. 이 밖의 상태면 각 호출 지점이 409 INVALID_STATUS
@@ -36,14 +37,17 @@ def allowed_actions(status: str, role: str, has_receipts: bool) -> list[str]:
     """이 발주서에서 지금 누를 수 있는 동작 (#260 PR3). 화면 버튼은 이 목록만 따른다.
 
     상태 조건은 위 두 표에서 읽는다(표를 두 벌 두지 않는다). 상태 밖 조건은 두 개뿐이다:
-    승인은 관리자만(api 의 AdminUser), 취소는 입고 기록이 0건일 때만(change_status 의 CANNOT_CANCEL_RECEIVED).
+    승인은 관리자만(api 의 AdminUser), 취소는 입고 기록이 0건일 때만(change_status 의 CANNOT_CANCEL_RECEIVED),
+    잔량 마감은 입고 기록이 1건 이상일 때만(close_remaining 의 NO_RECEIPTS). 취소와 잔량 마감은 정확히 반대 조건이다.
     예) ORDERED · 담당자 · 입고 없음 → ["cancel", "email", "receive", "document"]
+        ORDERED · 담당자 · 입고 있음 → ["close_remaining", "email", "receive", "document"]
     """
     checks = {
         "edit": status in ACTION_STATES["edit"],
         "approve": status in TRANSITIONS["approve"][0] and role == "ADMIN",
         "order": status in TRANSITIONS["order"][0],
         "cancel": status in TRANSITIONS["cancel"][0] and not has_receipts,
+        "close_remaining": status in TRANSITIONS["close_remaining"][0] and has_receipts,  # 역할 무관 (취소와 같은 권한)
         "email": status in ACTION_STATES["email"],  # ORDERED 는 다시 보내기
         "receive": status in ACTION_STATES["receive"],
         "document": status in ACTION_STATES["document"],

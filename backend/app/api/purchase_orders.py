@@ -1,4 +1,4 @@
-"""발주서 경로: 작성·수정·조회(#33), 상태 변경 approve·order·cancel(#34), 입고(#35). 승인만 관리자, 나머지는 둘 다."""
+"""발주서 경로: 작성·수정·조회(#33), 상태 변경 approve·order·cancel(#34), 입고(#35), 잔량 마감(#252). 승인만 관리자, 나머지는 둘 다."""
 
 from typing import Annotated, Literal  # 타입에 부가 정보를 붙이는 도구, 정해진 값 중 하나
 
@@ -21,6 +21,7 @@ from app.schemas.common import (  # 멱등 키 헤더, 번호 칸 (DB 범위를 
 from app.schemas.purchase_orders import (  # 요청 모양
     ChangeLogOut,
     OrderCancel,
+    OrderCloseRemaining,
     OrderEmailSend,
     PoStatus,
     PurchaseOrderCreate,
@@ -149,6 +150,13 @@ def mark_ordered(order_id: PathId, user: CurrentUser, db: DB) -> dict:
 @router.post("/{order_id}/cancel")  # DRAFT·APPROVED·ORDERED → CANCELLED (입고 기록이 없을 때만, 둘 다)
 def cancel_order(order_id: PathId, user: CurrentUser, db: DB, data: OrderCancel | None = None) -> dict:
     return transition(order_id, user, db, "cancel", data.reason if data else None)  # 본문은 선택. 발주함 취소는 사유 필수(422)
+
+
+@router.post("/{order_id}/close-remaining")  # 부분 입고된 ORDERED → RECEIVED (사유 필수, 입고 기록이 있을 때만, 둘 다, #252)
+def close_remaining(order_id: PathId, data: OrderCloseRemaining, user: CurrentUser, db: DB) -> dict:
+    order = po_service.close_remaining(user.company_id, db, user.id, order_id, data.reason)  # 404·409·422
+    db.commit()  # 확정 (발주서 잠금도 여기서 풀린다)
+    return one(user, db, order)
 
 
 @router.post("/{order_id}/receipts", status_code=201)  # 발주 입고 (ORDERED 일 때만, 부분 가능, 다 차면 RECEIVED)

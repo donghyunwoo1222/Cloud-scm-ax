@@ -92,6 +92,7 @@ class ItemOut(BaseModel):
     recommended_quantity: int | None  # 추천으로 만든 줄이면 당시 추천 수량
     recommendation_reason: str | None  # 당시 추천 이유 문장
     received_quantity: int  # 누적 입고량 = 입고 − 입고 정정 (이력 합계)
+    closed_quantity: int | None = None  # 잔량 마감 수량 = 발주 − 누적 입고 (RECEIVED 일 때만, 그 외 null. 저장하지 않고 계산, #252)
 
 
 class PurchaseOrderOut(BaseModel):
@@ -126,6 +127,14 @@ class OrderCancel(BaseModel):
     model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422
 
     reason: Annotated[str, Field(max_length=500)] | None = None  # 취소 사유 (최대 500자)
+
+
+class OrderCloseRemaining(BaseModel):
+    """POST /purchase-orders/{id}/close-remaining 본문 (#252). 사유 필수 (공백뿐이면 서비스에서 422)."""
+
+    model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422
+
+    reason: Annotated[str, Field(max_length=500)]  # 잔량 마감 사유 (최대 500자, 취소 사유와 같은 한도)
 
 
 class ChangeLogOut(BaseModel):

@@ -15,6 +15,7 @@
 | APPROVED | 메일 첫 발송 성공 | ORDERED | 둘 다 | `TRANSITIONS["email"]` (발송 성공 뒤 `po_mail.send_order` 가 호출) |
 | ORDERED | 입고로 모든 줄이 다 참 | RECEIVED | 둘 다 | `TRANSITIONS["complete_receipt"]` (`purchase_orders.receive_order` 가 호출) |
 | DRAFT·APPROVED·ORDERED | 취소 cancel (입고 기록 0건일 때만, ORDERED 는 사유 필수) | CANCELLED | 둘 다 | `TRANSITIONS["cancel"]` + `purchase_orders.change_status` 의 사전 조건 |
+| ORDERED | 잔량 마감 close_remaining (입고 기록 1건 이상일 때만, 사유 필수, #252) | RECEIVED | 둘 다 | `TRANSITIONS["close_remaining"]` + `purchase_orders.close_remaining` 의 사전 조건 |
 
 RECEIVED·CANCELLED 는 끝 상태다(나가는 전이 없음). `order.status` 에 값을 쓰는 곳은 `purchase_orders.set_status` 한 곳뿐이다(표 확인 → 변경 이력 → 대입). `backend/tests/test_po_state_table.py` 가 코드 검색으로 이를 고정한다.
 
@@ -25,6 +26,7 @@ stateDiagram-v2
     APPROVED --> ORDERED: order / 메일 첫 발송 email
     ORDERED --> ORDERED: 부분 입고
     ORDERED --> RECEIVED: 입고 완료 complete_receipt
+    ORDERED --> RECEIVED: 잔량 마감 close_remaining (사유 필수, 입고 1건 이상)
     DRAFT --> CANCELLED: cancel
     APPROVED --> CANCELLED: cancel
     ORDERED --> CANCELLED: cancel (사유 필수, 입고 0건만)
@@ -36,7 +38,7 @@ stateDiagram-v2
 
 ○ = 됨, ✕ = 409 `INVALID_STATUS` (details `{"status": 현재 상태}`), 그 밖은 표에 코드를 적었다. 다른 회사 발주서는 어디서나 404, 로그인 없으면 401.
 
-허용 상태의 출처: 상태를 바꾸는 동작(승인·주문 완료·메일 첫 발송·입고 완료·취소)은 `TRANSITIONS`, 그 밖의 동작은 `ACTION_STATES` (둘 다 `backend/app/services/po_states.py`). `ACTION_STATES` 키: `edit`(수정), `email`(메일 발송·미리보기), `receive`(입고), `correct_receipt`(입고 정정), `document`(문서 보기·엑셀). 오류 문장은 각 호출 지점에 있다.
+허용 상태의 출처: 상태를 바꾸는 동작(승인·주문 완료·메일 첫 발송·입고 완료·취소·잔량 마감)은 `TRANSITIONS`, 그 밖의 동작은 `ACTION_STATES` (둘 다 `backend/app/services/po_states.py`). `ACTION_STATES` 키: `edit`(수정), `email`(메일 발송·미리보기), `receive`(입고), `correct_receipt`(입고 정정), `document`(문서 보기·엑셀). 오류 문장은 각 호출 지점에 있다.
 
 | 동작 (경로) | DRAFT | APPROVED | ORDERED | RECEIVED | CANCELLED |
 |---|---|---|---|---|---|
@@ -47,12 +49,15 @@ stateDiagram-v2
 | 메일 발송 `POST /{id}/email` | ✕ | ○ → ORDERED | 409 `ALREADY_ORDERED` (resend=true 면 ○, 상태 그대로) | ✕ | ✕ |
 | 입고 `POST /{id}/receipts` | ✕ | ✕ | ○ (부분이면 ORDERED, 다 차면 RECEIVED, 넘치면 409 `OVER_RECEIPT`) | ✕ | ✕ |
 | 취소 `POST /{id}/cancel` | ○ | ○ | ○ 사유 필수(없으면 422), 입고 기록 있으면 409 `CANNOT_CANCEL_RECEIVED` | ✕ | ✕ |
+| 잔량 마감 `POST /{id}/close-remaining` (#252) | ✕ | ✕ | ○ → RECEIVED. 사유 필수(없거나 공백이면 422), 입고 기록 0건이면 409 `NO_RECEIPTS` | ✕ | ✕ |
 | 입고 정정 `POST /inventory-movements/{id}/corrections` | 입고 없음 | 입고 없음 | ○ | ✕ | 도달 불가 |
 | 문서 보기·엑셀 `GET /{id}/document(.xlsx)` | ✕ | ○ | ○ | ○ | ✕ |
 | 메일 미리보기 `GET /{id}/email` | ✕ | ○ | ○ | ✕ | ✕ |
 
 - 권한: 승인만 관리자, 나머지는 관리자·담당자 둘 다 (`backend/app/api/purchase_orders.py:139-151`, 정정은 `backend/app/api/movements.py:77`).
 - 검사 순서: 담당자 승인은 상태보다 권한을 먼저 본다(어느 상태든 403). 취소는 ① 상태 → ② 입고 기록 → ③ 사유 순이라, ORDERED + 입고 있음 + 사유 없음은 422 가 아니라 409 `CANNOT_CANCEL_RECEIVED`. 메일은 ① 상태 → ② `ALREADY_ORDERED` → ③ `NO_SUPPLIER_EMAIL` → ④ 503 `MAIL_NOT_CONFIGURED` → ⑤ 발송 실패 502 `MAIL_FAILED`(APPROVED 그대로).
+- 잔량 마감 검사 순서: ① 상태 → ② 사유 → ③ 입고 기록. 취소와 정확히 반대 조건이다(입고 0건은 취소만, 입고 있으면 잔량 마감만). 전량 정정해 누적 입고가 0 이어도 입고 기록이 있으면 마감할 수 있다. 되돌리기는 없다.
+- 잔량 마감 수량(#252): 저장하지 않고 줄별 `발주 − 누적 입고(입고 − 정정)` 로 계산한다(응답 `items[].closed_quantity`, RECEIVED 에서만 값, 그 외 null). RECEIVED 뒤에는 입고·정정이 모두 막혀(`ACTION_STATES["receive"]`·`["correct_receipt"]` 가 ORDERED 만) 이 값이 다시 바뀌지 않는다. `received_at` 은 마감한 날이 아니라 마지막 입고일(`purchase_orders.last_receipt_at`, 입고 완료와 같은 값). 변경 이력에는 status 행(사유 포함)과 남은 수량이 있는 줄마다 `items[SKU].closed_quantity`(없음 → 마감 수량) 행을 남긴다. 잠금은 발주서 하나뿐이라 입고·정정(발주서 → 품목 순)과 교착이 없다.
 - **"CANCELLED + 입고 이력"은 도달 불가**: 입고 기록이 있으면 취소가 막히므로 API 로 만들 수 없다. 그래서 테스트도 없다.
 - 상태 변경은 모두 `po_change_log` 에 `field="status"` 행(이전 → 이후)으로 남는다. 부분 입고와 메일 다시 보내기는 행이 없다.
 - 승인 시 회사명 스냅샷(#263): 승인하면 `approved_by`·`approved_at` 과 함께 그때의 회사명을 `approved_company_name` 에 저장한다(문서 도장용, 새 상태·변경 이력 행 없음).
@@ -70,14 +75,14 @@ stateDiagram-v2
 
 | # | 무엇 | 위치 | 연결 이슈 |
 |---|---|---|---|
-| 1 | 입고 기록이 한 번이라도 있으면 취소 불가. 전부 정정해 누적 입고가 0 이어도 막힌다. 잔량을 마감할 방법이 없어 부분 입고 발주는 ORDERED 로 남는다 | `purchase_orders.py:237-238` | #252 |
+| 1 | ~~입고 기록이 한 번이라도 있으면 취소 불가. 전부 정정해 누적 입고가 0 이어도 막힌다. 잔량을 마감할 방법이 없어 부분 입고 발주는 ORDERED 로 남는다~~ → #252 에서 잔량 마감(`close_remaining`)으로 해결. 취소 불가는 그대로이고, 입고 기록이 있는 ORDERED 발주(전량 정정해 누적 입고 0 인 "꼼짝 못 하는 발주" 포함)는 사유를 적어 RECEIVED 로 닫는다 | `purchase_orders.change_status`, `purchase_orders.close_remaining` | #252 |
 | 2 | RECEIVED 가 되면 입고 정정 불가(409 `INVALID_STATUS`). 마지막 입고를 잘못 넣으면 되돌릴 길이 없다. #260 PR3 부터 이력 응답의 `can_correct` 가 false 라 화면이 버튼을 숨길 수 있다(정정 불가 자체는 그대로) | `stock.create_correction`, `stock.enrich_movements` | #259 |
 | 3 | ~~오류 문장에 영어 상태값이 섞인다~~ → #260 PR3 에서 `po_states.STATUS_NAMES` 로 한국어 상태명을 쓴다 (예: "작성 중인 발주서만 수정할 수 있습니다. 지금은 승인됨입니다.") | `purchase_orders.update_order`·`set_status`·`change_status`·`receive_order`, `stock.create_correction` | #259 |
 | 4 | 거절 details 는 `{"status"}` 뿐이고 `CANNOT_CANCEL_RECEIVED`·`NO_SUPPLIER_EMAIL` 은 `null` (그대로 둔다: `test_po_transitions.py` 가 details 를 값 전체로 고정). 다음 할 일은 details 대신 발주서 응답의 `allowed_actions` 로 알린다(화면은 409 뒤 다시 불러온다) | 위 각 위치 | #259 |
 | 5 | 공급업체당 DRAFT 1장: DRAFT 가 있으면 409 `DUPLICATE_DRAFT`, 그 발주서를 승인하면 새 DRAFT 를 만들 수 있다 | `purchase_orders.py:142-149` | #251 |
 | 6 | 상태별 버튼 규칙이 화면에 따로 있다 (아래 5번 목록). 서버는 #260 PR3 부터 `allowed_actions` 를 주지만 화면 전환은 PR4 | 프런트 | #259 |
 
-**allowed_actions (#260 PR3)**: 발주서 응답(목록·상세·추천 초안)에 `po_states.allowed_actions(status, role, has_receipts)` 결과가 들어간다. 값은 `edit, approve, order, cancel, email, receive, document` 중 지금 되는 것(이 순서). 상태 조건은 `TRANSITIONS`·`ACTION_STATES` 에서 읽고, 상태 밖 조건은 둘: 승인은 관리자만, 취소는 입고 기록 0건일 때만. `email` 은 ORDERED 에서 다시 보내기를 뜻한다. `backend/tests/test_po_allowed_actions.py` 가 2절 표(`test_po_transitions.ALLOWED`)와 양쪽 방향으로 같은지 검사한다. 새 동작을 넣으면 `allowed_actions` 와 그 테스트의 `MATRIX` 도 고친다.
+**allowed_actions (#260 PR3)**: 발주서 응답(목록·상세·추천 초안)에 `po_states.allowed_actions(status, role, has_receipts)` 결과가 들어간다. 값은 `edit, approve, order, cancel, close_remaining, email, receive, document` 중 지금 되는 것(이 순서). 상태 조건은 `TRANSITIONS`·`ACTION_STATES` 에서 읽고, 상태 밖 조건은 셋: 승인은 관리자만, 취소는 입고 기록 0건일 때만, 잔량 마감은 입고 기록 1건 이상일 때만(#252, 역할 무관). `email` 은 ORDERED 에서 다시 보내기를 뜻한다. `backend/tests/test_po_allowed_actions.py` 가 2절 표(`test_po_transitions.ALLOWED`)와 양쪽 방향으로 같은지 검사한다. `close_remaining` 은 PR1 행렬 이후에 생겨 행렬에 없고, `backend/tests/test_po_close_remaining.py` 가 같은 양쪽 방향 검사를 따로 한다. 새 동작을 넣으면 `allowed_actions` 와 그 테스트의 `MATRIX` 도 고친다.
 
 ## 5. 프런트가 상태를 직접 보는 곳
 
@@ -130,7 +135,8 @@ stateDiagram-v2
 - [ ] 권한(관리자만/둘 다)을 경로에서 정하고, 위 2절 표에 적는다.
 - [ ] 거절 응답: HTTP 코드, 오류 코드, `details` 모양을 정한다. 기존 코드를 재사용할 수 있으면 재사용한다.
 - [ ] 변경 이력 `po_change_log` 에 status 행을 남긴다.
-- [ ] `backend/tests/test_po_transitions.py` 의 `ACTIONS`·`ALLOWED`·`OTHER` 에 칸을 추가한다.
+- [ ] `backend/tests/test_po_transitions.py` 의 `ACTIONS`·`ALLOWED`·`OTHER` 에 칸을 추가한다. 단, PR1 행렬을 고정해 둔 경우에는 새 동작 전용 테스트 파일에서 같은 칸(상태 5 × 역할 2)을 검사하고, `test_po_state_table.test_transitions_match_matrix` 의 제외 목록에 넣는다(#252 `close_remaining` → `backend/tests/test_po_close_remaining.py`).
+- [ ] `po_states.allowed_actions` 에 버튼 조건을 넣는다(상태 밖 조건이 있으면 4절 아래 설명에 적는다).
 - [ ] 화면(5절 위치)의 버튼·표시 조건을 같이 고친다.
 - [ ] 이 문서의 1~5절을 고친다.
 
