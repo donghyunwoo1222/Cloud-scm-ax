@@ -39,7 +39,7 @@ export function MailPanel({ id, onSent }: { id: string; onSent: () => void }) {
     if (!preview?.to) return;
     const question = resend
       ? `이미 발주함 상태인 발주서입니다${preview.emailed_at ? ` (마지막 발송 ${fmtTime(preview.emailed_at)}, ${preview.emailed_to})` : ""}.\n${preview.to}로 다시 보낼까요? 발송 기록은 이번 것으로 바뀝니다.`
-      : `${preview.to}로 발주서를 보냅니다.\n보내면 발주서가 발주함(ORDERED) 상태로 바뀝니다. 보낼까요?`;
+      : `${preview.to}로 발주서를 보냅니다.\n보내면 발주서가 발주함 상태로 바뀝니다. 보낼까요?`;
     if (!window.confirm(question)) return; // 확인창
     setBusy(true);
     setError(null);

@@ -9,20 +9,17 @@ import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { useConfirmedPost } from "../../../lib/confirmed-post"; // 멱등 키 + 확인 경고 재전송 (#190)
 import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
-import { useMe } from "../../../lib/me"; // 내 역할 (승인 버튼은 관리자에게만)
+import { useMe } from "../../../lib/me"; // 내 역할 (회사 정보 입력 링크는 관리자에게만. 상태 버튼은 allowed_actions)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { boxLimit, fmtDate, fmtTime, formatOrderUnitPrice, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, PoItemSort, PurchaseOrder, quantityLabel, remainingQuantity, totalAmount, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
+import { boxLimit, can, fmtDate, fmtTime, formatOrderUnitPrice, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, PoAction, PoItemSort, PurchaseOrder, quantityLabel, remainingQuantity, totalAmount, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 import { ChangeLogSection } from "./change-log"; // 변경 이력 섹션 (#181)
 import styles from "./receipt.module.css";
 
-// 상태별로 누를 수 있는 버튼: [서버 동사 경로, 버튼 이름]. 승인은 관리자만 (서버도 403 으로 막는다)
-const ACTIONS: Record<string, [string, string][]> = {
-  DRAFT: [["approve", "승인"], ["cancel", "취소"]],
-  APPROVED: [["order", "공급업체에 주문 완료 표시"], ["cancel", "취소"]],
-  ORDERED: [["cancel", "취소"]], // 입고 등록은 아래 폼 여는 버튼이 따로 있다
-};
+// 상태 버튼의 이름표: [서버 동사 경로, 버튼 이름]. 보일지 말지는 서버의 allowed_actions 가 정한다 (#260)
+// 입고 등록은 아래 폼 여는 버튼이 따로 있다
+const ACTIONS: [PoAction, string][] = [["approve", "승인"], ["order", "공급업체에 주문 완료 표시"], ["cancel", "취소"]];
 
 // 승인 전 경고(#157): 회사 정보 중 비어 있으면 문서 머리말에 빠지는 칸. 지불조건·납품장소·메모는 비어도 정상이라 검사하지 않는다
 const COMPANY_FIELDS = ["business_number", "representative", "address", "phone"] as const;
@@ -155,10 +152,11 @@ function Detail() {
 
   if (!order) return <section><h1>발주서</h1><ErrorText error={error} /></section>; // 불러오기 전·실패
 
-  const buttons = (ACTIONS[order.status] ?? []).filter(([action]) => (action !== "approve" || me?.role === "ADMIN") && (action !== "cancel" || !order.has_receipts)); // 담당자에게는 승인 버튼을 숨긴다
-  const cancelOpen = cancelling && buttons.some(([action]) => action === "cancel"); // 상태가 바뀌어 취소할 수 없게 되면 패널을 닫은 것으로 본다
+  const buttons = ACTIONS.filter(([action]) => can(order, action)); // 서버가 허용한 동작만 (담당자 승인·입고 있는 취소는 서버가 빼서 준다)
+  const cancelOpen = cancelling && can(order, "cancel"); // 상태가 바뀌어 취소할 수 없게 되면 패널을 닫은 것으로 본다
   const reasonRequired = order.status === "ORDERED"; // 발주함 취소만 사유 필수
-  const staffDraft = order.status === "DRAFT" && me?.role !== "ADMIN"; // 담당자가 본 작성 중 발주서
+  const approvalBlocked = order.status === "DRAFT" && !can(order, "approve"); // 작성 중인데 승인할 수 없다 = 담당자 (승인은 관리자만)
+  const cancelBlocked = order.status === "ORDERED" && !can(order, "cancel"); // 발주함인데 취소할 수 없다 = 입고 기록이 있다
   const delay = overdueDays(order, today); // 입고일에 쓰는 서울 오늘 날짜로 납기 지연도 판단한다
   const orderedStatus = order.status === "ORDERED"; // 발주함 상태에서만 미입고 필터를 보여준다
   const isFiltered = orderedStatus && itemView.onlyOutstanding; // 미입고 필터는 발주함 상태에서만 적용한다
@@ -230,12 +228,12 @@ function Detail() {
       </div>
 
       <div className="receipt-controls purchase-order-actions">
-        {order.status === "DRAFT" && <Link href={`/purchase-orders/${order.id}/edit`} style={S.linkButtonGhost}>수정</Link>}
-        {["APPROVED", "ORDERED", "RECEIVED"].includes(order.status) && <Link href={`/purchase-orders/${order.id}/document`} style={S.linkButtonGhost}>발주서 문서</Link>}
-        {/* 작성 중일 때만 수정 화면으로 간다 */}
+        {can(order, "edit") && <Link href={`/purchase-orders/${order.id}/edit`} style={S.linkButtonGhost}>수정</Link>}
+        {can(order, "document") && <Link href={`/purchase-orders/${order.id}/document`} style={S.linkButtonGhost}>발주서 문서</Link>}
+        {/* 수정(작성 중)·문서(승인 이후)도 서버의 allowed_actions 를 따른다 */}
         {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving || cancelOpen || busy}
           className={action === "cancel" ? undefined : "primary-action"} onClick={() => (action === "cancel" ? setCancelling(true) : act(action))}>{label}</button>)}
-        {orderedStatus && !receiving && <button ref={receiptButton} className="primary-action" type="button" disabled={cancelOpen}
+        {can(order, "receive") && !receiving && <button ref={receiptButton} className="primary-action" type="button" disabled={cancelOpen}
           onClick={() => { setError(null); setReceiving(true); }}>입고 등록</button>}
       </div>
       {cancelOpen && (
@@ -260,11 +258,11 @@ function Detail() {
           {me?.role === "ADMIN" ? <Link href="/company">회사 정보 입력하기</Link> : "관리자에게 회사 정보 입력을 요청하세요."}
         </p>
       )}
-      {staffDraft && <p>승인은 관리자만 할 수 있습니다. 관리자에게 승인을 요청하세요.</p>}
+      {approvalBlocked && <p>승인은 관리자만 할 수 있습니다. 관리자에게 승인을 요청하세요.</p>}
       {/* 서버도 403 으로 막지만 화면에서도 안내한다 */}
 
-      {orderedStatus && order.has_receipts && <p style={S.hint}>입고 기록이 있어 발주를 취소할 수 없습니다.</p>}
-      {order.status === "APPROVED" && <p style={S.hint}>공급업체에 주문한 뒤 완료 표시를 누르세요.</p>}
+      {cancelBlocked && <p style={S.hint}>입고 기록이 있어 발주를 취소할 수 없습니다.</p>}
+      {can(order, "order") && <p style={S.hint}>공급업체에 주문한 뒤 완료 표시를 누르세요.</p>}
       {receiving ? (
         <form style={{ ...S.sectionCard, padding: 0 }} onSubmit={receive} aria-labelledby="receipt-heading">
           <header className={styles.receiptHeader}>

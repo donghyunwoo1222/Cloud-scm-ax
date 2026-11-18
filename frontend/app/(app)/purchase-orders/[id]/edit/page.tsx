@@ -6,7 +6,7 @@ import { Suspense, useEffect, useState } from "react"; // 처음 한 번 실행,
 
 import { api } from "../../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText } from "../../../../lib/list"; // 서버 오류 표시
-import { PurchaseOrder } from "../../../../lib/po"; // 발주서 모양
+import { can, PurchaseOrder } from "../../../../lib/po"; // 발주서 모양, 서버 허용 동작 확인
 import { PoForm } from "../../../../lib/po-form"; // 발주서 작성·수정 폼
 
 // 발주서 수정 화면 (주소 /purchase-orders/번호/edit): 작성 중(DRAFT)일 때만 연다
@@ -23,11 +23,11 @@ function Detail() {
     <section>
       <h1>발주서 수정{order && ` · ${order.po_number}`}</h1>
       <ErrorText error={error} />
-      {order && order.status !== "DRAFT" && (
-        <p>작성 중(DRAFT)인 발주서만 수정할 수 있습니다. <Link href={`/purchase-orders/${order.id}`}>상세로 돌아가기</Link></p>
+      {order && !can(order, "edit") && (
+        <p>작성 중인 발주서만 수정할 수 있습니다. <Link href={`/purchase-orders/${order.id}`}>상세로 돌아가기</Link></p>
       )}
-      {/* DRAFT 가 아니면 폼을 열지 않는다 (서버도 409 INVALID_STATUS 로 막는다) */}
-      {order && order.status === "DRAFT" && <PoForm order={order} />}
+      {/* 서버가 edit 을 허용할 때만 폼을 연다 (서버도 409 INVALID_STATUS 로 막는다) */}
+      {order && can(order, "edit") && <PoForm order={order} />}
     </section>
   );
 }

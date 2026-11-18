@@ -34,6 +34,7 @@ type Movement = {
   movement_type: string; direction: "IN" | "OUT";
   quantity: number; movement_date: string; sales_channel: string | null; reason: string | null; memo: string | null;
   product_unit: string | null; correctable_quantity: number | null; // 정정에 표시할 단위와 원본 기준 잔량
+  can_correct?: boolean | null; // 지금 정정할 수 있는지 (#260, 목록 응답만 채운다. 입고 완료 발주의 입고는 false)
   reverses_movement_id: number | null; created_at: string;
 };
 type ProductOption = { id: number; sku: string; name: string }; // 이력 필터의 품목 선택지
@@ -328,8 +329,8 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
               {/* 정정 행은 어떤 이력을 바로잡았는지 번호로 보인다 (예: 정정 (#2)) */}
               <td style={S.num}>{m.direction === "IN" ? "+" : "−"}{quantityLabel(m.quantity, m.product_unit ?? undefined)}</td>
               <td>{[m.sales_channel && CHANNEL_LABEL[m.sales_channel], m.reason, m.memo].filter(Boolean).join(" · ")}</td>
-              <td>{m.movement_type !== "CORRECTION" && (m.correctable_quantity ?? m.quantity) > 0 && <button type="button" className="text-button" aria-label={`#${m.id} 정정`} onClick={() => startCorrect(m)}>정정</button>}</td>
-              {/* 정정 행에는 버튼을 숨긴다 (정정의 정정 금지) */}
+              <td>{m.can_correct === true && <button type="button" className="text-button" aria-label={`#${m.id} 정정`} onClick={() => startCorrect(m)}>정정</button>}</td>
+              {/* 서버가 정정 가능하다고 한 행만 (정정 행·남은 수량 0·입고 완료 발주의 입고는 숨김) */}
             </tr>
           ))}
         </tbody>
@@ -355,10 +356,10 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
                 <div className="compact-note">{[m.sales_channel && CHANNEL_LABEL[m.sales_channel], m.reason, m.memo].filter(Boolean).join(" · ")}</div>
               )}
             </div>
-            {m.movement_type !== "CORRECTION" && (m.correctable_quantity ?? m.quantity) > 0 && (
+            {m.can_correct === true && (
               <button type="button" onClick={() => startCorrect(m)}>정정</button>
             )}
-            {/* 정정 버튼은 오른쪽에 두어 줄 높이를 늘리지 않는다. 정정 행에는 숨긴다 (정정의 정정 금지) */}
+            {/* 정정 버튼은 오른쪽에 두어 줄 높이를 늘리지 않는다. 표와 같이 서버의 can_correct 만 따른다 */}
           </li>
         ))}
       </ul>

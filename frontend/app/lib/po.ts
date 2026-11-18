@@ -34,6 +34,7 @@ export type PurchaseOrder = {
   approved_at: string | null; // 승인 시각
   ordered_at: string | null; // 발주함 표시 시각
   has_receipts: boolean; // 발주 취소를 막는 입고 이력 여부
+  allowed_actions?: PoAction[]; // 지금 누를 수 있는 동작 (#260, 서버가 상태·역할로 계산). 옛 응답에는 없을 수 있다
   received_at: string | null; // 전량 입고 시각 (실제 입고일)
   cancelled_at: string | null; // 취소 시각
   emailed_at: string | null; // 마지막 메일 발송 시각 (#158)
@@ -42,6 +43,14 @@ export type PurchaseOrder = {
 };
 
 export type PoStatus = "DRAFT" | "APPROVED" | "ORDERED" | "RECEIVED" | "CANCELLED"; // 서버가 쓰는 상태 5개
+
+// 서버 po_states.allowed_actions 가 주는 동작 이름 (backend/app/services/po_states.py)
+export type PoAction = "edit" | "approve" | "order" | "cancel" | "email" | "receive" | "document";
+
+// 이 발주서에서 action 을 할 수 있는지. 화면 버튼은 이것만 본다 (서버 규칙과 같은 값)
+// 칸이 없는 옛 응답은 빈 목록으로 본다: 버튼이 숨는 쪽이 안전하다 (누르면 409 가 나는 버튼보다 낫다)
+export const can = (order: Pick<PurchaseOrder, "allowed_actions">, action: PoAction) =>
+  (order.allowed_actions ?? []).includes(action);
 
 export const STATUS_LABEL: Record<PoStatus, string> = {
   DRAFT: "작성 중", APPROVED: "승인됨", ORDERED: "발주함", RECEIVED: "입고 완료", CANCELLED: "취소됨",
