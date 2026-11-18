@@ -161,6 +161,11 @@ erDiagram
 | emailed\_at | 시각 | 선택 | 마지막 메일 발송 시각(#158). 메일 서버가 받은 시각이며 공급업체 수신 확인은 아니다. 발송 이력 표 없이 마지막 1건만 남기고 다시 보내면 덮어쓴다 |
 | emailed\_to | 문자열 | 선택 | 마지막 메일 수신 주소(그때의 공급업체 이메일, #158) |
 | emailed\_by | 정수 | 선택 | 마지막으로 메일을 보낸 사용자(users를 가리킴, #158) |
+| supplier\_token\_hash | 문자열 | 선택 | 공급업체 확인 링크 토큰의 해시(#265). 고유값이며 내부 전용이라 응답에 내보내지 않는다 |
+| supplier\_token\_expires\_at | 시각 | 선택 | 링크 토큰 만료 시각(#265, 내부 전용) |
+| supplier\_confirmed\_at | 시각 | 선택 | 공급업체가 확인한 시각(#265) |
+| supplier\_due\_date | 날짜 | 선택 | 공급업체가 회신한 납기(#265). 약속 납기 `due_date`는 덮어쓰지 않고, 지연 계산에만 `coalesce(supplier_due_date, due_date)`를 쓴다 |
+| supplier\_reply\_count | 정수 | 필수 | 공급업체 회신 횟수(#265, 기본 0) |
 | cancelled\_at | 시각 | 선택 | CANCELLED로 바뀐 시각 |
 
 규칙은 세 가지다. 첫째, 회사마다 공급업체 하나에 DRAFT 발주서는 1장만 둘 수 있다(S10). 둘째, 상태는 DRAFT → APPROVED → ORDERED → RECEIVED 순서로만 바뀌고, 입고가 한 번도 없는 발주서만 CANCELLED가 될 수 있다. 입고 후 전부 정정해서 누적 입고량이 0이어도, 입고(RECEIPT) 기록이 있으면 취소할 수 없다(임시 확정). 셋째, 품목·수량은 DRAFT일 때만 고칠 수 있다(임시 확정).
@@ -232,7 +237,7 @@ erDiagram
 | field | 글자 | 필수 | 바뀐 항목. 발주서 칸은 그대로(`due_date`, `memo`, `delivery_address`, `payment_terms`), 상태는 `status`, 줄은 SKU로 가리킨다: 줄 수정 `items[SKU].quantity`, 줄 추가·삭제 `items[SKU]` |
 | old\_value | 글자 | 선택 | 변경 전 값. 줄 추가나 원래 비어 있던 칸은 비어 있다 |
 | new\_value | 글자 | 선택 | 변경 후 값. 줄 삭제나 값을 비운 칸은 비어 있다. 줄 추가·삭제의 값은 한 줄 문장(예: `수량 120 · 단가 1,000원`) |
-| changed\_by | 정수 | 필수 | 바꾼 사용자. 화면에는 이름만 보인다 |
+| changed\_by | 정수 | 선택 | 바꾼 사용자. 화면에는 이름만 보인다. 공급업체가 메일 링크로 회신한 행은 비워 두고 "공급업체(메일 링크)"로 보인다(#265) |
 | reason | 글자 | 선택 | 사유. 취소 때만 입력하고, 발주함(ORDERED) 상태의 취소는 필수 |
 
 기록하는 때: DRAFT 수정(헤더 4칸, 줄 수량 변경·추가·삭제, 추천 초안으로 기존 DRAFT에 줄 추가), 상태 변경(승인, 발주함 — 직접 표시와 메일 발송 모두, 취소, 전량 입고 RECEIVED). 새 발주서 생성과 부분 입고는 기록하지 않는다. 전·후가 같은 칸은 행을 만들지 않는다. 줄은 목록 번호가 아니라 SKU로 가리키므로 줄이 삭제돼도 같은 줄을 가리킨다. 인덱스는 (company\_id, purchase\_order\_id, id)이며, 조회 `GET /purchase-orders/{id}/change-log`는 최신순이다.

@@ -19,5 +19,5 @@ class PoChangeLog(CompanyMixin, Base):
     field: Mapped[str] = mapped_column(Text)  # 바뀐 항목 (예: due_date, status, items[SKU-1].quantity, items[SKU-1])
     old_value: Mapped[str | None] = mapped_column(Text)  # 변경 전 값 (줄 추가·값이 없었던 칸은 비움)
     new_value: Mapped[str | None] = mapped_column(Text)  # 변경 후 값 (줄 삭제·값을 비운 칸은 비움)
-    changed_by: Mapped[int] = mapped_column(ForeignKey("users.id"))  # 바꾼 사용자
+    changed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))  # 바꾼 사용자 (공급업체 메일 링크 회신은 비움, #265)
     reason: Mapped[str | None] = mapped_column(Text)  # 사유 (취소 때만 입력, 선택)

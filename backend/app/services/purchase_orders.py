@@ -275,7 +275,7 @@ def get_order(company_id: int, db: Session, order_id: int) -> PurchaseOrder:
 
 def receipt_due_condition(receipt_due: ReceiptDue, today: date):
     """대시보드와 목록에 같은 납기 경계를 적용한다."""
-    due = PurchaseOrder.due_date  # 발주서의 약속 납기
+    due = func.coalesce(PurchaseOrder.supplier_due_date, PurchaseOrder.due_date)  # 회신 납기가 있으면 회신, 없으면 약속 납기
     match receipt_due:
         case "OVERDUE":
             return due < today

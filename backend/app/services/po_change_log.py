@@ -31,7 +31,7 @@ def describe_line(values: dict) -> str:
     return text
 
 
-def log_change(db: Session, company_id: int, order_id: int, user_id: int, changes: Iterable[Change],
+def log_change(db: Session, company_id: int, order_id: int, user_id: int | None, changes: Iterable[Change],
                reason: str | None = None) -> int:
     """바뀐 칸마다 한 행을 한 번의 INSERT 로 넣는다(줄마다 INSERT 하지 않는다). 전·후가 같은 칸은 행을 만들지 않는다. 넣은 행 수를 돌려준다."""
     rows = [
@@ -50,9 +50,9 @@ def list_changes(company_id: int, db: Session, order_id: int, page: PageParams) 
     rows, meta = paginate(db, scoped(company_id, PoChangeLog).where(
         PoChangeLog.purchase_order_id == order_id).order_by(PoChangeLog.id.desc()), page)
     names = dict(db.execute(scoped(company_id, User).with_only_columns(User.id, User.name).where(
-        User.id.in_({r.changed_by for r in rows}))).all()) if rows else {}  # 사용자 번호 → 이름 (한 번에)
+        User.id.in_({r.changed_by for r in rows if r.changed_by is not None}))).all()) if rows else {}  # 사용자 번호 → 이름 (한 번에)
     return [
         {"id": r.id, "field": r.field, "old_value": r.old_value, "new_value": r.new_value,
-         "changed_by_name": names.get(r.changed_by, ""), "reason": r.reason, "created_at": r.created_at}
+         "changed_by_name": names.get(r.changed_by, "") if r.changed_by is not None else "공급업체(메일 링크)", "reason": r.reason, "created_at": r.created_at}
         for r in rows
     ], meta

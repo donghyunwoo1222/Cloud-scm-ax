@@ -5,6 +5,7 @@ from sqlalchemy import (  # 제약·인덱스 도구
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     UniqueConstraint,
     text,
 )
@@ -50,6 +51,12 @@ class PurchaseOrder(CompanyMixin, Base):
     emailed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 마지막 발송 시각 (메일 서버가 받은 시각, 공급업체 수신 확인 아님)
     emailed_to: Mapped[str | None]  # 마지막 수신 주소 (그때의 공급업체 이메일, 나중에 업체 이메일을 바꿔도 남는다)
     emailed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))  # 마지막으로 보낸 사용자
+    # 공급업체 회신 (#265): 새 상태 없이 칸과 변경 이력으로만 표현한다. 약속 납기(due_date)는 덮어쓰지 않는다.
+    supplier_token_hash: Mapped[str | None] = mapped_column(unique=True)  # 메일 링크 토큰의 해시 (내부 전용, 응답에 내보내지 않는다)
+    supplier_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 토큰 만료 시각 (내부 전용)
+    supplier_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 공급업체가 확인한 시각
+    supplier_due_date: Mapped[date | None]  # 공급업체가 회신한 납기 (계산은 회신이 있으면 이 날짜를 쓴다)
+    supplier_reply_count: Mapped[int] = mapped_column(Integer, server_default="0", default=0)  # 회신 횟수
 
 
 class PurchaseOrderItem(CompanyMixin, Base):

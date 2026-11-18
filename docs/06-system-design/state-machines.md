@@ -131,6 +131,8 @@ stateDiagram-v2
 
 ## 7. 새 상태나 동작을 추가할 때 해야 할 일
 
+> 공급업체 회신(#265)은 새 상태 없이 필드(`supplier_due_date`, `supplier_confirmed_at`, `supplier_reply_count`)와 변경 이력으로 표현한다. 납기 기준 날짜(대시보드 지연·오늘 도착, 목록 `receipt_due` 필터, 화면 지연 일수)는 `coalesce(supplier_due_date, due_date)`: 회신 납기가 있으면 회신, 없으면 약속 납기다. 약속 납기 `due_date`는 덮어쓰지 않는다.
+
 - [ ] `backend/app/services/po_states.py` 의 두 표(`TRANSITIONS`, `ACTION_STATES`)에 넣고, 상태는 `purchase_orders.set_status` 로만 바꾼다(`order.status = …` 직접 대입 금지). 직접 대입하면 `backend/tests/test_po_state_table.py` 의 코드 검색 테스트가 실패한다.
 - [ ] 권한(관리자만/둘 다)을 경로에서 정하고, 위 2절 표에 적는다.
 - [ ] 거절 응답: HTTP 코드, 오류 코드, `details` 모양을 정한다. 기존 코드를 재사용할 수 있으면 재사용한다.
