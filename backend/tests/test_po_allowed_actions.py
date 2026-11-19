@@ -32,6 +32,7 @@ MATRIX = {
     "edit": ("edit",), "approve": ("approve",), "order": ("order",), "cancel": ("cancel",),
     "email": ("email_preview",), "receive": ("receive",), "document": ("document", "document_xlsx"),
 }
+NOT_IN_MATRIX = {"supplier_reply"}  # PR1 행렬 이후 추가된 동작: test_po_supplier_reply_staff.py 가 상태 5 × 역할 2 를 따로 검사한다
 
 
 def server_allows(action: str, state: str, role: str) -> bool:
@@ -48,7 +49,7 @@ def server_allows(action: str, state: str, role: str) -> bool:
 @pytest.mark.parametrize("state", STATES)
 def test_allowed_actions_match_matrix_both_ways(state, role):
     """입고 0건: allowed_actions 에 있는 동작 == 행렬이 허용하는 동작 (양쪽 방향)."""
-    shown = set(allowed_actions(state, role, has_receipts=False))
+    shown = set(allowed_actions(state, role, has_receipts=False)) - NOT_IN_MATRIX
     assert shown <= set(MATRIX), shown  # 모르는 이름이 없다
     expected = {action for action in MATRIX if server_allows(action, state, role)}
     assert shown == expected, (state, role)
@@ -66,12 +67,12 @@ def test_receipts_only_remove_cancel(state, role):
 
 
 def test_allowed_actions_examples():
-    """눈으로 읽는 예: 순서는 edit, approve, order, cancel, close_remaining, email, receive, document."""
+    """눈으로 읽는 예: 순서는 edit, approve, order, cancel, close_remaining, email, receive, supplier_reply, document."""
     assert allowed_actions("DRAFT", "ADMIN", False) == ["edit", "approve", "cancel"]
     assert allowed_actions("DRAFT", "STAFF", False) == ["edit", "cancel"]
     assert allowed_actions("APPROVED", "STAFF", False) == ["order", "cancel", "email", "document"]
-    assert allowed_actions("ORDERED", "STAFF", True) == ["close_remaining", "email", "receive", "document"]
-    assert allowed_actions("ORDERED", "ADMIN", True) == ["close_remaining", "email", "receive", "document"]
+    assert allowed_actions("ORDERED", "STAFF", True) == ["close_remaining", "email", "receive", "supplier_reply", "document"]
+    assert allowed_actions("ORDERED", "ADMIN", True) == ["close_remaining", "email", "receive", "supplier_reply", "document"]
     assert allowed_actions("RECEIVED", "ADMIN", True) == ["document"]
     assert allowed_actions("CANCELLED", "ADMIN", False) == []
 
@@ -92,7 +93,7 @@ def test_api_list_and_detail_carry_allowed_actions(client, world, product):  # n
 def test_api_partial_receipt_hides_cancel(client, world, product):  # noqa: F811
     po = make_po(client, world, product, "ORDERED", received=40)
     assert po["has_receipts"] is True
-    assert po["allowed_actions"] == ["close_remaining", "email", "receive", "document"]  # 취소 대신 잔량 마감 (#252)
+    assert po["allowed_actions"] == ["close_remaining", "email", "receive", "supplier_reply", "document"]  # 취소 대신 잔량 마감 (#252)
 
 
 # ----- can_correct 5가지 -----

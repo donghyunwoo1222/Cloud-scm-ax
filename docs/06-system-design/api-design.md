@@ -67,6 +67,7 @@
 | F6 | POST /purchase-orders/{id}/receipts | 발주 품목 입고(부분 가능). 이력 등록 + 상태 갱신을 한 번에 | 둘 다 |
 | F6 | POST /purchase-orders/{id}/cancel | 입고 이력이 없는 발주만 취소. 선택 본문 `{"reason": "사유(500자 이하)"}`, 발주함(ORDERED) 취소는 사유 필수(없거나 공백이면 422) | 둘 다 |
 | F6 | GET /purchase-orders/{id}/change-log | 발주서 변경 이력(#181): DRAFT 수정·상태 변경의 변경 전·후 값, 수정자 이름(이메일 없음), 시각, 사유. 최신순, 쪽 나누기. 다른 회사 404. 수정·삭제 API는 없다 | 둘 다 |
+| F6 | POST /purchase-orders/{id}/supplier-reply | 직원이 전화·메일로 받은 공급업체 회신 기록(#265 PR4). 본문 `{"due_date": "YYYY-MM-DD"(선택), "reason": "받은 경로(필수, 500자 이하)"}`. ORDERED 만(부분 입고 포함), 상태는 그대로. 회신 횟수·5번 제한에 넣지 않는다. 이력 행위자 = 직원, 사유 = 받은 경로 | 둘 다 |
 | 자동화 공급업체 확인 링크 | POST /supplier-reply/view, POST /supplier-reply/confirm | 로그인 없는 공개 경로(#265). 발주 메일 링크의 토큰(본문 `token`)으로 발주 내용 보기·확인 버튼(+회신 납기). 회사·발주 id 는 받지 않는다. `SUPPLIER_LINK_ENABLED=false` 면 404 | 공급업체(메일 링크) |
 | F7 대시보드 | GET /dashboard | 부족·과잉·장기재고·진행 중 발주·이번 달 입출고 요약. 입고 예정과 월 입출고는 각각 `incoming_by_unit`, `in_by_unit`, `out_by_unit`에 재고 단위별 합계를 반환한다. | 둘 다 |
 | F8 발주 추천 | GET /recommendations | 현재 시점 추천 목록 계산·반환 | 둘 다 |
@@ -187,6 +188,7 @@
 - `POST /supplier-reply/view` 본문 `{"token": "…"}`: 발주 내용(허용 칸만, `supplier-document-fields.md` 5절). 아무것도 바꾸지 않는다.
 - `POST /supplier-reply/confirm` 본문 `{"token": "…", "due_date": "YYYY-MM-DD"(선택)}`: 발주서 행을 잠근 뒤(FOR UPDATE) ORDERED 일 때만(부분 입고 포함) 처리한다. 판단 순서: ① 날짜 범위(서울 기준 오늘 ~ 1년 뒤, 밖이면 422 `VALIDATION_ERROR`, details `[{"field": "due_date", "reason": "out_of_range"}]`) → ② 토큰 → ③ 상태 → ④ 처음 확인이면 `supplier_confirmed_at` 기록 → ⑤ 날짜가 지금 회신 납기와 같으면 변화 없음(제한 검사 전) → ⑥ 날짜가 실제로 바뀔 때만 회신 5번 제한 → 갱신·`supplier_reply_count` +1. 날짜 없이 보내면 확인만(횟수 불변, 5번을 다 써도 성공). 이력은 `po_change_log` 에 `supplier_confirmed_at`(없음 → 시각)·`supplier_due_date`(이전 → 이후) 행, 행위자 NULL(화면 이름 "공급업체(메일 링크)"). 응답은 view 와 같은 모양.
 - 두 경로 모두 요청 본문의 모르는 칸(예: `company_id`, `purchase_order_id`)은 422, 토큰은 1~100자. 응답 머리글 `Cache-Control: no-store`. 검증 오류 응답은 칸 이름·사유만 담고 입력값(토큰)을 되돌려 주지 않는다(`app/errors.py`).
+- 직원 대신 입력은 로그인 경로 `POST /purchase-orders/{id}/supplier-reply`(위 표, #265 PR4)이고 같은 날짜 범위 함수(`supplier_reply.check_reply_date`)를 쓴다. 공개 응답의 허용 칸(`PUBLIC_KEYS`)은 그대로이고 직원이 적은 사유는 공개 응답에 나가지 않는다.
 - 앱 안의 IP 기반 속도 제한은 없다(배포 플랫폼 몫, #43). 토큰은 32바이트 난수라 추측이 어렵고, 회신 변경은 5번으로 막는다. IP 는 저장하지 않는다.
 
 ### 회사 정보 (#156)

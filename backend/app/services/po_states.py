@@ -20,6 +20,7 @@ ACTION_STATES = {
     "email": ("APPROVED", "ORDERED"),  # 메일 보내기·미리보기: 승인됨(첫 발송) · 발주함(다시 보내기)
     "receive": ("ORDERED",),  # 입고 등록
     "correct_receipt": ("ORDERED",),  # 발주 입고 정정 (RECEIVED 가 되면 정정 불가)
+    "supplier_reply": ("ORDERED",),  # 직원이 받은 공급업체 회신 기록 (#265 PR4). 부분 입고여도 가능, 입고 완료·잔량 마감 뒤에는 불가
     "document": ("APPROVED", "ORDERED", "RECEIVED"),  # 발주서 문서(PDF·엑셀) 보기: 승인 이후만
 }
 
@@ -39,8 +40,8 @@ def allowed_actions(status: str, role: str, has_receipts: bool) -> list[str]:
     상태 조건은 위 두 표에서 읽는다(표를 두 벌 두지 않는다). 상태 밖 조건은 두 개뿐이다:
     승인은 관리자만(api 의 AdminUser), 취소는 입고 기록이 0건일 때만(change_status 의 CANNOT_CANCEL_RECEIVED),
     잔량 마감은 입고 기록이 1건 이상일 때만(close_remaining 의 NO_RECEIPTS). 취소와 잔량 마감은 정확히 반대 조건이다.
-    예) ORDERED · 담당자 · 입고 없음 → ["cancel", "email", "receive", "document"]
-        ORDERED · 담당자 · 입고 있음 → ["close_remaining", "email", "receive", "document"]
+    예) ORDERED · 담당자 · 입고 없음 → ["cancel", "email", "receive", "supplier_reply", "document"]
+        ORDERED · 담당자 · 입고 있음 → ["close_remaining", "email", "receive", "supplier_reply", "document"]
     """
     checks = {
         "edit": status in ACTION_STATES["edit"],
@@ -50,6 +51,7 @@ def allowed_actions(status: str, role: str, has_receipts: bool) -> list[str]:
         "close_remaining": status in TRANSITIONS["close_remaining"][0] and has_receipts,  # 역할 무관 (취소와 같은 권한)
         "email": status in ACTION_STATES["email"],  # ORDERED 는 다시 보내기
         "receive": status in ACTION_STATES["receive"],
+        "supplier_reply": status in ACTION_STATES["supplier_reply"],  # 역할 무관 (전화를 받는 담당자도)
         "document": status in ACTION_STATES["document"],
     }
     return [action for action, ok in checks.items() if ok]  # 순서는 위 딕셔너리 순서 그대로

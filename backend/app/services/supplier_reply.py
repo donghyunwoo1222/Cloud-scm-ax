@@ -18,6 +18,11 @@ from app.errors import AppError  # 공통 오류
 from app.models import Company, PurchaseOrder  # 표들
 from app.services import purchase_orders as po_service  # 줄 응답(build_out) 재사용
 from app.services.po_change_log import log_change, text_of  # 변경 이력 (#181)
+from app.services.po_states import (  # 직원 입력이 허용되는 상태 (#265 PR4)
+    ACTION_STATES,
+    STATUS_NAMES,
+)
+from app.services.tenant import get_owned  # 회사 분리 (다른 회사 404)
 
 REPLY_LIMIT = 5  # 회신 납기를 바꿀 수 있는 횟수 (같은 날짜 재전송·확인만은 세지 않는다)
 INVALID_MESSAGE = "링크가 만료되었거나 더 이상 쓸 수 없습니다"  # 없음·만료·옛 토큰·스위치 꺼짐을 구분하지 않는다
@@ -94,15 +99,20 @@ def one_year_later(today: date) -> date:
         return today.replace(year=today.year + 1, day=28)
 
 
+def check_reply_date(due_date: date | None) -> None:
+    """회신 납기 범위: 서울 기준 오늘 ~ 1년 뒤 (공개 링크와 직원 입력이 같은 규칙). 비우면 확인만이라 통과."""
+    today = seoul_today()
+    if due_date is not None and not (today <= due_date <= one_year_later(today)):  # 어제 이전·1년 초과
+        raise AppError(422, "VALIDATION_ERROR", "납기일은 오늘부터 1년 안의 날짜로 입력해 주세요.",
+                       [{"field": "due_date", "reason": "out_of_range"}])
+
+
 def confirm(db: Session, token: str, due_date: date | None) -> dict:
     """POST /supplier-reply/confirm. 발주서 잠금 → 상태 확인 → 확인 시각·회신 납기 기록(커밋은 API).
 
     판단 순서: 같은 날짜 재전송은 변화 없이 성공 → 확인만은 횟수와 무관하게 성공 → 날짜가 실제로 바뀔 때만 5번 제한.
     """
-    today = seoul_today()
-    if due_date is not None and not (today <= due_date <= one_year_later(today)):  # 어제 이전·1년 초과
-        raise AppError(422, "VALIDATION_ERROR", "납기일은 오늘부터 1년 안의 날짜로 입력해 주세요.",
-                       [{"field": "due_date", "reason": "out_of_range"}])
+    check_reply_date(due_date)
     order = find_order(db, token, lock=True)  # 잠근 뒤 상태를 다시 본다 (취소와 겹치면 먼저 끝난 쪽 결과를 본다)
     if order.status != "ORDERED":  # 취소·입고 완료는 보기만
         raise AppError(409, "SUPPLIER_REPLY_CLOSED", f"{NOTICES['CANCELLED' if order.status == 'CANCELLED' else 'RECEIVED']}. 확인·회신은 할 수 없습니다.")
@@ -121,3 +131,33 @@ def confirm(db: Session, token: str, due_date: date | None) -> dict:
     log_change(db, order.company_id, order.id, None, changes)  # 행위자 NULL = 공급업체(메일 링크)
     db.flush()
     return public_view(db, order)  # view 와 같은 모양: 공개 화면이 결과를 바로 그린다
+
+
+def record_by_staff(company_id: int, db: Session, user_id: int, order_id: int, due_date: date | None,
+                    reason: str | None) -> PurchaseOrder:
+    """POST /purchase-orders/{id}/supplier-reply (#265 PR4): 직원이 전화·메일로 받은 회신을 대신 기록한다. 커밋은 API.
+
+    공개 링크(confirm)와 다른 점: 로그인한 직원이 하므로 5번 제한·회신 횟수에 넣지 않고(공급업체 화면의 남은 횟수가 줄지 않는다),
+    이력의 행위자는 그 직원(changed_by), 받은 경로는 사유(reason, 필수)에 남긴다. 토큰이 없는(수동 주문 완료) 발주에서도 된다.
+    같은 점: ORDERED 만, 날짜 범위(check_reply_date), 확인 시각은 처음 한 번만, 같은 날짜면 아무것도 안 바뀐다. 상태는 바꾸지 않는다.
+    예) 회신 없음 → 2026-11-25, 사유 "11/19 전화, 김과장" → 이력 2행(확인 시각, 회신 납기), 횟수 0 그대로
+    """
+    reason = (reason or "").strip() or None  # 공백뿐인 사유는 없는 것으로
+    order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # 발주서 잠금 (공개 회신·취소·입고·마감과 한 줄로 선다). 다른 회사 404
+    if order.status not in ACTION_STATES["supplier_reply"]:  # 잠근 뒤 상태를 본다 (close_remaining 과 같은 순서·문장)
+        raise AppError(409, "INVALID_STATUS", f"{STATUS_NAMES[order.status]} 상태의 발주서는 이 작업을 할 수 없습니다.", {"status": order.status})
+    if not reason:
+        raise AppError(422, "VALIDATION_ERROR", "회신을 받은 경로(전화·메일 등)를 입력해 주세요.", [{"field": "reason", "reason": "required"}])
+    check_reply_date(due_date)
+    changes = []
+    if order.supplier_confirmed_at is None:  # 처음 확인만 기록
+        now = datetime.now(UTC)
+        changes.append(("supplier_confirmed_at", None, text_of(now)))
+        order.supplier_confirmed_at = now
+    if due_date is not None and due_date != order.supplier_due_date:  # 같은 날짜면 그대로 (이력도 안 생긴다)
+        changes.append(("supplier_due_date", text_of(order.supplier_due_date), text_of(due_date)))
+        order.supplier_due_date = due_date  # supplier_reply_count 는 올리지 않는다
+    log_change(db, company_id, order.id, user_id, changes, reason)  # 행위자 = 직원
+    db.flush()
+    db.refresh(order)
+    return order

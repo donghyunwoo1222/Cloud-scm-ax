@@ -1,4 +1,4 @@
-"""발주서 경로: 작성·수정·조회(#33), 상태 변경 approve·order·cancel(#34), 입고(#35), 잔량 마감(#252). 승인만 관리자, 나머지는 둘 다."""
+"""발주서 경로: 작성·수정·조회(#33), 상태 변경 approve·order·cancel(#34), 입고(#35), 잔량 마감(#252), 공급업체 회신 기록(#265). 승인만 관리자, 나머지는 둘 다."""
 
 from typing import Annotated, Literal  # 타입에 부가 정보를 붙이는 도구, 정해진 값 중 하나
 
@@ -28,6 +28,7 @@ from app.schemas.purchase_orders import (  # 요청 모양
     PurchaseOrderUpdate,
     ReceiptCreate,
     ReceiptDue,
+    SupplierReplyRecord,
 )
 from app.services import (
     export,  # 목록 내보내기 (#191)
@@ -35,6 +36,7 @@ from app.services import (
     po_change_log,  # 발주서 변경 이력 (#181)
     po_document,  # 발주서 문서·엑셀 (#157)
     po_mail,  # 발주서 메일 발송 (#158)
+    supplier_reply,  # 직원이 받은 공급업체 회신 기록 (#265 PR4)
 )
 from app.services import purchase_orders as po_service  # 업무 규칙
 
@@ -159,6 +161,13 @@ def cancel_order(order_id: PathId, user: CurrentUser, db: DB, data: OrderCancel 
 def close_remaining(order_id: PathId, data: OrderCloseRemaining, user: CurrentUser, db: DB) -> dict:
     order = po_service.close_remaining(user.company_id, db, user.id, order_id, data.reason)  # 404·409·422
     db.commit()  # 확정 (발주서 잠금도 여기서 풀린다)
+    return one(user, db, order)
+
+
+@router.post("/{order_id}/supplier-reply")  # 직원이 전화·메일로 받은 공급업체 회신 기록 (ORDERED 만, 둘 다, 상태는 그대로, #265 PR4)
+def record_supplier_reply(order_id: PathId, data: SupplierReplyRecord, user: CurrentUser, db: DB) -> dict:
+    order = supplier_reply.record_by_staff(user.company_id, db, user.id, order_id, data.due_date, data.reason)  # 404·409·422
+    db.commit()  # 확정 (발주서 잠금도 여기서 풀린다). 같은 날짜 재입력은 바뀐 것이 없어 멱등 키가 필요 없다
     return one(user, db, order)
 
 

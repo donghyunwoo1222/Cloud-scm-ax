@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { can, closedTotal, isClosedWithRemainder, overdueDays, receiptText, replyLateDays } from "./po.ts";
+import { can, closedTotal, isClosedWithRemainder, overdueDays, receiptText, replyGapText, replyLateDays } from "./po.ts";
 
 test("서버가 준 allowed_actions 에 있는 동작만 true", () => {
   const staffDraft: Parameters<typeof can>[0] = { allowed_actions: ["edit", "cancel"] };
@@ -73,4 +73,17 @@ test("발주함 줄은 남음, 잔량 마감 줄은 마감을 보인다", () => 
 test("잔량 마감 표시는 RECEIVED 이고 마감 수량이 있을 때만 (공급업체 상세 목록도 같은 함수)", () => {
   assert.equal(isClosedWithRemainder(order("RECEIVED", 5)), true);
   assert.equal(isClosedWithRemainder({ status: "CANCELLED", items: [] }), false);
+});
+
+test("회신 기록 미리보기: 약속보다 늦음·이름·같은 날, 날짜가 하나라도 없으면 null (#265 PR4)", () => {
+  assert.equal(replyGapText({ due_date: "2026-11-20", supplier_due_date: "2026-11-22" }), "약속보다 2일 늦음");
+  assert.equal(replyGapText({ due_date: "2026-11-20", supplier_due_date: "2026-11-17" }), "약속보다 3일 이름");
+  assert.equal(replyGapText({ due_date: "2026-11-20", supplier_due_date: "2026-11-20" }), "약속과 같은 날");
+  assert.equal(replyGapText({ due_date: null, supplier_due_date: "2026-11-20" }), null);
+  assert.equal(replyGapText({ due_date: "2026-11-20", supplier_due_date: null }), null);
+});
+
+test("회신 기록 버튼은 allowed_actions 의 supplier_reply 를 따른다", () => {
+  assert.equal(can({ allowed_actions: ["receive", "supplier_reply"] }, "supplier_reply"), true);
+  assert.equal(can({ allowed_actions: ["document"] }, "supplier_reply"), false); // 입고 완료
 });

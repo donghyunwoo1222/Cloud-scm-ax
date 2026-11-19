@@ -55,6 +55,7 @@ stateDiagram-v2
 | 메일 미리보기 `GET /{id}/email` | ✕ | ○ | ○ | ✕ | ✕ |
 | 공급업체 보기 `POST /supplier-reply/view` (#265, 로그인 없음) | 404 | 404 | ○ | ○ (잔량 마감이면 "입고 완료(남은 수량은 받지 않기로 함)") | ○ ("취소된 발주입니다"만) |
 | 공급업체 확인·회신 `POST /supplier-reply/confirm` (#265) | 404 | 404 | ○ (부분 입고 포함, 상태 그대로) | 409 `SUPPLIER_REPLY_CLOSED` | 409 `SUPPLIER_REPLY_CLOSED` |
+| 직원 회신 기록 `POST /{id}/supplier-reply` (#265 PR4) | ✕ | ✕ | ○ (부분 입고 포함, 상태 그대로, 토큰 없어도 됨). 사유 필수(없거나 공백이면 422) | ✕ | ✕ |
 
 - 권한: 승인만 관리자, 나머지는 관리자·담당자 둘 다 (`backend/app/api/purchase_orders.py` 의 `approve_order` 가 `AdminUser` 를 받는다, 정정은 `backend/app/api/movements.py` 의 `create_correction`).
 - 검사 순서: 담당자 승인은 상태보다 권한을 먼저 본다(어느 상태든 403). 취소는 ① 상태 → ② 입고 기록 → ③ 사유 순이라, ORDERED + 입고 있음 + 사유 없음은 422 가 아니라 409 `CANNOT_CANCEL_RECEIVED`. 메일은 ① 상태 → ② `ALREADY_ORDERED` → ③ `NO_SUPPLIER_EMAIL` → ④ 503 `MAIL_NOT_CONFIGURED` → ⑤ 발송 실패 502 `MAIL_FAILED`(APPROVED 그대로).
@@ -63,6 +64,7 @@ stateDiagram-v2
 - **"CANCELLED + 입고 이력"은 도달 불가**: 입고 기록이 있으면 취소가 막히므로 API 로 만들 수 없다. 그래서 테스트도 없다.
 - 상태 변경은 모두 `po_change_log` 에 `field="status"` 행(이전 → 이후)으로 남는다. 부분 입고와 메일 다시 보내기는 행이 없다.
 - **공급업체 확인·회신은 상태를 바꾸지 않는다(#265).** `set_status` 를 부르지 않고 `supplier_confirmed_at`·`supplier_due_date`·`supplier_reply_count` 칸과 변경 이력(행위자 NULL)만 남긴다. DRAFT·APPROVED 는 토큰이 없어(발송 성공 때만 발급) 404. 확인도 발주서 행을 FOR UPDATE 로 잠가 취소·입고와 한 줄로 선다: 취소가 먼저면 확인은 409, 확인이 먼저면 취소는 그대로 된다(확인 기록이 취소 이력보다 앞에 남는다).
+- **직원 회신 기록(#265 PR4)도 상태를 바꾸지 않는다.** 전화·메일로 받은 회신을 직원이 대신 넣는다(`supplier_reply.record_by_staff`, `ACTION_STATES["supplier_reply"]` = ORDERED). 검사 순서: ① 발주서 잠금(FOR UPDATE, 다른 회사 404) → ② 상태(409 `INVALID_STATUS`, details `{"status"}`) → ③ 사유(받은 경로, 앞뒤 공백을 자르고 비면 422, 최대 500자) → ④ 날짜 범위(공개 링크와 같은 `check_reply_date`). 확인 시각은 비어 있을 때만 채우고, 같은 날짜면 아무것도 안 바뀐다(이력 0행). 공개 링크와 달리 `supplier_reply_count`·5번 제한에 넣지 않는다(로그인한 직원이고 이력이 남으므로, 공급업체 화면의 남은 횟수가 줄지 않게). 이력 행위자는 직원(`changed_by`), 받은 경로는 `reason`. 그래서 변경 이력에서 "공급업체(메일 링크)"와 직원 이름으로 구분된다.
 - 승인 시 회사명 스냅샷(#263): 승인하면 `approved_by`·`approved_at` 과 함께 그때의 회사명을 `approved_company_name` 에 저장한다(문서 도장용, 새 상태·변경 이력 행 없음).
 
 ## 3. 표 밖 전이 2곳
@@ -85,7 +87,7 @@ stateDiagram-v2
 | 5 | 공급업체당 DRAFT 1장: DRAFT 가 있으면 409 `DUPLICATE_DRAFT`, 그 발주서를 승인하면 새 DRAFT 를 만들 수 있다 | `purchase_orders.py` 의 `create_order` (DUPLICATE_DRAFT 검사) | #251 |
 | 6 | 상태별 버튼 규칙이 화면에 따로 있다 (아래 5번 목록). 서버는 #260 PR3 부터 `allowed_actions` 를 주지만 화면 전환은 PR4 | 프런트 | #259 |
 
-**allowed_actions (#260 PR3)**: 발주서 응답(목록·상세·추천 초안)에 `po_states.allowed_actions(status, role, has_receipts)` 결과가 들어간다. 값은 `edit, approve, order, cancel, close_remaining, email, receive, document` 중 지금 되는 것(이 순서). 상태 조건은 `TRANSITIONS`·`ACTION_STATES` 에서 읽고, 상태 밖 조건은 셋: 승인은 관리자만, 취소는 입고 기록 0건일 때만, 잔량 마감은 입고 기록 1건 이상일 때만(#252, 역할 무관). `email` 은 ORDERED 에서 다시 보내기를 뜻한다. `backend/tests/test_po_allowed_actions.py` 가 2절 표(`test_po_transitions.ALLOWED`)와 양쪽 방향으로 같은지 검사한다. `close_remaining` 은 PR1 행렬 이후에 생겨 행렬에 없고, `backend/tests/test_po_close_remaining.py` 가 같은 양쪽 방향 검사를 따로 한다. 새 동작을 넣으면 `allowed_actions` 와 그 테스트의 `MATRIX` 도 고친다.
+**allowed_actions (#260 PR3)**: 발주서 응답(목록·상세·추천 초안)에 `po_states.allowed_actions(status, role, has_receipts)` 결과가 들어간다. 값은 `edit, approve, order, cancel, close_remaining, email, receive, supplier_reply, document` 중 지금 되는 것(이 순서). 상태 조건은 `TRANSITIONS`·`ACTION_STATES` 에서 읽고, 상태 밖 조건은 셋: 승인은 관리자만, 취소는 입고 기록 0건일 때만, 잔량 마감은 입고 기록 1건 이상일 때만(#252, 역할 무관). `email` 은 ORDERED 에서 다시 보내기를 뜻한다. `backend/tests/test_po_allowed_actions.py` 가 2절 표(`test_po_transitions.ALLOWED`)와 양쪽 방향으로 같은지 검사한다. `close_remaining` 은 PR1 행렬 이후에 생겨 행렬에 없고, `backend/tests/test_po_close_remaining.py` 가 같은 양쪽 방향 검사를 따로 한다. `supplier_reply`(#265 PR4)도 같아서 `NOT_IN_MATRIX` 로 행렬 비교에서 빼고 `backend/tests/test_po_supplier_reply_staff.py` 가 상태 5 × 역할 2 를 따로 검사한다. 새 동작을 넣으면 `allowed_actions` 와 그 테스트의 `MATRIX` 도 고친다.
 
 ## 5. 프런트가 상태를 직접 보는 곳
 
