@@ -159,6 +159,19 @@ class ChangeLogOut(BaseModel):
     created_at: datetime  # 바뀐 시각
 
 
+class EmailLogOut(BaseModel):
+    """메일 발송 시도 이력 한 행(#182). 토큰·본문·실패 원문은 표에도 응답에도 없다."""
+
+    id: int  # 이력 번호
+    kind: Literal["ORDER", "REMINDER"]  # 발주서 메일 / 납기 독촉(#269)
+    to_address: str | None  # 그때의 받는 주소 (옛 기록에서 비어 있을 수 있다)
+    sent_by_name: str  # 보낸 사람 이름 (이메일·번호는 내보내지 않는다, 모르면 빈 글자)
+    result: Literal["SENT", "FAILED", "UNSAVED"]  # 성공 / 실패 / 메일은 나갔으나 저장 실패
+    failure_code: str | None  # 실패 종류 코드 (FAILED 일 때만)
+    with_link: bool | None  # 확인 링크를 넣었는지 (옛 기록은 모름)
+    created_at: datetime  # 시각
+
+
 class ReceiptLine(OrderQuantity):
     purchase_order_item_id: Id  # 입고할 발주 줄 (이 발주서의 줄만)
 

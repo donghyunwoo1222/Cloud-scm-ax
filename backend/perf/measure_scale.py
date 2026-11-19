@@ -31,6 +31,7 @@ from app.models import (
     IdempotencyKey,
     InventoryMovement,
     PoChangeLog,
+    PoEmailLog,
     Product,
     PurchaseOrder,
     PurchaseOrderItem,
@@ -44,7 +45,7 @@ N_PRODUCTS_X, N_SUPPLIERS_X, N_PRODUCTS_Y = 3000, 40, 600  # 회사 X(측정 대
 N_ORDERS_X = 1500  # 회사 X 의 과거 발주서 수 (발주서 목록과 created_at 인덱스 판단용)
 SLOW_SECONDS = 2.0  # 이 시간을 넘으면 "느림" (사용자 결정)
 READ_RUNS, WRITE_RUNS = 5, 3  # 읽기는 5회(첫 번째는 워밍업), 쓰기는 3회
-TABLES = (Company, User, Supplier, Product, PurchaseOrder, PurchaseOrderItem, InventoryMovement, IdempotencyKey, PoChangeLog)
+TABLES = (Company, User, Supplier, Product, PurchaseOrder, PurchaseOrderItem, InventoryMovement, IdempotencyKey, PoChangeLog, PoEmailLog)
 
 
 def guard() -> None:
@@ -69,7 +70,7 @@ def cleanup() -> None:
         ids = list(s.scalars(select(Company.id).where(Company.name.like(f"{PREFIX}%"))))
         if not ids:
             return
-        for model in (IdempotencyKey, InventoryMovement, PoChangeLog, PurchaseOrderItem, PurchaseOrder, Product, Supplier, User):  # 가리키는 쪽부터 (변경 이력은 발주서보다 먼저, #181)
+        for model in (IdempotencyKey, InventoryMovement, PoChangeLog, PoEmailLog, PurchaseOrderItem, PurchaseOrder, Product, Supplier, User):  # 가리키는 쪽부터 (변경·메일 이력은 발주서보다 먼저, #181·#182)
             s.execute(delete(model).where(model.company_id.in_(ids)))
         s.execute(delete(Company).where(Company.id.in_(ids)))
         s.commit()

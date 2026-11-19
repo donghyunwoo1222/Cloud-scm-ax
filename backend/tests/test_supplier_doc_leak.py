@@ -23,6 +23,8 @@ USER_EMAIL = "secret-user-281@internal.test"  # 작성자·승인자 로그인 �
 CLOSED = "7654321"  # 잔량 마감 수량 표식 (다른 숫자와 겹치지 않는 값)
 MEMO = "PUBLIC-MEMO-281"  # 메모는 공개 칸: 반드시 나가야 한다
 SECRETS = (REASON, CHANGE, EMAILED, USER_EMAIL, CLOSED)
+EMAIL_LOG = "secret-email-log-182@internal.test"  # 메일 발송 시도 이력(po_email_log)의 받는 주소·실패 코드 (#182)
+SECRETS += (EMAIL_LOG,)
 INTERNAL_IDS = ("987650001", "987650002", "987650003", "987650004", "987650005", "987650006", "987650007")  # 회사·발주서·사용자·업체·품목·줄 id 2개
 
 # build_document 결과의 키 경로. 새 칸을 문서에 넣으면 이 테스트가 실패한다 → 분류표를 먼저 갱신하고 여기에 더한다
@@ -80,6 +82,7 @@ def doc(monkeypatch):
     supplier = SimpleNamespace(id=supplier_id, name="대한물산", contact_name="김대한", phone="02-2", email="sales@supplier.test")
     user = SimpleNamespace(id=user_id, company_id=company_id, name="이수진", email=USER_EMAIL)
     change_row = SimpleNamespace(field="memo", old_value=CHANGE, new_value=CHANGE, reason=CHANGE)  # 혹시 이력을 읽어도 표식이 나오게
+    change_row.to_address = change_row.failure_code = EMAIL_LOG  # 메일 발송 이력 행으로 읽혀도 표식이 나오게 (#182)
     db = SimpleNamespace(get_one=lambda model, key: company, execute=lambda *a, **k: [change_row],
                          scalars=lambda *a, **k: [change_row])
     out = {"items": [item(INTERNAL_IDS[5], "물티슈", False), item(INTERNAL_IDS[6], "세제", True)]}

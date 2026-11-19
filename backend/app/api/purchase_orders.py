@@ -1,5 +1,6 @@
 """발주서 경로: 작성·수정·조회(#33), 상태 변경 approve·order·cancel(#34), 입고(#35), 잔량 마감(#252), 공급업체 회신 기록(#265). 승인만 관리자, 나머지는 둘 다."""
 
+import logging  # 서버 로그 (메일 이력 저장 실패 알림)
 from typing import Annotated, Literal  # 타입에 부가 정보를 붙이는 도구, 정해진 값 중 하나
 
 from fastapi import (  # 라우터, 쿼리 문자열 칸, 요청 경로(멱등 키), 파일 응답
@@ -12,6 +13,7 @@ from fastapi import (  # 라우터, 쿼리 문자열 칸, 요청 경로(멱등 �
 from app.auth.deps import AdminUser, CurrentUser  # 관리자만 / 로그인 사용자 (#22·#23)
 from app.db import DB, ReadDB  # 요청마다 DB 세션, 한 시점으로 읽는 조회 세션
 from app.errors import AppError  # 공통 오류
+from app.models import PoEmailLog  # 메일 발송 이력 (#182, 저장 실패 때 UNSAVED 행)
 from app.pagination import Page  # page·page_size
 from app.schemas.common import (  # 멱등 키 헤더, 번호 칸 (DB 범위를 넘으면 422, #71)
     IdempotencyKeyHeader,
@@ -20,6 +22,7 @@ from app.schemas.common import (  # 멱등 키 헤더, 번호 칸 (DB 범위를 
 )
 from app.schemas.purchase_orders import (  # 요청 모양
     ChangeLogOut,
+    EmailLogOut,
     OrderCancel,
     OrderCloseRemaining,
     OrderEmailSend,
@@ -41,6 +44,7 @@ from app.services import (
 from app.services import purchase_orders as po_service  # 업무 규칙
 
 router = APIRouter(prefix="/purchase-orders")  # 이 파일의 경로는 모두 /purchase-orders 로 시작
+log = logging.getLogger(__name__)  # 이 파일의 로그
 
 
 def one(user, db, order) -> dict:
@@ -93,6 +97,12 @@ def get_change_log(order_id: PathId, user: CurrentUser, db: DB, page: Page) -> d
     return {"data": [ChangeLogOut(**r).model_dump(mode="json") for r in rows], "meta": meta}
 
 
+@router.get("/{order_id}/email-log")  # 메일 발송 시도 이력 (최신순, 읽기만, 관리자·담당자 둘 다, #182)
+def get_email_log(order_id: PathId, user: CurrentUser, db: DB, page: Page) -> dict:
+    rows, meta = po_mail.list_attempts(user.company_id, db, order_id, page)  # 다른 회사 404
+    return {"data": [EmailLogOut(**r).model_dump(mode="json") for r in rows], "meta": meta}
+
+
 @router.get("/{order_id}/document")  # 문서 화면용 값 (승인 이후만, 읽기만 하므로 GET)
 def get_document(order_id: PathId, user: CurrentUser, db: DB) -> dict:
     return {"data": po_document.build_document(user.company_id, db, order_id)}  # 404·409
@@ -115,11 +125,28 @@ def get_email_preview(order_id: PathId, user: CurrentUser, db: DB) -> dict:
 
 @router.post("/{order_id}/email")  # 메일 발송 → 성공하면 ORDERED + 발송 기록 (관리자·담당자 둘 다, 주문 완료 표시와 같은 권한)
 def send_email(order_id: PathId, data: OrderEmailSend, user: CurrentUser, db: DB) -> dict:
-    order = po_mail.send_order(user.company_id, db, user, order_id, data.intro, data.resend)  # 404·409·502·503
+    # 이력(#182)은 모두 이 요청의 세션 하나로 쓴다. 다른 연결로 쓰면, 이 세션이 잠근 발주서를 가리키는 행의 외래키 검사가
+    # 잠금이 풀리기를 기다리고 이 세션은 그 연결을 기다려 요청이 멈춘다
+    try:
+        order, entry = po_mail.send_order(user.company_id, db, user, order_id, data.intro, data.resend)  # 404·409·502·503
+    except AppError as exc:
+        if exc.code == "MAIL_FAILED":  # 발송 실패: 세션에 든 변경은 실패 이력 1행뿐이다(send_order 가 보장) → 그것만 확정
+            try:
+                db.commit()
+            except Exception:  # noqa: BLE001 — 실패 기록을 못 남겨도 사용자에게는 원래 실패(502)를 알린다
+                db.rollback()
+                log.warning("메일 실패 이력 저장 실패: purchase_order_id=%s", order_id)  # 주소·토큰은 남기지 않는다
+        raise
     try:
         db.commit()  # 확정 (발주서 잠금도 여기서 풀린다)
     except Exception as exc:  # 메일은 이미 나갔는데 저장만 실패한 드문 경우: 다시 보내지 않게 알린다
-        db.rollback()
+        db.rollback()  # 잠금이 풀린 뒤라 같은 세션으로 "나갔지만 저장 실패" 1행을 한 번만 남겨 본다
+        try:
+            db.add(PoEmailLog(**entry, result="UNSAVED"))
+            db.commit()
+        except Exception:  # noqa: BLE001 — 기록을 못 남겨도 원래 안내(500)를 그대로 낸다
+            db.rollback()
+            log.warning("메일 UNSAVED 이력 저장 실패: purchase_order_id=%s", order_id)  # 주소·토큰은 남기지 않는다
         # 링크를 넣어 보냈다면 새 토큰도 저장되지 않아 그 링크는 열리지 않는다(#265). 버튼 이름은 document/mail-panel.tsx 와 같게
         link_note = (" 이번 메일의 확인 링크는 열리지 않습니다. 공급업체가 링크로 회신해야 하면 발주함 상태에서 '다시 보내기'를 눌러 주세요."
                      if po_mail.supplier_link_base() else "")
