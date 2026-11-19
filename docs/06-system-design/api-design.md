@@ -67,6 +67,7 @@
 | F6 | POST /purchase-orders/{id}/receipts | 발주 품목 입고(부분 가능). 이력 등록 + 상태 갱신을 한 번에 | 둘 다 |
 | F6 | POST /purchase-orders/{id}/cancel | 입고 이력이 없는 발주만 취소. 선택 본문 `{"reason": "사유(500자 이하)"}`, 발주함(ORDERED) 취소는 사유 필수(없거나 공백이면 422) | 둘 다 |
 | F6 | GET /purchase-orders/{id}/change-log | 발주서 변경 이력(#181): DRAFT 수정·상태 변경의 변경 전·후 값, 수정자 이름(이메일 없음), 시각, 사유. 최신순, 쪽 나누기. 다른 회사 404. 수정·삭제 API는 없다 | 둘 다 |
+| F6 | GET /purchase-orders/{id}/email-log | 메일 발송 시도 이력(#182): 종류(`ORDER`/`REMINDER`), 받는 주소, 보낸 사람 이름(`sent_by_name`, 이메일·번호 없음), 결과(`SENT`/`FAILED`/`UNSAVED`), 실패 코드, 링크 포함 여부, 시각. 최신순 20개씩. 다른 회사 404. 수정·삭제 API는 없다 | 둘 다 |
 | F6 | POST /purchase-orders/{id}/supplier-reply | 직원이 전화·메일로 받은 공급업체 회신 기록(#265 PR4). 본문 `{"due_date": "YYYY-MM-DD"(선택), "reason": "받은 경로(필수, 500자 이하)"}`. ORDERED 만(부분 입고 포함), 상태는 그대로. 회신 횟수·5번 제한에 넣지 않는다. 이력 행위자 = 직원, 사유 = 받은 경로 | 둘 다 |
 | 자동화 공급업체 확인 링크 | POST /supplier-reply/view, POST /supplier-reply/confirm | 로그인 없는 공개 경로(#265). 발주 메일 링크의 토큰(본문 `token`)으로 발주 내용 보기·확인 버튼(+회신 납기). 회사·발주 id 는 받지 않는다. `SUPPLIER_LINK_ENABLED=false` 면 404 | 공급업체(메일 링크) |
 | F7 대시보드 | GET /dashboard | 부족·과잉·장기재고·진행 중 발주·이번 달 입출고 요약. 입고 예정과 월 입출고는 각각 `incoming_by_unit`, `in_by_unit`, `out_by_unit`에 재고 단위별 합계를 반환한다. | 둘 다 |
@@ -176,7 +177,8 @@
 ### 메일 반자동 발송 (#158)
 
 - `GET /purchase-orders/{id}/email`: `to`(공급업체 이메일, 없으면 null), `supplier_id`, `reply_to`(지금 사용자 이메일), `subject`(`[회사명] 발주서 PO-… (발주일자)`), `intro`(기본 앞머리), `fixed_html`(품목표·합계·발주 조건, 서버가 escape), `attachments`(PDF·엑셀 이름), `status`, `emailed_at`·`emailed_to`, `mail_ready`(SMTP 설정 여부). APPROVED·ORDERED만, 그 밖은 409 `INVALID_STATUS`.
-- `POST /purchase-orders/{id}/email` 본문 `{"intro": "앞머리(1~2000자)", "resend": false}`. 받는 사람·제목·고정 본문은 서버가 만들고 본문으로 바꿀 수 없다(모르는 칸 422). 발주서 행을 잠근 뒤 검사 → SMTP 발송 → 성공이면 APPROVED는 ORDERED(+`ordered_at`), `emailed_at`·`emailed_to`·`emailed_by`를 덮어쓰고 커밋한다. 응답은 발주서 하나.
+- `POST /purchase-orders/{id}/email` 본문 `{"intro": "앞머리(1~2000자)", "resend": false}`. 받는 사람·제목·고정 본문은 서버가 만들고 본문으로 바꿀 수 없다(모르는 칸 422). 발주서 행을 잠근 뒤 검사 → SMTP 발송 → 성공이면 APPROVED는 ORDERED(+`ordered_at`), `emailed_at`·`emailed_to`·`emailed_by`를 덮어쓰고, 메일 발송 이력(`po_email_log`)에 SENT 1행을 넣어 함께 커밋한다. 응답은 발주서 하나.
+- 이력(#182): 메일 서버 실패(502)는 발주서를 바꾸지 않고 FAILED 1행(실패 코드만)을 확정한다. 저장 실패(500 `MAIL_SENT_NOT_SAVED`)는 롤백 뒤 UNSAVED 1행을 한 번 남겨 본다. 409·503은 기록하지 않는다. 이력 저장이 실패해도 응답 코드는 원래대로이고, 서버 로그에는 발주서 번호만 남는다(주소·토큰 없음).
 - 오류: ORDERED인데 `resend`가 없으면 409 `ALREADY_ORDERED`(더블클릭 두 번째 요청도 여기서 막힌다), 공급업체 이메일 없음 409 `NO_SUPPLIER_EMAIL`, SMTP 설정 없음 503 `MAIL_NOT_CONFIGURED`, 메일 서버 거부·연결 실패 502 `MAIL_FAILED`(상태는 APPROVED 그대로), 메일은 나갔는데 저장 실패 500 `MAIL_SENT_NOT_SAVED`(다시 보내지 말고 확인 후 "주문 완료 표시". 확인 링크를 넣어 보낸 경우에는 그 링크가 열리지 않으니 필요하면 '다시 보내기'를 누르라는 문장이 덧붙는다, #265). 다른 회사 404. 권한은 "주문 완료 표시"와 같이 관리자·담당자 둘 다.
 - 보내는 주소는 시스템 주소 하나(`SMTP_FROM`, 표시 이름은 회사명), `Reply-To`는 보낸 사용자. SMTP 계정은 환경 변수(`SMTP_HOST`·`SMTP_PORT`·`SMTP_USER`·`SMTP_PASSWORD`·`SMTP_FROM`·`SMTP_SECURITY`)로만 받는다. 로컬 Docker는 가짜 메일함 mailpit(http://localhost:8025)으로 보낸다.
 

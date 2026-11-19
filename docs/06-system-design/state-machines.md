@@ -129,7 +129,7 @@ stateDiagram-v2
 | 13 | 슬랙 채팅 발주 | 제안(토큰) → 확인(초안 생성) / 취소 / 만료(30분) | `backend/app/services/chat_order.py` 의 `propose`·`confirm`·`cancel`, `MULTIPLE`, `_check` (그 밖의 처리는 함수 이름 미확인, 파일 단위로 표기) | 높음 |
 | 14 | 슬랙 이벤트·아침 DM 중복 | 처음 → 이미 처리함 (event_id, 날짜:사용자) | `backend/app/services/slack_events.py` 의 `SEEN_MAX` 와 모듈 머리 설명, `backend/app/services/slack_digest.py` 의 `ENDPOINT` 와 모듈 머리 설명 | 중간 |
 | 15 | LLM 사용 가능 여부 | 켜짐·꺼짐·한도 초과 등 (DISABLED·DAILY_LIMIT·BUDGET·…) | `backend/app/services/llm.py` 의 `LLMUnavailable`, `_enabled`, `ask`, `backend/app/slack_worker.py` 의 `disabled_reason` | 낮음 |
-| 16 | 메일 발송 기록 | 미발송 → 발송(마지막 1건만, 다시 보내면 덮어씀) | `backend/app/models/purchase_order.py` 의 `PurchaseOrder.emailed_at`·`emailed_to`·`emailed_by`, `po_mail.py` 의 `emailed_at` 을 저장하는 처리 (함수 이름 미확인, 파일 단위로 표기) | 중간 |
+| 16 | 메일 발송 기록 | 미발송 → 발송(마지막 성공 1건, 다시 보내면 덮어씀). 시도마다의 결과(SENT·FAILED·UNSAVED)는 상태가 아니라 추가 전용 이력 `po_email_log` 에 쌓인다(#182) | `backend/app/models/purchase_order.py` 의 `PurchaseOrder.emailed_at`·`emailed_to`·`emailed_by`, `po_mail.send_order`, `backend/app/models/po_email_log.py` 의 `PoEmailLog`, `api/purchase_orders.send_email`(실패·UNSAVED 확정) | 중간 |
 | 17 | 화면 상태 | 목록 쪽·검색·비활성 포함, 취소 패널 열림 등 | `frontend/app/lib/list.tsx` 의 `useList`, `frontend/app/(app)/purchase-orders/[id]/page.tsx` 의 취소 패널 상태 (함수 이름 미확인, 파일 단위로 표기) (전체 목록은 확인 못함) | 낮음 |
 
 점검 보고의 17개 이름과 실제 코드가 다른 점: 재고 상태는 코드 값이 NORMAL·SHORTAGE·UNKNOWN 세 개이고, 장기재고·과잉재고는 대시보드 집계로 따로 있다. 나머지는 이름대로 코드가 있었다.
