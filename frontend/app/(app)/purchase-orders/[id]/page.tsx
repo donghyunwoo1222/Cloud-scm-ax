@@ -12,7 +12,7 @@ import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
 import { useMe } from "../../../lib/me"; // 내 역할 (회사 정보 입력 링크는 관리자에게만. 상태 버튼은 allowed_actions)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { boxLimit, can, fmtDate, fmtTime, formatOrderUnitPrice, isClosedWithRemainder, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, replyLateDays, PoAction, PoItem, PoItemSort, PurchaseOrder, quantityLabel, remainingQuantity, totalAmount, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
+import { boxLimit, can, fmtDate, fmtTime, formatOrderUnitPrice, isClosedWithRemainder, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, replyLateDays, PoAction, PoItemSort, PurchaseOrder, quantityLabel, receiptText, remainingQuantity, totalAmount, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 import { ChangeLogSection } from "./change-log"; // 변경 이력 섹션 (#181)
@@ -20,16 +20,6 @@ import styles from "./receipt.module.css";
 
 // 상태 버튼의 이름표: [서버 동사 경로, 버튼 이름]. 보일지 말지는 서버의 allowed_actions 가 정한다 (#260)
 // 입고 등록은 아래 폼 여는 버튼이 따로 있다
-// 줄의 입고 현황 글자. 잔량 마감된 줄은 "남음" 대신 "마감"으로 적어 미입고로 오해하지 않게 한다 (#252)
-// 예) 95/100 입고 후 마감 → "95 / 100개 입고 · 마감 5개", 전량 정정 뒤 마감 → "입고 0 / 100개 · 마감 100개"
-function receiptText(i: PoItem): string {
-  const remaining = remainingQuantity(i); // 발주 − 누적 입고
-  const fmt = (n: number) => n.toLocaleString("ko-KR");
-  const closed = i.closed_quantity ?? 0; // 마감 수량 (RECEIVED 이고 못 받은 수량)
-  if (closed > 0) return i.received_quantity === 0 ? `입고 0 / ${fmt(i.quantity)}${i.unit} · 마감 ${fmt(closed)}${i.unit}` : `${fmt(i.received_quantity)} / ${fmt(i.quantity)}${i.unit} 입고 · 마감 ${fmt(closed)}${i.unit}`;
-  return remaining === 0 ? "전량 입고" : `${fmt(i.received_quantity)} / ${fmt(i.quantity)}${i.unit} 입고 · ${fmt(remaining)}${i.unit} 남음`;
-}
-
 const ACTIONS: [PoAction, string][] = [["approve", "승인"], ["order", "공급업체에 주문 완료 표시"], ["cancel", "취소"]];
 
 // 승인 전 경고(#157): 회사 정보 중 비어 있으면 문서 머리말에 빠지는 칸. 지불조건·납품장소·메모는 비어도 정상이라 검사하지 않는다
@@ -465,7 +455,7 @@ function Detail() {
                 <td style={S.num}>{lineAmount(i).toLocaleString("ko-KR")}</td>
                 <td style={S.num}>
                   {/* 품목마다 실제 단위를 붙여 누적 입고와 남은 수량을 보여준다. */}
-                  {receiptText(i)}
+                  {receiptText(i, order.status)}
                 </td>
               </tr>
             );
@@ -500,7 +490,7 @@ function Detail() {
                 </div>
                 <div className="compact-sub">
                   <span>{skuWithOptions(i.product_sku, i)}</span>
-                  <span>{receiptText(i)}</span>
+                  <span>{receiptText(i, order.status)}</span>
                   <span>금액 {lineAmount(i).toLocaleString("ko-KR")}원</span>
                   {/* 2줄: SKU · 입고 현황 · 금액 (단가는 표에서) */}
                 </div>
