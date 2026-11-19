@@ -140,6 +140,15 @@ class OrderCloseRemaining(BaseModel):
     reason: Annotated[str, Field(max_length=500)]  # 잔량 마감 사유 (최대 500자, 취소 사유와 같은 한도)
 
 
+class SupplierReplyRecord(BaseModel):
+    """POST /purchase-orders/{id}/supplier-reply 본문 (#265 PR4). 직원이 받은 공급업체 회신. 행위자·회사는 로그인에서만 가져온다."""
+
+    model_config = ConfigDict(extra="forbid")  # changed_by·company_id 같은 칸은 422
+
+    due_date: date | None = None  # 회신 납기 (비우면 확인만, 범위는 서비스: 서울 기준 오늘 ~ 1년 뒤)
+    reason: Annotated[str, Field(max_length=500)]  # 받은 경로·메모 (필수, 공백뿐이면 서비스에서 422)
+
+
 class ChangeLogOut(BaseModel):
     id: int  # 이력 번호
     field: str  # 바뀐 항목 (예: status, due_date, items[SKU].quantity)

@@ -12,9 +12,10 @@ const ITEM_FIELD_LABELS: Record<string, string> = {
   quantity: "수량", closed_quantity: "마감 수량", unit_price: "단가", min_order_units: "최소 주문 수량", units_per_box: "박스 입수", box_unit_price: "박스 단가", order_unit: "발주단위",
 }; // 줄 안의 칸 이름 (모르는 칸은 서버 이름 그대로)
 
-// 값 → 화면 글자. 비었으면 "없음", 상태 코드는 기존 상태 이름 표로 바꾼다 (예: "ORDERED" → "발주함")
+// 값 → 화면 글자. 비었으면 "없음", 상태 코드는 기존 상태 이름 표로, 공급업체 확인 시각은 서울 시각으로 (예: "ORDERED" → "발주함")
 const show = (field: string, value: string | null) =>
-  value === null || value === "" ? "없음" : field === "status" ? STATUS_LABEL[value as PoStatus] ?? value : value;
+  value === null || value === "" ? "없음" : field === "status" ? STATUS_LABEL[value as PoStatus] ?? value
+    : field === "supplier_confirmed_at" ? fmtTime(value) : value;
 
 // 이력 한 행을 한 줄 문장으로. 모르는 field 는 원래 이름을 그대로 쓴다
 // 예) items[A-1].unit_price 1000→1200 → "품목 A-1 단가: 1000 → 1200", due_date 없음 → "약속 납기: 없음 → 2026-11-20"
@@ -45,7 +46,7 @@ function Group({ rows }: { rows: ChangeLog[] }) {
   const [open, setOpen] = useState(false); // 긴 묶음을 펼쳤는지
   const long = rows.length > PREVIEW_LINES;
   const shown = long && !open ? rows.slice(0, PREVIEW_LINES - 1) : rows; // 6줄을 넘으면 5줄만
-  const title = rows.every((r) => r.field === "status") ? "상태 변경" : "수정";
+  const title = rows.every((r) => r.field === "status") ? "상태 변경" : rows.every((r) => r.field.startsWith("supplier_")) ? "공급업체 회신" : "수정"; // 링크·직원 입력은 이름으로 구분한다
   // 잔량 마감 = 같은 묶음에 items[SKU].closed_quantity 행이 있다 (서버가 마감 때만 같이 남긴다). 사유는 상태 줄에만 보이게 한다
   // shortcut: 20건 쪽 경계에서 묶음이 갈리면 "(잔량 마감)" 표시가 빠질 수 있다, 이력 데이터에 마감 표시가 생기면 그걸 쓴다
   const isClose = rows.some((r) => /\.closed_quantity$/.test(r.field));

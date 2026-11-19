@@ -49,7 +49,7 @@ export type PurchaseOrder = {
 export type PoStatus = "DRAFT" | "APPROVED" | "ORDERED" | "RECEIVED" | "CANCELLED"; // 서버가 쓰는 상태 5개
 
 // 서버 po_states.allowed_actions 가 주는 동작 이름 (backend/app/services/po_states.py)
-export type PoAction = "edit" | "approve" | "order" | "cancel" | "close_remaining" | "email" | "receive" | "document";
+export type PoAction = "edit" | "approve" | "order" | "cancel" | "close_remaining" | "email" | "receive" | "supplier_reply" | "document";
 
 // 이 발주서에서 action 을 할 수 있는지. 화면 버튼은 이것만 본다 (서버 규칙과 같은 값)
 // 칸이 없는 옛 응답은 빈 목록으로 본다: 버튼이 숨는 쪽이 안전하다 (누르면 409 가 나는 버튼보다 낫다)
@@ -140,10 +140,20 @@ const dayGap = (later: string, earlier: string) => (Date.parse(later) - Date.par
 // 지연 판단에 쓰는 날짜: 회신 납기가 있으면 회신, 없으면 약속 납기 (서버 coalesce 와 같은 규칙)
 export const effectiveDueDate = (order: Pick<PurchaseOrder, "due_date" | "supplier_due_date">) => order.supplier_due_date ?? order.due_date;
 
+// 회신 납기 − 약속 납기(일). 둘 다 있어야 비교하고 없으면 null. 예) 약속 11-20, 회신 11-22 → 2, 회신 11-18 → -2
+export function replyGapDays(order: Pick<PurchaseOrder, "due_date" | "supplier_due_date">): number | null {
+  if (!order.due_date || !order.supplier_due_date) return null;
+  return dayGap(order.supplier_due_date, order.due_date);
+}
+
 // 회신 납기가 약속 납기보다 며칠 늦은지 (없거나 같거나 빠르면 0). 예) 약속 11-20, 회신 11-22 → 2
-export function replyLateDays(order: Pick<PurchaseOrder, "due_date" | "supplier_due_date">): number {
-  if (!order.due_date || !order.supplier_due_date) return 0; // 둘 다 있어야 비교한다
-  return Math.max(0, dayGap(order.supplier_due_date, order.due_date));
+export const replyLateDays = (order: Pick<PurchaseOrder, "due_date" | "supplier_due_date">): number => Math.max(0, replyGapDays(order) ?? 0);
+
+// 회신 기록 입력 창의 미리보기 문장 (#265 PR4). 약속 납기나 입력 날짜가 없으면 null
+export function replyGapText(order: Pick<PurchaseOrder, "due_date" | "supplier_due_date">): string | null {
+  const gap = replyGapDays(order);
+  if (gap === null) return null;
+  return gap > 0 ? `약속보다 ${gap}일 늦음` : gap < 0 ? `약속보다 ${-gap}일 이름` : "약속과 같은 날";
 }
 
 // 화면에서 한 번 구한 서울 날짜와 기준 납기(회신 우선)를 비교한다.

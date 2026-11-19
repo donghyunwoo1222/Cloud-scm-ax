@@ -12,9 +12,10 @@ import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
 import { useMe } from "../../../lib/me"; // 내 역할 (회사 정보 입력 링크는 관리자에게만. 상태 버튼은 allowed_actions)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { boxLimit, can, fmtDate, fmtTime, formatOrderUnitPrice, isClosedWithRemainder, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, replyLateDays, PoAction, PoItemSort, PurchaseOrder, quantityLabel, receiptText, remainingQuantity, totalAmount, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
+import { boxLimit, can, fmtDate, fmtTime, formatOrderUnitPrice, isClosedWithRemainder, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, replyGapText, replyLateDays, PoAction, PoItemSort, PurchaseOrder, quantityLabel, receiptText, remainingQuantity, totalAmount, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
+import { dateRange } from "../../../lib/supplier-reply"; // 회신 납기 선택 범위 (서버와 같은 오늘 ~ 1년 뒤)
 import { ChangeLogSection } from "./change-log"; // 변경 이력 섹션 (#181)
 import styles from "./receipt.module.css";
 
@@ -53,6 +54,10 @@ function Detail() {
   const [closing, setClosing] = useState(false); // 잔량 마감 패널을 열었는지 (#252)
   const [closeReason, setCloseReason] = useState(""); // 마감 사유 입력 (실패해도 지우지 않는다)
   const closeLock = useSubmitLock(); // 마감 확정 중복 클릭 잠금
+  const [replying, setReplying] = useState(false); // 회신 기록 패널을 열었는지 (#265 PR4)
+  const [replyDate, setReplyDate] = useState(""); // 공급업체가 알려 준 납기 (비우면 확인만)
+  const [replyReason, setReplyReason] = useState(""); // 받은 경로·메모 (필수, 실패해도 지우지 않는다)
+  const replyLock = useSubmitLock(); // 회신 기록 중복 클릭 잠금
   const [logKey, setLogKey] = useState(0); // 바뀔 때마다 변경 이력을 다시 불러온다
   const [itemView, setItemView] = useState({ scope: "", ...DEFAULT_ITEM_VIEW }); // 발주서와 상태별로 표의 선택을 기억한다
 
@@ -148,6 +153,25 @@ function Detail() {
     });
   }
 
+  // 회신 기록 (#265 PR4): 직원이 전화·메일로 받은 회신. 상태는 바뀌지 않고, 이력에 내 이름과 받은 경로가 남는다
+  async function recordReply() {
+    const reason = replyReason.trim();
+    if (!reason) return; // 서버 422 와 별개로 화면에서도 막는다
+    await replyLock.run(async () => {
+      try {
+        setOrder(await api<PurchaseOrder>(`/purchase-orders/${id}/supplier-reply`, { method: "POST", body: { due_date: replyDate || null, reason } }));
+        setError(null);
+        setReplying(false);
+        setReplyDate(""); setReplyReason(""); // 성공했을 때만 비운다
+        toast("공급업체 회신을 기록했어요");
+        setLogKey((k) => k + 1); // 회신 이력을 다시 불러온다
+      } catch (e) {
+        setError(e); // 409 INVALID_STATUS, 422 문장 그대로. 입력은 그대로 둔다
+        load(); // 다른 사람이 먼저 바꿨을 수 있으니 최신 상태로
+      }
+    });
+  }
+
   // 입고 등록: 수량을 적은 줄만 한 번에 보낸다 (하나라도 넘치면 서버가 아무것도 저장하지 않는다)
   async function receive(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
@@ -185,6 +209,11 @@ function Detail() {
   const closeOpen = closing && can(order, "close_remaining"); // 상태가 바뀌어 마감할 수 없게 되면 패널을 닫은 것으로 본다
   const closeLines = order.items.filter((i) => remainingQuantity(i) > 0); // 마감하면 닫히는 줄 (남은 수량이 있는 줄)
   const closeBusy = closeLock.busy; // 마감 요청 중
+  const replyOpen = replying && can(order, "supplier_reply"); // 입고 완료·취소로 바뀌면 패널을 닫은 것으로 본다
+  const replyBusy = replyLock.busy; // 회신 기록 요청 중
+  const panelOpen = cancelOpen || closeOpen || replyOpen; // 패널은 한 번에 하나만
+  const replyPreview = replyGapText({ due_date: order.due_date, supplier_due_date: replyDate || null }); // 고른 날짜와 약속 납기 비교
+  const replyRange = dateRange(); // 서버와 같은 선택 범위
   const reasonRequired = order.status === "ORDERED"; // 발주함 취소만 사유 필수
   const approvalBlocked = order.status === "DRAFT" && !can(order, "approve"); // 작성 중인데 승인할 수 없다 = 담당자 (승인은 관리자만)
   const cancelBlocked = order.status === "ORDERED" && !can(order, "cancel"); // 발주함인데 취소할 수 없다 = 입고 기록이 있다
@@ -224,7 +253,7 @@ function Detail() {
           {order.supplier_confirmed_at && (
             <div>
               <dt style={S.detailLabel}>공급업체 확인</dt>
-              <dd style={S.detailValue}>{fmtTime(order.supplier_confirmed_at)}</dd>
+              <dd style={S.detailValue}>{fmtTime(order.supplier_confirmed_at)} <span style={S.hint}>(기록한 사람은 변경 이력에서 확인)</span></dd>{/* 직원도 대신 채울 수 있다 (#265 PR4) */}
             </div>
           )}
         </dl>
@@ -271,11 +300,13 @@ function Detail() {
         {can(order, "edit") && <Link href={`/purchase-orders/${order.id}/edit`} style={S.linkButtonGhost}>수정</Link>}
         {can(order, "document") && <Link href={`/purchase-orders/${order.id}/document`} style={S.linkButtonGhost}>발주서 문서</Link>}
         {/* 수정(작성 중)·문서(승인 이후)도 서버의 allowed_actions 를 따른다 */}
-        {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving || cancelOpen || closeOpen || busy || actLock.busy}
+        {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving || panelOpen || busy || actLock.busy}
           className={action === "cancel" ? undefined : "primary-action"} onClick={() => (action === "cancel" ? setCancelling(true) : act(action))}>{label}</button>)}
-        {can(order, "close_remaining") && <button type="button" disabled={receiving || cancelOpen || closeOpen || busy || actLock.busy}
+        {can(order, "close_remaining") && <button type="button" disabled={receiving || panelOpen || busy || actLock.busy}
           onClick={() => { setError(null); setClosing(true); }}>잔량 마감</button>}
-        {can(order, "receive") && !receiving && <button ref={receiptButton} className="primary-action" type="button" disabled={cancelOpen || closeOpen}
+        {can(order, "supplier_reply") && <button type="button" disabled={receiving || panelOpen || busy || actLock.busy}
+          onClick={() => { setError(null); setReplying(true); }}>회신 기록</button>}
+        {can(order, "receive") && !receiving && <button ref={receiptButton} className="primary-action" type="button" disabled={panelOpen}
           onClick={() => { setError(null); setReceiving(true); }}>입고 등록</button>}
       </div>
       {cancelOpen && (
@@ -311,6 +342,26 @@ function Detail() {
             <button type="button" disabled={closeBusy} onClick={() => { setClosing(false); setError(null); }}>닫기</button>
             <button type="submit" disabled={closeBusy || !closeReason.trim()}>{closeBusy ? "마감 중…" : "마감 확정"}</button>
             {!closeReason.trim() && <span style={S.hint}>잔량 마감은 사유가 필요합니다.</span>}
+          </div>
+        </form>
+      )}
+      {replyOpen && (
+        <form style={S.sectionCard} aria-labelledby="reply-heading" onSubmit={(e) => { e.preventDefault(); recordReply(); }}>
+          <h2 id="reply-heading" style={{ marginTop: 0 }}>공급업체 회신 기록</h2>
+          <p style={S.hint}>전화·메일로 받은 회신을 대신 기록합니다. 공급업체 메일 링크의 회신 횟수에는 들어가지 않습니다.</p>
+          <label htmlFor="reply-date">회신 납기 (선택, 비우면 확인만 기록)</label>
+          <input id="reply-date" type="date" style={{ display: "block" }} value={replyDate} min={replyRange.min} max={replyRange.max} disabled={replyBusy}
+            onChange={(e) => setReplyDate(e.target.value)} />
+          <p style={S.hint}>회신 납기를 입력하면 납기 지연 판단 기준이 이 날짜로 바뀝니다.{replyPreview && ` (${replyPreview})`}</p>
+          <label htmlFor="reply-reason">받은 경로·메모 (필수)</label>
+          <textarea id="reply-reason" rows={2} maxLength={500} style={{ display: "block", width: "100%" }} value={replyReason} disabled={replyBusy}
+            placeholder="예: 11/19 전화, 김과장" onChange={(e) => setReplyReason(e.target.value)} />
+          <span style={S.sub}>{replyReason.length}/500자</span>
+          <ErrorText error={error} labels={PO_LABELS} />
+          <div style={S.buttons}>
+            <button type="button" disabled={replyBusy} onClick={() => { setReplying(false); setError(null); }}>닫기</button>
+            <button type="submit" disabled={replyBusy || !replyReason.trim()}>{replyBusy ? "기록 중…" : "기록"}</button>
+            {!replyReason.trim() && <span style={S.hint}>받은 경로를 적어 주세요.</span>}
           </div>
         </form>
       )}

@@ -66,6 +66,7 @@ def test_action_states_keep_old_values():
         "email": ("APPROVED", "ORDERED"),  # po_mail.MAIL_STATUSES
         "receive": ("ORDERED",),  # purchase_orders.receive_order: status != "ORDERED"
         "correct_receipt": ("ORDERED",),  # stock.create_correction: status != "ORDERED"
+        "supplier_reply": ("ORDERED",),  # supplier_reply.record_by_staff (#265 PR4, PR2 이후 추가)
         "document": ("APPROVED", "ORDERED", "RECEIVED"),  # po_document.DOCUMENT_STATUSES
     }
     for action, matrix_action in (("edit", "edit"), ("email", "email_preview"), ("receive", "receive"),
