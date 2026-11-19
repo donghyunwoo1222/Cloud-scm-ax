@@ -33,9 +33,18 @@
 | 슬랙 아침 추천 DM | `{APP_BASE_URL}/recommendations` | `APP_BASE_URL`이 `https://`로 시작할 때만 붙인다(`slack_digest.py`). 추천이 0개면 DM을 보내지 않는다 |
 | 슬랙 초안 생성 결과 | `{APP_BASE_URL}/purchase-orders/{id}` (발주서별 상세, 최대 5장) + `{APP_BASE_URL}/purchase-orders` (목록) | 초안을 만들었고 주소가 `https://`일 때만 붙인다(`chat_order.py` `_made_text`, `slack_events.py`). 발주서 번호 옆에 상세 주소를 적고, 6장 이상이면 앞 5장만 주소를 적고 나머지는 번호만 적는다. 글 끝에는 전체 목록 주소가 함께 붙는다 |
 | 슬랙 "지금은 자동 처리가 안 돼요. 웹에서 처리해 주세요." | 없음 | 글자 안내만 있다(`chat_order.py`) |
-| 발주서 메일 | 없음 | 웹 주소 없이 PDF·엑셀 첨부(`po_mail.py`는 `APP_BASE_URL`을 쓰지 않는다) |
+| 발주서 메일 | `{APP_BASE_URL}/supplier-reply#{토큰}` (공급업체 확인 링크, #265) | **딥링크 규칙의 예외.** `SUPPLIER_LINK_ENABLED=true` 이고 `APP_BASE_URL`이 `https://`(로컬 시험은 `http://localhost`·`http://localhost:포트`만)일 때만 넣는다(`po_mail.supplier_link_base`). 아니면 링크 없이 PDF·엑셀 첨부만이고 본문은 #265 이전과 글자 하나까지 같다. 아래 "공급업체 확인 링크" 참고 |
 | 비밀번호 재설정 메일 | `{APP_BASE_URL}/reset-password?token=…` | **딥링크 규칙의 예외.** 본인 확인용 1회용 토큰(30분)이라 알림 링크가 아니다. 규칙 C-(2)는 업무 알림에만 적용한다 |
 | 관리자 로그인 인증코드 메일 | 없음 | 6자리 코드만 보낸다 |
+
+### 공급업체 확인 링크 (#265 PR2)
+
+- **형식**: `{APP_BASE_URL}/supplier-reply#{토큰}`. 토큰은 `#` 뒤에 둔다. `#` 뒤는 브라우저가 서버로 보내지 않아 서버 접근 로그·`Referer` 에 남지 않는다. 화면(PR3)은 `#` 뒤 값을 읽어 `POST /api/v1/supplier-reply/view`·`confirm` 본문으로 보낸다.
+- **https 규칙**: 슬랙 링크와 같이 `https://` 만 넣는다. 다른 점은 로컬 시험 주소 `http://localhost`(포트 가능)만 예외로 허용한다는 것이다(슬랙 링크는 예외 없음). `http://localhost.example` 처럼 localhost 로 시작만 하는 주소는 안 된다.
+- **로그인 없는 경로 예외**: 규칙 C-(2)("링크에 토큰을 넣지 않는다")와 C-(4)("로그인이 없으면 로그인 화면으로")의 예외다. 받는 사람이 사내 사용자가 아니라 공급업체라서다. 대신 ① 링크를 여는 것(GET·보기)으로는 아무것도 바뀌지 않고 사람이 버튼을 눌러 보내는 POST 만 기록한다(메일 보안 검사기가 링크를 미리 열어도 확인되지 않게), ② 회사·발주 id 를 요청에서 받지 않고 토큰 해시로 찾은 행만 쓴다, ③ 응답은 허용 칸만(`supplier-document-fields.md` 5절), ④ 유효 30일, 다시 보내면 옛 링크 무효, 없는·만료·옛 토큰은 같은 404 문장.
+- **화면 머리글**: `/supplier-reply` 화면에 `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex`, `Cache-Control: no-store` (`frontend/next.config.ts`). API 응답도 `Cache-Control: no-store`.
+- `/supplier-reply` 는 로그인 뒤 복귀(`next`) 허용 경로 14개에 넣지 않는다(공개 화면).
+- **확인 못함(배포 전 실제 확인)**: 메일 보안 검사기·메일 프로그램(Gmail·Outlook 등)이 링크의 `#` 뒷부분을 그대로 두는지, 배포 프록시가 요청 본문을 로그로 남기는지.
 
 ## C. 딥링크 규칙
 
