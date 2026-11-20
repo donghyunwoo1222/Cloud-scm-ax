@@ -21,11 +21,12 @@ from app.auth.security import (
 )
 from app.config import settings  # SMTP 설정 (환경 변수)
 from app.errors import AppError  # 공통 오류
-from app.models import PurchaseOrder, User  # 표들
+from app.models import PoEmailLog, PurchaseOrder, User  # 표들
+from app.pagination import PageParams, paginate  # 이력 목록 쪽 나누기
 from app.services import po_document  # 문서 값·PDF·엑셀
 from app.services import purchase_orders as po_service  # 상태 변경 함수 set_status (#260)
 from app.services.po_states import ACTION_STATES  # 보낼 수 있는 상태 (#260)
-from app.services.tenant import get_owned  # 회사 조건이 붙은 조회 (다른 회사 404)
+from app.services.tenant import get_owned, scoped  # 회사 조건이 붙은 조회 (다른 회사 404)
 
 SMTP_TIMEOUT = 10  # 메일 서버 응답을 기다리는 최대 초 (그동안 발주서 행이 잠겨 있다)
 INTRO_MAX = 2000  # 앞머리 문단 최대 글자 수 (스키마와 같은 값)
@@ -223,11 +224,46 @@ def failure(exc: Exception) -> AppError:
     return AppError(502, "MAIL_FAILED", f"{reason} 발주서는 승인됨 상태 그대로입니다.", {"error": type(exc).__name__})
 
 
-def send_order(company_id: int, db: Session, user: User, order_id: int, intro: str, resend: bool) -> PurchaseOrder:
+def list_attempts(company_id: int, db: Session, order_id: int, page: PageParams) -> tuple[list[dict], dict]:
+    """GET /purchase-orders/{id}/email-log: 발송 시도 이력 최신순. 다른 회사·없는 발주서 404. 사람은 이름만(번호·이메일 없음)."""
+    get_owned(company_id, db, PurchaseOrder, order_id)  # 404
+    rows, meta = paginate(db, scoped(company_id, PoEmailLog).where(
+        PoEmailLog.purchase_order_id == order_id).order_by(PoEmailLog.id.desc()), page)
+    ids = {r.sent_by for r in rows if r.sent_by is not None}
+    names = dict(db.execute(scoped(company_id, User).with_only_columns(User.id, User.name).where(
+        User.id.in_(ids))).all()) if ids else {}  # 사용자 번호 → 이름 (한 번에)
+    return [
+        {"id": r.id, "kind": r.kind, "to_address": r.to_address, "sent_by_name": names.get(r.sent_by, "") if r.sent_by else "",
+         "result": r.result, "failure_code": r.failure_code, "with_link": r.with_link, "created_at": r.created_at}
+        for r in rows
+    ], meta
+
+
+def failure_code(exc: Exception) -> str:
+    """발송 실패의 종류 코드 (이력 표 failure_code). 원문 메시지는 저장하지 않는다.
+
+    SMTPException 은 OSError 의 자식이라, 구체적인 것부터 보고 일반 OSError(연결 거부·주소 못 찾음)는 맨 끝에 본다."""
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return "AUTH"
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return "RECIPIENT_REFUSED"
+    if isinstance(exc, TimeoutError):  # socket.timeout 포함
+        return "TIMEOUT"
+    if isinstance(exc, (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected)):
+        return "CONNECTION"
+    if isinstance(exc, smtplib.SMTPException):  # 보낸 주소 거부·본문 거부 등
+        return "OTHER"
+    return "CONNECTION"  # 그 밖의 OSError: 연결 거부·주소 못 찾음
+
+
+def send_order(company_id: int, db: Session, user: User, order_id: int, intro: str,
+               resend: bool) -> tuple[PurchaseOrder, dict]:
     """POST /purchase-orders/{id}/email. 발주서 잠금 → 검사 → 발송 → 성공이면 ORDERED + 기록(커밋은 API).
 
     잠금 덕분에 더블클릭한 두 번째 요청은 첫 요청이 끝날 때까지 기다렸다가 ORDERED 를 보고 409 가 된다(resend 없이).
-    실패하면 아무것도 바꾸지 않고 502 → 요청이 끝나며 되돌려져 APPROVED 그대로.
+    발송 실패: 발주서·토큰은 하나도 바꾸지 않고 실패 이력 1행만 세션에 넣은 뒤 502. API 가 이 1행만 커밋한다(#182).
+    돌려주는 dict 는 성공 이력 행의 값이다. 커밋이 실패하면(MAIL_SENT_NOT_SAVED) API 가 이 값으로 UNSAVED 행을 남긴다.
+    409·503 은 메일 서버에 가지 않았으므로 이력을 남기지 않는다.
     """
     order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # 발주서 잠금 (잠금 순서: 회사 → 발주서 → 품목)
     doc = load_mail_document(company_id, db, order)  # DRAFT·RECEIVED·CANCELLED 409
@@ -242,9 +278,13 @@ def send_order(company_id: int, db: Session, user: User, order_id: int, intro: s
     base = supplier_link_base()
     token = secrets.token_urlsafe(32) if base else None  # 원본 토큰은 메일 본문에만 들어간다 (DB·응답·로그에는 없음)
     link = f"{base}/supplier-reply#{token}" if token else None  # # 뒤는 서버로 가지 않아 서버 로그·Referer 에 남지 않는다
+    entry = {"company_id": company_id, "purchase_order_id": order.id, "kind": "ORDER", "sent_by": user.id,
+             "to_address": to, "with_link": token is not None}  # 이력 행 값 (토큰·본문·제목은 넣지 않는다)
     try:
         deliver(build_message(doc, intro, user.email, link))  # 실제 발송 (최대 SMTP_TIMEOUT 초)
     except (smtplib.SMTPException, OSError) as exc:  # 메일 서버 거부·연결 실패·시간 초과
+        # 여기까지 발주서·토큰은 하나도 바뀌지 않았다(아래 대입은 모두 발송 성공 뒤). 그래서 API 가 커밋해도 실패 행만 저장된다
+        db.add(PoEmailLog(**entry, result="FAILED", failure_code=failure_code(exc)))
         raise failure(exc) from exc
     if order.status == "APPROVED":  # 첫 발송: 발주함으로 (주문 완료 표시와 같은 효과). 다시 보내기는 상태·이력 그대로
         po_service.set_status(db, company_id, order, user.id, "email")  # 이력 → ORDERED (#260)
@@ -253,6 +293,7 @@ def send_order(company_id: int, db: Session, user: User, order_id: int, intro: s
     if token:  # 발송이 성공한 뒤에만 새 토큰으로 덮어쓴다: 발송이 실패하면 옛 링크가 그대로 유효하다
         order.supplier_token_hash = hash_reset_token(token)  # 해시만 저장 (옛 링크는 여기서 무효)
         order.supplier_token_expires_at = func.now() + timedelta(days=LINK_DAYS)  # DB 시각 기준 30일
+    db.add(PoEmailLog(**entry, result="SENT"))  # 성공 이력: 상태·emailed_*·토큰과 같은 트랜잭션 (함께 저장되거나 함께 사라진다)
     db.flush()
     db.refresh(order)  # func.now() 값을 실제 시각으로 다시 읽는다
-    return order
+    return order, entry

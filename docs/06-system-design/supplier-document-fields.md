@@ -46,6 +46,7 @@
 | 추천 사유 `recommendation_reason`, 추천 수량 `recommended_quantity` | 발주 줄, `po_service.build_out` 응답 | `build_document` 가 줄 칸을 골라 쓰므로 안 들어간다 |
 | 변경 이력 내용 | `po_change_log` | `build_document` 가 읽지 않는다 |
 | 메일 발송 이력 `emailed_at`·`emailed_to`·`emailed_by` | 발주서 | 메일 미리보기 응답(`build_preview`, 로그인한 직원용)에는 있다. 공급업체 출력에는 없다 |
+| 메일 발송 시도 이력(받는 주소·보낸 사람·결과·실패 코드·링크 포함 여부) | `po_email_log` (#182) | `build_document` 가 읽지 않는다. 로그인한 직원용 `GET /purchase-orders/{id}/email-log` 에만 있다(`test_supplier_doc_leak.py` 의 표식 `EMAIL_LOG`) |
 | 내부 id (회사·발주서·사용자·업체·품목·줄 id, `created_by`·`approved_by` 번호) | 각 표 | 문서에 필요 없다 |
 | 멱등 키 | `idempotency_keys` | |
 | 보낸 사용자 로그인 이메일 | 사용자 | 메일 머리글 Reply-To 에만 쓰인다(본문·문서·첨부에는 없음). Reply-To 유지는 3절에서 확정 |
