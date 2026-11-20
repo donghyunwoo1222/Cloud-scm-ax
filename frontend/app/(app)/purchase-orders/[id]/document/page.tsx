@@ -9,6 +9,7 @@ import { ErrorText } from "../../../../lib/list"; // 오류 문장
 import { can, PurchaseOrder } from "../../../../lib/po"; // 메일 버튼은 서버 allowed_actions 로 판단
 import { StampSeal } from "../../../../lib/stamp-seal"; // 원형 도장 (#263)
 import { S } from "../../../../lib/styles"; // 화면 공통 스타일
+import { EmailLogSection } from "../email-log"; // 메일 발송 이력 (#182)
 import { MailPanel } from "./mail-panel"; // 메일 미리보기·발송 (#158)
 
 // GET /api/v1/purchase-orders/{id}/document 응답. 금액·한글 금액·납품장소 대체는 모두 서버가 계산한다(엑셀과 같은 값).
@@ -58,6 +59,7 @@ function Document() {
         )}
       </div>
       {mailOpen && <MailPanel id={id} onSent={() => setVersion((v) => v + 1)} />}
+      {mailOpen && <div className="no-print"><EmailLogSection orderId={id} refreshKey={version} /></div>}
 
       <div className="po-paper">
         <div className="po-scroll">

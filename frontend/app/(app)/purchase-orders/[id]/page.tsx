@@ -17,6 +17,7 @@ import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 import { dateRange } from "../../../lib/supplier-reply"; // 회신 납기 선택 범위 (서버와 같은 오늘 ~ 1년 뒤)
 import { ChangeLogSection } from "./change-log"; // 변경 이력 섹션 (#181)
+import { EmailLogSection } from "./email-log"; // 메일 발송 이력 섹션 (#182)
 import styles from "./receipt.module.css";
 
 // 상태 버튼의 이름표: [서버 동사 경로, 버튼 이름]. 보일지 말지는 서버의 allowed_actions 가 정한다 (#260)
@@ -271,7 +272,7 @@ function Detail() {
             </div>
             {order.emailed_at && (
               <div style={S.detailHistoryCell}>
-                <dt>메일 발송</dt>
+                <dt>마지막 발송</dt>
                 {/* 메일 서버로 보낸 시각과 주소. 공급업체가 받았는지는 알 수 없다 */}
                 <dd style={S.detailHistoryValue}>{fmtTime(order.emailed_at)}<br />{order.emailed_to}</dd>
               </div>
@@ -313,6 +314,8 @@ function Detail() {
         <form style={S.sectionCard} aria-labelledby="cancel-heading" onSubmit={(e) => { e.preventDefault(); if (!busy && (!reasonRequired || cancelReason.trim())) cancelOrder(); }}>
           <h2 id="cancel-heading" style={{ marginTop: 0 }}>발주서 취소</h2>
           <p style={S.hint}>취소하면 되돌릴 수 없습니다.</p>
+          {/* 메일을 보낸 발주서만: 취소해도 공급업체에는 알려지지 않는다 (주문 완료 표시만 한 발주서는 emailed_at 이 없다) */}
+          {order.emailed_at && <p role="alert" style={S.error}>공급업체에 이미 발주서 메일을 보냈습니다. 취소해도 공급업체에는 자동으로 알려지지 않으니 별도로 연락하세요.</p>}
           <label htmlFor="cancel-reason">취소 사유 {reasonRequired ? "(필수)" : "(선택)"}</label>
           <textarea id="cancel-reason" rows={3} maxLength={500} style={{ display: "block", width: "100%" }} value={cancelReason} disabled={busy}
             onChange={(e) => setCancelReason(e.target.value)} />
@@ -557,6 +560,7 @@ function Detail() {
 
       {!receiving && !cancelOpen && !closeOpen && <ErrorText error={error} labels={PO_LABELS} />}
       {!receiving && <ChangeLogSection orderId={id} refreshKey={logKey} />}
+      {!receiving && <EmailLogSection orderId={id} refreshKey={logKey} />}
     </section>
   );
 }
