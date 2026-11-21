@@ -251,7 +251,7 @@ erDiagram
 | --- | --- | --- | --- |
 | company\_id | 정수 | 필수 | 소속 회사. 조회는 항상 회사 조건을 붙인다 |
 | purchase\_order\_id | 정수 | 필수 | 어느 발주서 |
-| kind | 글자 | 필수 | `ORDER`(발주서 메일, 첫 발송·다시 보내기) / `REMINDER`(납기 독촉, #269 예약 값). CHECK |
+| kind | 글자 | 필수 | `ORDER`(발주서 메일, 첫 발송·다시 보내기) / `REMINDER`(납기 독촉, #269). CHECK |
 | sent\_by | 정수 | 선택 | 보낸 직원. 새 발송은 항상 채운다. 마이그레이션으로 옮긴 옛 기록만 비어 있을 수 있다 |
 | to\_address | 글자 | 선택 | 그때의 받는 주소(평문, 공급업체 업무 이메일). 새 발송은 항상 채운다 |
 | result | 글자 | 필수 | `SENT`(성공) / `FAILED`(메일 서버 실패) / `UNSAVED`(메일은 나갔는데 발주서 저장 실패). CHECK |
@@ -259,7 +259,7 @@ erDiagram
 | with\_link | 참·거짓 | 선택 | 공급업체 확인 링크를 넣었는지. 옛 기록은 모름(비움) |
 | created\_at | 시각 | 필수 | 행을 넣은 트랜잭션의 시작 시각(`emailed_at`과 같은 기준). 옛 기록은 그때의 `emailed_at` |
 
-저장 시점: 성공은 상태·`emailed_*`·토큰과 같은 트랜잭션에 SENT 1행. 메일 서버 실패는 같은 세션에서 FAILED 1행만 확정한다(발주서·토큰은 발송 성공 뒤에만 바꾸므로 실패 확정에 딸려 가지 않는다). 성공 확정이 실패하면(`MAIL_SENT_NOT_SAVED`) 롤백 뒤 같은 세션으로 UNSAVED 1행을 한 번만 남겨 본다. 다른 DB 연결로 쓰지 않는다: 요청이 발주서 행을 `FOR UPDATE`로 잠근 동안 그 발주서를 가리키는 행의 외래키 검사가 잠금을 기다려 요청이 멈춘다. 옛 `emailed_at`이 있는 발주서는 마이그레이션 때 1행(ORDER·SENT)으로 옮겼다. 인덱스는 (company\_id, purchase\_order\_id, id)이며, 조회 `GET /purchase-orders/{id}/email-log`는 최신순이다. #269의 독촉 횟수는 이 표에서 `kind = 'REMINDER'`이고 `result`가 SENT·UNSAVED인 행만 센다(#269에서 확정).
+저장 시점: 성공은 상태·`emailed_*`·토큰과 같은 트랜잭션에 SENT 1행. 메일 서버 실패는 같은 세션에서 FAILED 1행만 확정한다(발주서·토큰은 발송 성공 뒤에만 바꾸므로 실패 확정에 딸려 가지 않는다). 성공 확정이 실패하면(`MAIL_SENT_NOT_SAVED`) 롤백 뒤 같은 세션으로 UNSAVED 1행을 한 번만 남겨 본다. 다른 DB 연결로 쓰지 않는다: 요청이 발주서 행을 `FOR UPDATE`로 잠근 동안 그 발주서를 가리키는 행의 외래키 검사가 잠금을 기다려 요청이 멈춘다. 옛 `emailed_at`이 있는 발주서는 마이그레이션 때 1행(ORDER·SENT)으로 옮겼다. 인덱스는 (company\_id, purchase\_order\_id, id)이며, 조회 `GET /purchase-orders/{id}/email-log`는 최신순이다. #269 독촉은 발주서 칸·상태·`emailed_*`를 바꾸지 않고 이 표에만 시도마다 1행을 남긴다(링크가 켜져 있으면 토큰 칸만 바뀐다). 독촉 횟수·간격·회사 하루 상한은 발주서 행을 잠근 안에서 `kind = 'REMINDER'`이고 `result`가 SENT·UNSAVED이거나, FAILED이면서 `failure_code = 'TIMEOUT'`인 행을 센다(#269에서 확정, 시간 초과는 실제로 도착했을 수 있어서). 마이그레이션 없음(CHECK 에 REMINDER 가 이미 있다).
 
 ### slack\_links (슬랙 연결, #197)
 
