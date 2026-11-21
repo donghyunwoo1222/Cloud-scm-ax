@@ -213,15 +213,15 @@ def deliver(msg: EmailMessage) -> None:
         smtp.send_message(msg)
 
 
-def failure(exc: Exception) -> AppError:
-    """발송 실패를 사용자가 알아들을 문장으로 (메일 서버의 원문 오류·비밀번호는 내보내지 않는다)."""
+def failure(exc: Exception, tail: str = "발주서는 승인됨 상태 그대로입니다.") -> AppError:
+    """발송 실패를 사용자가 알아들을 문장으로 (메일 서버의 원문 오류·비밀번호는 내보내지 않는다). tail 은 끝 문장(독촉은 따로, #269)."""
     if isinstance(exc, smtplib.SMTPAuthenticationError):
         reason = "메일 서버 로그인에 실패했습니다. 관리자에게 메일 설정 확인을 요청하세요."
     elif isinstance(exc, smtplib.SMTPRecipientsRefused):
         reason = "메일 서버가 받는 주소를 거부했습니다. 공급업체 이메일을 확인하세요."
     else:
         reason = "메일 서버에 연결하지 못했거나 발송 중 오류가 났습니다. 잠시 뒤 다시 시도하세요."
-    return AppError(502, "MAIL_FAILED", f"{reason} 발주서는 승인됨 상태 그대로입니다.", {"error": type(exc).__name__})
+    return AppError(502, "MAIL_FAILED", f"{reason} {tail}", {"error": type(exc).__name__})
 
 
 def list_attempts(company_id: int, db: Session, order_id: int, page: PageParams) -> tuple[list[dict], dict]:

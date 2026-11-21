@@ -38,7 +38,7 @@ stateDiagram-v2
 
 ○ = 됨, ✕ = 409 `INVALID_STATUS` (details `{"status": 현재 상태}`), 그 밖은 표에 코드를 적었다. 다른 회사 발주서는 어디서나 404, 로그인 없으면 401.
 
-허용 상태의 출처: 상태를 바꾸는 동작(승인·주문 완료·메일 첫 발송·입고 완료·취소·잔량 마감)은 `TRANSITIONS`, 그 밖의 동작은 `ACTION_STATES` (둘 다 `backend/app/services/po_states.py`). `ACTION_STATES` 키: `edit`(수정), `email`(메일 발송·미리보기), `receive`(입고), `correct_receipt`(입고 정정), `document`(문서 보기·엑셀). 오류 문장은 각 호출 지점에 있다.
+허용 상태의 출처: 상태를 바꾸는 동작(승인·주문 완료·메일 첫 발송·입고 완료·취소·잔량 마감)은 `TRANSITIONS`, 그 밖의 동작은 `ACTION_STATES` (둘 다 `backend/app/services/po_states.py`). `ACTION_STATES` 키: `edit`(수정), `email`(메일 발송·미리보기), `remind`(납기 지연 독촉 메일, #269), `receive`(입고), `correct_receipt`(입고 정정), `document`(문서 보기·엑셀). 오류 문장은 각 호출 지점에 있다.
 
 | 동작 (경로) | DRAFT | APPROVED | ORDERED | RECEIVED | CANCELLED |
 |---|---|---|---|---|---|
@@ -55,6 +55,7 @@ stateDiagram-v2
 | 메일 미리보기 `GET /{id}/email` | ✕ | ○ | ○ | ✕ | ✕ |
 | 공급업체 보기 `POST /supplier-reply/view` (#265, 로그인 없음) | 404 | 404 | ○ | ○ (잔량 마감이면 "입고 완료(남은 수량은 받지 않기로 함)") | ○ ("취소된 발주입니다"만) |
 | 공급업체 확인·회신 `POST /supplier-reply/confirm` (#265) | 404 | 404 | ○ (부분 입고 포함, 상태 그대로) | 409 `SUPPLIER_REPLY_CLOSED` | 409 `SUPPLIER_REPLY_CLOSED` |
+| 독촉 메일 `GET·POST /{id}/reminder` (#269) | ✕ | ✕ | ○ 납기가 지났을 때만(아니면 409 `NOT_OVERDUE`), 상태 그대로. 한도 409 `REMINDER_LIMIT`·`REMINDER_TOO_SOON`·`REMINDER_DAILY_LIMIT` | ✕ (잔량 마감 포함) | ✕ |
 | 직원 회신 기록 `POST /{id}/supplier-reply` (#265 PR4) | ✕ | ✕ | ○ (부분 입고 포함, 상태 그대로, 토큰 없어도 됨). 사유 필수(없거나 공백이면 422) | ✕ | ✕ |
 
 - 권한: 승인만 관리자, 나머지는 관리자·담당자 둘 다 (`backend/app/api/purchase_orders.py` 의 `approve_order` 가 `AdminUser` 를 받는다, 정정은 `backend/app/api/movements.py` 의 `create_correction`).
@@ -65,6 +66,7 @@ stateDiagram-v2
 - 상태 변경은 모두 `po_change_log` 에 `field="status"` 행(이전 → 이후)으로 남는다. 부분 입고와 메일 다시 보내기는 행이 없다.
 - **공급업체 확인·회신은 상태를 바꾸지 않는다(#265).** `set_status` 를 부르지 않고 `supplier_confirmed_at`·`supplier_due_date`·`supplier_reply_count` 칸과 변경 이력(행위자 NULL)만 남긴다. DRAFT·APPROVED 는 토큰이 없어(발송 성공 때만 발급) 404. 확인도 발주서 행을 FOR UPDATE 로 잠가 취소·입고와 한 줄로 선다: 취소가 먼저면 확인은 409, 확인이 먼저면 취소는 그대로 된다(확인 기록이 취소 이력보다 앞에 남는다).
 - **직원 회신 기록(#265 PR4)도 상태를 바꾸지 않는다.** 전화·메일로 받은 회신을 직원이 대신 넣는다(`supplier_reply.record_by_staff`, `ACTION_STATES["supplier_reply"]` = ORDERED). 검사 순서: ① 발주서 잠금(FOR UPDATE, 다른 회사 404) → ② 상태(409 `INVALID_STATUS`, details `{"status"}`) → ③ 사유(받은 경로, 앞뒤 공백을 자르고 비면 422, 최대 500자) → ④ 날짜 범위(공개 링크와 같은 `check_reply_date`). 확인 시각은 비어 있을 때만 채우고, 같은 날짜면 아무것도 안 바뀐다(이력 0행). 공개 링크와 달리 `supplier_reply_count`·5번 제한에 넣지 않는다(로그인한 직원이고 이력이 남으므로, 공급업체 화면의 남은 횟수가 줄지 않게). 이력 행위자는 직원(`changed_by`), 받은 경로는 `reason`. 그래서 변경 이력에서 "공급업체(메일 링크)"와 직원 이름으로 구분된다.
+- **독촉 메일(#269)도 상태를 바꾸지 않는다.** `set_status` 를 부르지 않고 `emailed_*`·변경 이력도 그대로 두며, 기록은 `po_email_log`(kind REMINDER)에만 남는다. 스위치 `PO_REMINDER_ENABLED`(기본 꺼짐)가 꺼져 있으면 어느 상태든 503 `REMINDER_DISABLED`. 지연 판단은 대시보드·목록과 같은 `receipt_due_condition("OVERDUE")`(회신 납기가 있으면 회신 기준)이고, 발주서 행을 잠근 뒤 다시 본다. `allowed_actions` 의 `remind` 는 상태 + 지연(스위치 켜짐)만 보고, 횟수·간격 한도는 미리보기 `blocked` 와 발송 409 로 알린다. 상태 5 × 역할 2 검사는 `backend/tests/test_po_reminder_matrix.py`(PR1 행렬 파일은 고치지 않음).
 - 승인 시 회사명 스냅샷(#263): 승인하면 `approved_by`·`approved_at` 과 함께 그때의 회사명을 `approved_company_name` 에 저장한다(문서 도장용, 새 상태·변경 이력 행 없음).
 
 ## 3. 표 밖 전이 2곳

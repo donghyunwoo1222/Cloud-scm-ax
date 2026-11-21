@@ -31,6 +31,7 @@ from app.schemas.purchase_orders import (  # 요청 모양
     PurchaseOrderUpdate,
     ReceiptCreate,
     ReceiptDue,
+    ReminderSend,
     SupplierReplyRecord,
 )
 from app.services import (
@@ -39,6 +40,7 @@ from app.services import (
     po_change_log,  # 발주서 변경 이력 (#181)
     po_document,  # 발주서 문서·엑셀 (#157)
     po_mail,  # 발주서 메일 발송 (#158)
+    po_reminder,  # 납기 지연 독촉 메일 (#269)
     supplier_reply,  # 직원이 받은 공급업체 회신 기록 (#265 PR4)
 )
 from app.services import purchase_orders as po_service  # 업무 규칙
@@ -125,12 +127,25 @@ def get_email_preview(order_id: PathId, user: CurrentUser, db: DB) -> dict:
 
 @router.post("/{order_id}/email")  # 메일 발송 → 성공하면 ORDERED + 발송 기록 (관리자·담당자 둘 다, 주문 완료 표시와 같은 권한)
 def send_email(order_id: PathId, data: OrderEmailSend, user: CurrentUser, db: DB) -> dict:
-    # 이력(#182)은 모두 이 요청의 세션 하나로 쓴다. 다른 연결로 쓰면, 이 세션이 잠근 발주서를 가리키는 행의 외래키 검사가
-    # 잠금이 풀리기를 기다리고 이 세션은 그 연결을 기다려 요청이 멈춘다
+    # 링크를 넣어 보냈다면 새 토큰도 저장되지 않아 그 링크는 열리지 않는다(#265). 버튼 이름은 document/mail-panel.tsx 와 같게
+    link_note = (" 이번 메일의 확인 링크는 열리지 않습니다. 공급업체가 링크로 회신해야 하면 발주함 상태에서 '다시 보내기'를 눌러 주세요."
+                 if po_mail.supplier_link_base() else "")
+    order, _ = mail_attempt(db, order_id, lambda: po_mail.send_order(user.company_id, db, user, order_id, data.intro, data.resend),
+                            "메일은 보냈지만 발송 기록을 저장하지 못했습니다. 다시 보내지 말고, "
+                            "공급업체에 도착했는지 확인한 뒤 '주문 완료 표시'를 눌러 주세요." + link_note)  # 404·409·500·502·503
+    return one(user, db, order)
+
+
+def mail_attempt(db, order_id: int, send, not_saved_message: str):
+    """메일 발송 한 번의 확정 처리 (#182, 독촉 #269 도 같이 쓴다). send() 는 (결과, 이력 행 값) 을 돌려준다.
+
+    이력은 모두 이 요청의 세션 하나로 쓴다. 다른 연결로 쓰면, 이 세션이 잠근 발주서를 가리키는 행의 외래키 검사가
+    잠금이 풀리기를 기다리고 이 세션은 그 연결을 기다려 요청이 멈춘다.
+    """
     try:
-        order, entry = po_mail.send_order(user.company_id, db, user, order_id, data.intro, data.resend)  # 404·409·502·503
+        result, entry = send()
     except AppError as exc:
-        if exc.code == "MAIL_FAILED":  # 발송 실패: 세션에 든 변경은 실패 이력 1행뿐이다(send_order 가 보장) → 그것만 확정
+        if exc.code == "MAIL_FAILED":  # 발송 실패: 세션에 든 변경은 실패 이력 1행뿐이다(send 가 보장) → 그것만 확정
             try:
                 db.commit()
             except Exception:  # noqa: BLE001 — 실패 기록을 못 남겨도 사용자에게는 원래 실패(502)를 알린다
@@ -147,12 +162,21 @@ def send_email(order_id: PathId, data: OrderEmailSend, user: CurrentUser, db: DB
         except Exception:  # noqa: BLE001 — 기록을 못 남겨도 원래 안내(500)를 그대로 낸다
             db.rollback()
             log.warning("메일 UNSAVED 이력 저장 실패: purchase_order_id=%s", order_id)  # 주소·토큰은 남기지 않는다
-        # 링크를 넣어 보냈다면 새 토큰도 저장되지 않아 그 링크는 열리지 않는다(#265). 버튼 이름은 document/mail-panel.tsx 와 같게
-        link_note = (" 이번 메일의 확인 링크는 열리지 않습니다. 공급업체가 링크로 회신해야 하면 발주함 상태에서 '다시 보내기'를 눌러 주세요."
-                     if po_mail.supplier_link_base() else "")
-        raise AppError(500, "MAIL_SENT_NOT_SAVED", "메일은 보냈지만 발송 기록을 저장하지 못했습니다. 다시 보내지 말고, "
-                       "공급업체에 도착했는지 확인한 뒤 '주문 완료 표시'를 눌러 주세요." + link_note) from exc
-    return one(user, db, order)
+        raise AppError(500, "MAIL_SENT_NOT_SAVED", not_saved_message) from exc
+    return result, entry
+
+
+@router.get("/{order_id}/reminder")  # 납기 독촉 메일 미리보기 (#269, 읽기만, 메일 서버에 가지 않음)
+def get_reminder_preview(order_id: PathId, user: CurrentUser, db: DB) -> dict:
+    return {"data": po_reminder.build_preview(user.company_id, db, user, order_id)}  # 404·409·503
+
+
+@router.post("/{order_id}/reminder")  # 납기 독촉 메일 발송 (#269, 관리자·담당자 둘 다, 메일 보내기와 같은 권한). 발주서 상태는 그대로
+def send_reminder(order_id: PathId, data: ReminderSend, user: CurrentUser, db: DB) -> dict:
+    link_note = " 이번 메일의 확인 링크는 열리지 않습니다(이전 링크는 그대로 쓸 수 있습니다)." if po_mail.supplier_link_base() else ""
+    mail_attempt(db, order_id, lambda: (None, po_reminder.send_reminder(user.company_id, db, user, order_id, data.intro)),
+                 "독촉 메일은 보냈지만 발송 기록을 저장하지 못했습니다. 다시 보내지 말고, 공급업체에 도착했는지 확인해 주세요." + link_note)
+    return {"data": po_reminder.counters(user.company_id, db, order_id)}  # 보낸 뒤의 횟수·다음 가능 시각
 
 
 @router.patch("/{order_id}")  # 수정 (DRAFT 일 때만)
