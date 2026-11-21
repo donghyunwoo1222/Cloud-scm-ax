@@ -42,7 +42,7 @@ export function MailPanel({ id, onSent }: { id: string; onSent: () => void }) {
   async function doSend() {
     if (!preview?.to) return;
     const question = resend
-      ? `이미 발주함 상태인 발주서입니다${preview.emailed_at ? ` (마지막 발송 ${fmtTime(preview.emailed_at)}, ${preview.emailed_to})` : ""}.\n${preview.to}로 다시 보낼까요? 발송 기록은 이번 것으로 바뀝니다.`
+      ? `이미 발주함 상태인 발주서입니다${preview.emailed_at ? ` (마지막 발송 ${fmtTime(preview.emailed_at)}, ${preview.emailed_to})` : ""}.\n${preview.to}로 다시 보낼까요? 이전 발송도 이력에 남습니다.`
       : `${preview.to}로 발주서를 보냅니다.\n보내면 발주서가 발주함 상태로 바뀝니다. 보낼까요?`;
     if (!window.confirm(question)) return; // 확인창
     setError(null);
@@ -53,6 +53,7 @@ export function MailPanel({ id, onSent }: { id: string; onSent: () => void }) {
       onSent(); // 문서 화면의 상태도 다시 읽는다
     } catch (e) {
       setError(e);
+      onSent(); // 실패도 이력에 남으므로 이력 영역을 다시 불러온다
       if (e instanceof ApiError && e.code === "ALREADY_ORDERED") setVersion((v) => v + 1); // 다른 사람이 먼저 보냈다: 미리보기를 다시 불러 상태를 맞춘다
     }
   }
@@ -64,7 +65,7 @@ export function MailPanel({ id, onSent }: { id: string; onSent: () => void }) {
       {preview.emailed_at && (
         <p style={{ margin: 0, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-sm)" }}>
           <StatusBadge kind="info">이미 보냄</StatusBadge>
-          <span>{fmtTime(preview.emailed_at)} · {preview.emailed_to} <span style={S.hint}>(다시 보내면 이 기록이 바뀝니다)</span></span>
+          <span>{fmtTime(preview.emailed_at)} · {preview.emailed_to} <span style={S.hint}>(이전 발송도 이력에 남습니다)</span></span>
         </p>
       )}
       {/* 메일 쓰기 창처럼 한 줄에 항목 하나, 왼쪽 이름 칸 폭을 고정해 값이 한 줄로 맞춰 보이게 */}
