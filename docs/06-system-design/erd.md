@@ -15,7 +15,7 @@ MVP의 데이터는 표 7개로 충분하고, 재고 수량은 따로 저장하�
 
 ## 표 목록과 역할
 
-표는 회사, 사용자, 공급업체, 품목, 발주서, 발주 품목, 입출고 이력의 업무 표 7개와, 같은 요청을 한 번만 처리하려는 기술용 표 멱등 키(idempotency\_keys, #190), 발주서가 바뀐 기록을 쌓는 표 발주서 변경 이력(po\_change\_log, #181), SCM 사용자와 슬랙 계정을 잇는 기술용 표 슬랙 연결(slack\_links, #197), 메일 발송 시도를 쌓는 표 메일 발송 이력(po\_email\_log, #182)을 더한 11개다. 표 이름은 소문자 복수형(snake\_case)이고, 이슈에 쓴 InventoryMovements는 inventory\_movements와 같은 표다(임시 확정).
+표는 회사, 사용자, 공급업체, 품목, 발주서, 발주 품목, 입출고 이력의 업무 표 7개와, 같은 요청을 한 번만 처리하려는 기술용 표 멱등 키(idempotency\_keys, #190), 발주서가 바뀐 기록을 쌓는 표 발주서 변경 이력(po\_change\_log, #181), SCM 사용자와 슬랙 계정을 잇는 기술용 표 슬랙 연결(slack\_links, #197), 메일 발송 시도를 쌓는 표 메일 발송 이력(po\_email\_log, #182), 안내 챗봇의 하루 숫자만 세는 기술용 표 챗봇 일별 통계(chat\_daily\_stats, #199)를 더한 12개다. 표 이름은 소문자 복수형(snake\_case)이고, 이슈에 쓴 InventoryMovements는 inventory\_movements와 같은 표다(임시 확정).
 
 | 표 | 한글 이름 | 역할 | 행이 생기는 때 | 고칠 수 있는가 |
 | --- | --- | --- | --- | --- |
@@ -28,6 +28,7 @@ MVP의 데이터는 표 7개로 충분하고, 재고 수량은 따로 저장하�
 | inventory\_movements | 입출고 이력 | 재고를 바꾸는 모든 사건. 현재고의 유일한 근거(R2) | 입고·출고·조정·정정 등록 | 수정·삭제 불가(확정) |
 | slack\_links | 슬랙 연결 | SCM 사용자 ↔ 슬랙 계정 (기술용, #197) | 웹에서 연결 코드 발급 | 연결·해제(해제하면 행 삭제) |
 | po\_email\_log | 메일 발송 이력 | 메일 서버에 보낸 시도 하나(성공·실패·저장 실패, #182) | 발주서 메일 발송 시도 | 수정·삭제 불가(추가 전용) |
+| chat\_daily\_stats | 챗봇 일별 통계 | 회사 하나 × 서울 날짜 하루의 챗봇 숫자(요청·답 종류·막힘·입력 토큰, 기술용, #199) | 그날 첫 챗봇 요청 | 숫자만 더함(UPSERT), 글 칸 없음 |
 
 일부러 두지 않은 표도 있다. 세 가지 모두 필요성이 생기면 그때 추가한다(임시 확정).
 
@@ -260,6 +261,25 @@ erDiagram
 | created\_at | 시각 | 필수 | 행을 넣은 트랜잭션의 시작 시각(`emailed_at`과 같은 기준). 옛 기록은 그때의 `emailed_at` |
 
 저장 시점: 성공은 상태·`emailed_*`·토큰과 같은 트랜잭션에 SENT 1행. 메일 서버 실패는 같은 세션에서 FAILED 1행만 확정한다(발주서·토큰은 발송 성공 뒤에만 바꾸므로 실패 확정에 딸려 가지 않는다). 성공 확정이 실패하면(`MAIL_SENT_NOT_SAVED`) 롤백 뒤 같은 세션으로 UNSAVED 1행을 한 번만 남겨 본다. 다른 DB 연결로 쓰지 않는다: 요청이 발주서 행을 `FOR UPDATE`로 잠근 동안 그 발주서를 가리키는 행의 외래키 검사가 잠금을 기다려 요청이 멈춘다. 옛 `emailed_at`이 있는 발주서는 마이그레이션 때 1행(ORDER·SENT)으로 옮겼다. 인덱스는 (company\_id, purchase\_order\_id, id)이며, 조회 `GET /purchase-orders/{id}/email-log`는 최신순이다. #269 독촉은 발주서 칸·상태·`emailed_*`를 바꾸지 않고 이 표에만 시도마다 1행을 남긴다(링크가 켜져 있으면 토큰 칸만 바뀐다). 독촉 횟수·간격·회사 하루 상한은 발주서 행을 잠근 안에서 `kind = 'REMINDER'`이고 `result`가 SENT·UNSAVED이거나, FAILED이면서 `failure_code = 'TIMEOUT'`인 행을 센다(#269에서 확정, 시간 초과는 실제로 도착했을 수 있어서). 마이그레이션 없음(CHECK 에 REMINDER 가 이미 있다).
+
+### chat\_daily\_stats (챗봇 일별 통계, #199)
+
+안내 챗봇(`POST /chat/guide`)의 하루 숫자를 세는 기술용 표다. 회사 하나 × 서울 날짜 하루가 한 행이고, 질문·답변 글이나 개인정보 원문을 담는 칸은 없다(숫자만). 회사 일일 상한(`CHAT_GUIDE_DAILY_PER_COMPANY`, 임시값 100)을 이 표의 `requests`로 센다.
+
+| 칸 | 형식 | 필수 | 의미와 규칙 |
+| --- | --- | --- | --- |
+| company\_id | 정수 | 필수 | 소속 회사(로그인 토큰의 회사) |
+| day | 날짜 | 필수 | 서울 기준 날짜. (company\_id, day) 유일(`uq_chat_daily_stats_company_day`) |
+| requests | 정수 | 필수 | LLM 으로 보낸 요청 수. 일일 상한 기준 |
+| answered / not\_found / data\_question | 정수 | 필수 | 답 종류별 수: 안내서 근거가 있는 답 / "찾지 못했습니다" / 회사 데이터 질문이라 화면 안내 |
+| failed | 정수 | 필수 | LLM 실패(503 `LLM_UNAVAILABLE`, 예상 못한 오류 포함) |
+| blocked\_pii | 정수 | 필수 | 개인정보 모양이라 LLM 으로 보내지 않은 수 |
+| limited | 정수 | 필수 | 분당 한도·일일 상한으로 막은 수 |
+| tokens\_in | 큰 정수 | 필수 | 입력 토큰 합계(재시도 포함). 호출당 평균 = tokens\_in ÷ requests |
+
+모든 숫자 칸은 기본 0이고 CHECK로 0 이상이다. 요청이 끝나면 `requests = answered + not_found + data_question + failed`가 성립한다(처리 중인 요청만큼은 잠깐 어긋난다). `blocked_pii`·`limited`는 LLM 으로 보내지 않은 요청이라 `requests`에 넣지 않는다.
+
+동시 요청: 상한 확인과 증가는 `INSERT … ON CONFLICT (company_id, day) DO UPDATE SET requests = requests + 1 WHERE requests < 상한 RETURNING requests` 한 문장이다. 돌려받은 행이 없으면 상한에 닿은 것이다. 이 문장은 바로 커밋해 LLM 을 기다리는 동안 행 잠금을 잡고 있지 않고, 결과 숫자는 호출이 끝난 뒤 두 번째 UPSERT 로 더한다(시작한 날짜의 행에). 예) 상한 100에서 99번 쓴 뒤 두 요청이 동시에 오면 하나만 100이 되고 다른 하나는 429 `CHAT_DAILY_LIMIT`.
 
 ### slack\_links (슬랙 연결, #197)
 
