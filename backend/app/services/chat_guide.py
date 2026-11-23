@@ -19,6 +19,7 @@ from pathlib import Path  # 안내서 파일 위치
 from typing import Literal  # LLM 출력 종류
 
 from pydantic import Field  # 출력 길이 제한
+from sqlalchemy import update  # 피드백 숫자 더하기 (조건부 UPDATE)
 from sqlalchemy.dialects.postgresql import insert  # INSERT … ON CONFLICT (UPSERT)
 from sqlalchemy.orm import Session  # DB 세션
 
@@ -219,11 +220,38 @@ def _log(company_id: int, outcome: str, tokens_in: int = 0) -> None:
     log.info("chat_guide company_id=%s outcome=%s tokens_in=%d", company_id, outcome, tokens_in)  # 숫자·코드만
 
 
+def _disabled(company_id: int) -> AppError:
+    _log(company_id, "CHAT_DISABLED")
+    return AppError(503, "CHAT_DISABLED", "지금은 안내 챗봇을 쓸 수 없습니다. 사용 가이드 목차를 확인해 주세요.")
+
+
+def record_feedback(db: Session, company_id: int, helpful: bool) -> bool:
+    """"도움이 됐어요 / 아니에요" 를 오늘(서울) 행에 1 더한다. 그날 피드백 합계가 answered 에 닿았으면 더하지 않고 False.
+
+    확인과 증가가 UPDATE 한 문장이라 동시 요청도 상한을 못 넘는다. 예) 오늘 답 3건이면 피드백은 최대 3건.
+    질문·답 글이나 누가 눌렀는지는 저장하지 않는다. 그래서 같은 답에 여러 번 누르는 것은 막지 못한다(상한으로만 묶는다).
+    피드백은 requests 를 늘리지 않는다.
+    """
+    if not settings.chat_guide_enabled:
+        raise _disabled(company_id)
+    column = ChatDailyStat.helpful if helpful else ChatDailyStat.not_helpful
+    stmt = (
+        update(ChatDailyStat)
+        .where(ChatDailyStat.company_id == company_id, ChatDailyStat.day == seoul_today(),
+               ChatDailyStat.helpful + ChatDailyStat.not_helpful < ChatDailyStat.answered)
+        .values({column: column + 1})
+        .returning(ChatDailyStat.id)
+    )
+    ok = db.execute(stmt).first() is not None
+    db.commit()
+    _log(company_id, ("HELPFUL" if helpful else "NOT_HELPFUL") if ok else "FEEDBACK_OVER_LIMIT")
+    return ok
+
+
 def ask_guide(db: Session, company_id: int, user_id: int, question: str, history: list[dict]) -> dict:
     """company_id·user_id 는 로그인 토큰 값만 넘긴다. question·history 는 스키마 검사(길이·개수)를 통과한 값."""
     if not settings.chat_guide_enabled:
-        _log(company_id, "CHAT_DISABLED")
-        raise AppError(503, "CHAT_DISABLED", "지금은 안내 챗봇을 쓸 수 없습니다. 사용 가이드 목차를 확인해 주세요.")
+        raise _disabled(company_id)
     today = seoul_today()  # 시작한 날짜로 끝까지 센다 (자정을 넘겨 끝나도 같은 행)
     if (wait := take_slot(user_id)) is not None:
         add(db, company_id, today, limited=1)
