@@ -114,6 +114,12 @@ export function errorText(e: ErrorLike): string {
   return "답을 받지 못했어요. 잠시 뒤 다시 보내 주세요.";
 }
 
+// 아래 칸에 보여 줄 안내 문장: 입력창이 숨겨졌으면(noInput) 오류 줄과 상관없이 항상 고정 안내(오류가 같은 문장이어도 한 번만),
+// 아니면 오류가 있을 때만 그 문장. 예) {noInput:true, error:""} → DISABLED, {noInput:false, error:""} → ""
+export function panelNotice(s: { noInput: boolean; error: string }): string {
+  return s.noInput ? DISABLED : s.error;
+}
+
 // 이 오류가 오면 입력창을 숨기고 목차만 보여 줄지 (스위치 꺼짐·LLM 꺼짐)
 export function hidesInput(e: ErrorLike): boolean {
   return e.code === "CHAT_DISABLED" || (e.code === "LLM_UNAVAILABLE" && (e.details as { reason?: string } | null)?.reason === "DISABLED");

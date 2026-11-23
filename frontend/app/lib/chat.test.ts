@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { buildHistory, checkSend, errorText, hidesInput, itemsForPath, shouldSendOnEnter, sourceHref, type GuideItem, type Turn } from "./chat.ts";
+import { buildHistory, checkSend, errorText, hidesInput, itemsForPath, panelNotice, shouldSendOnEnter, sourceHref, type GuideItem, type Turn } from "./chat.ts";
 
 const ans = (ids: string[]) => ({ kind: "ANSWER" as const, answer: "답 글", sources: ids.map((id) => ({ id, title: id, path: null })) });
 const turn = (key: number, reply: Turn["reply"]): Turn => ({ key, question: `질문${key}`, reply });
@@ -105,6 +105,15 @@ test("shouldSendOnEnter: Enter 만 전송, Shift+Enter 와 한글 조합 중 Ent
   assert.equal(shouldSendOnEnter({ key: "Enter", shiftKey: true, isComposing: false }), false);
   assert.equal(shouldSendOnEnter({ key: "Enter", shiftKey: false, isComposing: true }), false);
   assert.equal(shouldSendOnEnter({ key: "a", shiftKey: false, isComposing: false }), false);
+});
+
+test("panelNotice: 입력창이 숨겨지면 오류가 비어도 고정 안내, 아니면 오류가 있을 때만", () => {
+  const disabled = errorText({ status: 503, code: "CHAT_DISABLED" });
+  assert.equal(panelNotice({ noInput: true, error: "" }), disabled); // 새 대화가 오류를 비워도 안내가 남는다
+  assert.equal(panelNotice({ noInput: true, error: disabled }), disabled); // 같은 문장은 한 번만
+  assert.equal(panelNotice({ noInput: true, error: "다른 오류" }), disabled);
+  assert.equal(panelNotice({ noInput: false, error: "" }), "");
+  assert.equal(panelNotice({ noInput: false, error: "다른 오류" }), "다른 오류");
 });
 
 // 챗봇 파일 원문 검사: 대화·질문을 브라우저 저장소나 콘솔에 남기거나 HTML 로 그리는 코드가 없어야 한다

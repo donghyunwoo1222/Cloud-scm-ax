@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation"; // 지금 화면 경로 ("이 화
 import { KeyboardEvent, useEffect, useRef, useState } from "react"; // 상태·포커스·스크롤
 
 import { ApiError, api } from "./api"; // 공통 API 호출 함수
-import { Answer, GuideItem, MAX_QUESTION, Turn, askText, buildHistory, checkSend, errorText, hidesInput, itemsForPath, shouldSendOnEnter, sourceHref } from "./chat"; // 순수 함수와 타입
+import { Answer, GuideItem, MAX_QUESTION, Turn, askText, buildHistory, checkSend, errorText, hidesInput, itemsForPath, panelNotice, shouldCloseOnKey, shouldSendOnEnter, sourceHref } from "./chat"; // 순수 함수와 타입
 import { useSubmitLock } from "./submit-lock"; // 전송 중 연타 잠금
 
 // 안내 챗봇 패널. 대화는 이 컴포넌트의 React 상태(메모리)에만 있다: 새로고침하면 사라지고, 닫아도(hidden) 유지되고, 화면을 옮겨도 유지된다
@@ -86,6 +86,7 @@ export function ChatPanel({ items, open, onClose, onNavigate, closeRef }: {
     requestAnimationFrame(() => toc.current?.scrollIntoView({ block: "start" })); // 펼쳐진 뒤 목차로 옮긴다
   }
 
+  const notice = panelNotice({ noInput, error }); // 입력창이 숨겨지면 새 대화를 눌러도 안내 문장은 남는다
   const canAsk = !lock.busy && !noInput && !full; // 목차의 [물어보기] 사용 가능 여부
   const here = turns.length === 0 ? itemsForPath(items, pathname) : []; // 대화가 비어 있을 때만 "이 화면 안내"
 
@@ -147,7 +148,7 @@ export function ChatPanel({ items, open, onClose, onNavigate, closeRef }: {
         </details>
       </div>
       <div className="chat-foot">
-        {error && <p role="alert" className="chat-error">{error}</p>}
+        {notice && <p role="alert" className="chat-error">{notice}</p>}
         {full ? (
           <div className="chat-full">
             <p>대화가 길어졌어요. 새 대화를 시작해 주세요</p>
