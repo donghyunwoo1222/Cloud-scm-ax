@@ -130,3 +130,31 @@ export function shouldCloseOnKey(e: { key: string; isComposing: boolean }): bool
 export function hidesInput(e: ErrorLike): boolean {
   return e.code === "CHAT_DISABLED" || (e.code === "LLM_UNAVAILABLE" && (e.details as { reason?: string } | null)?.reason === "DISABLED");
 }
+
+// ----- 패널 대화 상태 (리듀서) -----
+// 대화 목록·오류 줄·입력 숨김을 바꾸는 곳을 이 함수 하나로 모은다. 한 동작이 바꾸는 칸이 정해져 있어
+// "한 곳이 넣은 상태를 다른 곳이 지우는" 실수를 시험(chat.test.ts 의 전이 표)으로 막는다
+export type ChatState = { turns: Turn[]; error: string; noInput: boolean };
+export const initialChat: ChatState = { turns: [], error: "", noInput: false };
+
+export type ChatAction =
+  | { type: "SEND_START"; key: number; question: string } // 질문을 "보내는 중…"으로 붙이고 오류 줄을 비운다
+  | { type: "SEND_OK"; key: number; reply: Answer } // 그 질문에 답을 붙인다
+  | { type: "SEND_FAIL"; key: number; error: string } // 그 질문을 빼고 오류 줄을 쓴다
+  | { type: "DISABLED"; key: number; error: string } // SEND_FAIL + 입력창 숨김 (스위치·LLM 꺼짐)
+  | { type: "NEW_CHAT" }; // 대화와 오류 줄을 비운다 (입력 숨김은 그대로)
+
+export function chatReducer(s: ChatState, a: ChatAction): ChatState {
+  switch (a.type) {
+    case "SEND_START":
+      return { ...s, error: "", turns: [...s.turns, { key: a.key, question: a.question, reply: null }] };
+    case "SEND_OK":
+      return { ...s, turns: s.turns.map((t) => (t.key === a.key ? { ...t, reply: a.reply } : t)) }; // 새 대화로 사라진 칸이면 아무것도 붙지 않는다
+    case "SEND_FAIL":
+      return { ...s, error: a.error, turns: s.turns.filter((t) => t.key !== a.key) };
+    case "DISABLED":
+      return { ...s, error: a.error, noInput: true, turns: s.turns.filter((t) => t.key !== a.key) };
+    case "NEW_CHAT":
+      return { ...s, turns: [], error: "" };
+  }
+}

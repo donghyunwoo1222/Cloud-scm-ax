@@ -2,10 +2,10 @@
 
 import Link from "next/link"; // 출처·목차의 화면 이동 링크
 import { usePathname } from "next/navigation"; // 지금 화면 경로 ("이 화면 안내")
-import { KeyboardEvent, useEffect, useRef, useState } from "react"; // 상태·포커스·스크롤
+import { KeyboardEvent, useEffect, useReducer, useRef, useState } from "react"; // 상태·대화 리듀서·포커스·스크롤
 
 import { ApiError, api } from "./api"; // 공통 API 호출 함수
-import { Answer, GuideItem, MAX_QUESTION, MAX_TURNS, Turn, askText, buildHistory, checkSend, errorText, hidesInput, itemsForPath, panelNotice, shouldCloseOnKey, shouldSendOnEnter, sourceHref } from "./chat"; // 순수 함수와 타입
+import { Answer, GuideItem, MAX_QUESTION, MAX_TURNS, askText, buildHistory, chatReducer, checkSend, errorText, hidesInput, initialChat, itemsForPath, panelNotice, shouldCloseOnKey, shouldSendOnEnter, sourceHref } from "./chat"; // 순수 함수와 타입
 import { useSubmitLock } from "./submit-lock"; // 전송 중 연타 잠금
 
 // 안내 챗봇 패널. 대화는 이 컴포넌트의 React 상태(메모리)에만 있다: 새로고침하면 사라지고, 닫아도(hidden) 유지되고, 화면을 옮겨도 유지된다
@@ -19,10 +19,9 @@ export function ChatPanel({ items, open, onClose, onNavigate, closeRef }: {
 }) {
   const pathname = usePathname(); // 예) /purchase-orders/3
   const lock = useSubmitLock(); // 전송 중 잠금: 연타해도 1번
-  const [turns, setTurns] = useState<Turn[]>([]); // 대화 목록 (답을 기다리는 질문 포함)
+  const [chat, dispatch] = useReducer(chatReducer, initialChat); // 대화 목록·오류 줄·입력 숨김 (바꾸는 규칙은 chat.ts 의 chatReducer 한 곳)
+  const { turns, error, noInput } = chat;
   const [text, setText] = useState(""); // 입력 중인 글
-  const [error, setError] = useState(""); // 오류 줄 (없으면 빈 글자)
-  const [noInput, setNoInput] = useState(false); // 스위치·LLM 이 꺼져 입력창을 숨길지 (목차는 계속 보인다)
   const [tocOpen, setTocOpen] = useState(true); // 목차 펼침 (대화를 시작하면 접는다)
   const seq = useRef(0); // 대화 칸 번호
   const input = useRef<HTMLTextAreaElement>(null); // 입력창 (열면 포커스)
@@ -54,22 +53,21 @@ export function ChatPanel({ items, open, onClose, onNavigate, closeRef }: {
     await lock.run(async () => {
       const history = buildHistory(turns); // 성공한 질문과 출처 ID 만
       const key = ++seq.current;
-      setError("");
-      setTurns((t) => [...t, { key, question, reply: null }]); // "보내는 중…" 으로 보인다
+      dispatch({ type: "SEND_START", key, question }); // "보내는 중…" 으로 보이고 오류 줄을 비운다
       setTocOpen(false);
       try {
         const reply = await api<Answer>("/chat/guide", { method: "POST", body: { question, history } });
         refocus.current = panel.current?.contains(document.activeElement) ?? false; // 아직 입력창이 있을 때의 포커스 위치
-        setTurns((t) => t.map((x) => (x.key === key ? { ...x, reply } : x))); // 답을 붙인다
+        dispatch({ type: "SEND_OK", key, reply }); // 답을 붙인다
         if (fromInput) setText(""); // 성공하면 입력창을 비운다
       } catch (e) {
-        setTurns((t) => t.filter((x) => x.key !== key)); // 실패한 질문은 목록에서 빼고 (서버에도 보내지 않는다)
         if (!fromInput) setText((cur) => cur || question); // 입력창의 글은 그대로 두고, 목차에서 보낸 질문은 비어 있을 때만 돌려놓는다
         const like = e instanceof ApiError ? e : { status: 0, code: "NETWORK_ERROR" };
-        setError(errorText(like));
         if (hidesInput(like)) {
           refocus.current = panel.current?.contains(document.activeElement) ?? false;
-          setNoInput(true);
+          dispatch({ type: "DISABLED", key, error: errorText(like) }); // 실패한 질문은 빼고 입력창을 숨긴다
+        } else {
+          dispatch({ type: "SEND_FAIL", key, error: errorText(like) }); // 실패한 질문은 목록에서 빼고 (서버에도 보내지 않는다) 오류 줄
         }
       }
     });
@@ -88,8 +86,7 @@ export function ChatPanel({ items, open, onClose, onNavigate, closeRef }: {
   }
 
   function newChat() {
-    setTurns([]); // 목록과 이전 대화를 비운다 (입력 중인 글은 남긴다)
-    setError("");
+    dispatch({ type: "NEW_CHAT" }); // 목록·이전 대화·오류 줄을 비운다 (입력 중인 글과 입력 숨김은 남긴다)
     setTocOpen(true);
   }
 

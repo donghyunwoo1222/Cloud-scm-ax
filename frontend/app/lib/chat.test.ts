@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { buildHistory, checkSend, errorText, hidesInput, itemsForPath, panelNotice, shouldCloseOnKey, shouldSendOnEnter, sourceHref, type GuideItem, type Turn } from "./chat.ts";
+import { buildHistory, chatReducer, checkSend, errorText, hidesInput, itemsForPath, panelNotice, shouldCloseOnKey, shouldSendOnEnter, sourceHref, type ChatState, type GuideItem, type Turn } from "./chat.ts";
 
 const ans = (ids: string[]) => ({ kind: "ANSWER" as const, answer: "답 글", sources: ids.map((id) => ({ id, title: id, path: null })) });
 const turn = (key: number, reply: Turn["reply"]): Turn => ({ key, question: `질문${key}`, reply });
@@ -125,6 +125,64 @@ test("shouldCloseOnKey: ESC 만 닫고 한글 조합 중 ESC 는 닫지 않는�
 // 챗봇 파일 원문 검사: 대화·질문을 브라우저 저장소나 콘솔에 남기거나 HTML 로 그리는 코드가 없어야 한다
 const here = dirname(fileURLToPath(import.meta.url));
 const sources = ["chat.ts", "chat-panel.tsx"].map((f) => [f, readFileSync(join(here, f), "utf8")]);
+
+// ----- 대화 상태 전이 표 (chatReducer) -----
+// 시작 상태: 답이 온 칸(1), 보내는 중인 칸(2), 오류 줄 있음, 입력 보임. 각 동작이 바꾸는 칸만 바뀌는지 본다
+const base = (): ChatState => ({ turns: [turn(1, ans(["G-A"])), turn(2, null)], error: "이전 오류", noInput: false });
+const keys = (s: ChatState) => s.turns.map((t) => t.key);
+
+test("전이: SEND_START 는 칸을 붙이고 오류 줄만 비운다 (입력 숨김은 그대로)", () => {
+  const s = chatReducer(base(), { type: "SEND_START", key: 3, question: "새 질문" });
+  assert.deepEqual(keys(s), [1, 2, 3]);
+  assert.deepEqual(s.turns[2], { key: 3, question: "새 질문", reply: null });
+  assert.equal(s.error, "");
+  assert.equal(s.noInput, false);
+  assert.equal(chatReducer({ ...base(), noInput: true }, { type: "SEND_START", key: 3, question: "q" }).noInput, true);
+});
+
+test("전이: SEND_OK 는 그 칸에만 답을 붙이고 오류 줄·입력 숨김·다른 칸은 그대로", () => {
+  const before = base();
+  const s = chatReducer(before, { type: "SEND_OK", key: 2, reply: ans(["G-B"]) });
+  assert.deepEqual(s.turns[1].reply, ans(["G-B"]));
+  assert.equal(s.turns[0], before.turns[0]); // 다른 칸은 같은 객체 그대로
+  assert.equal(s.error, "이전 오류");
+  assert.equal(s.noInput, false);
+});
+
+test("전이: SEND_OK 가 새 대화 뒤에 오면 아무것도 붙지 않는다", () => {
+  const cleared = chatReducer(base(), { type: "NEW_CHAT" });
+  assert.deepEqual(chatReducer(cleared, { type: "SEND_OK", key: 2, reply: ans([]) }).turns, []);
+});
+
+test("전이: SEND_FAIL 은 그 칸만 빼고 오류 줄을 쓴다 (입력 숨김은 그대로)", () => {
+  const s = chatReducer(base(), { type: "SEND_FAIL", key: 2, error: "새 오류" });
+  assert.deepEqual(keys(s), [1]);
+  assert.equal(s.error, "새 오류");
+  assert.equal(s.noInput, false);
+});
+
+test("전이: DISABLED 는 그 칸을 빼고 오류 줄을 쓰고 입력창을 숨긴다", () => {
+  const s = chatReducer(base(), { type: "DISABLED", key: 2, error: "꺼짐" });
+  assert.deepEqual(keys(s), [1]);
+  assert.equal(s.error, "꺼짐");
+  assert.equal(s.noInput, true);
+});
+
+test("전이: NEW_CHAT 은 대화·오류 줄을 비우되 입력 숨김은 남긴다 (꺼짐 안내가 사라지지 않게)", () => {
+  const s = chatReducer({ ...base(), noInput: true }, { type: "NEW_CHAT" });
+  assert.deepEqual(s, { turns: [], error: "", noInput: true });
+  assert.equal(panelNotice(s), errorText({ status: 503, code: "CHAT_DISABLED" })); // 새 대화 뒤에도 꺼짐 안내
+});
+
+test("전이: 리듀서는 받은 상태를 고치지 않는다 (새 객체를 돌려준다)", () => {
+  const before = base();
+  const copy = JSON.stringify(before);
+  for (const a of [{ type: "SEND_START", key: 3, question: "q" }, { type: "SEND_OK", key: 2, reply: ans([]) },
+    { type: "SEND_FAIL", key: 2, error: "e" }, { type: "DISABLED", key: 2, error: "e" }, { type: "NEW_CHAT" }] as const) {
+    chatReducer(before, a);
+  }
+  assert.equal(JSON.stringify(before), copy);
+});
 
 test("정적 검사: 챗봇 파일에 브라우저 저장소 접근이 없다", () => {
   for (const [name, text] of sources) {
