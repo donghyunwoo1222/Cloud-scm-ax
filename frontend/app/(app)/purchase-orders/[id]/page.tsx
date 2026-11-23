@@ -18,6 +18,8 @@ import { S } from "../../../lib/styles"; // 화면 공통 스타일
 import { dateRange } from "../../../lib/supplier-reply"; // 회신 납기 선택 범위 (서버와 같은 오늘 ~ 1년 뒤)
 import { ChangeLogSection } from "./change-log"; // 변경 이력 섹션 (#181)
 import { EmailLogSection } from "./email-log"; // 메일 발송 이력 섹션 (#182)
+import { reminderPanelOpen } from "../../../lib/reminder"; // 패널을 열어 둘지 정하는 규칙 (#269)
+import { ReminderPanel } from "./reminder-panel"; // 납기 독촉 메일 미리보기·발송 (#269)
 import styles from "./receipt.module.css";
 
 // 상태 버튼의 이름표: [서버 동사 경로, 버튼 이름]. 보일지 말지는 서버의 allowed_actions 가 정한다 (#260)
@@ -59,6 +61,7 @@ function Detail() {
   const [replyDate, setReplyDate] = useState(""); // 공급업체가 알려 준 납기 (비우면 확인만)
   const [replyReason, setReplyReason] = useState(""); // 받은 경로·메모 (필수, 실패해도 지우지 않는다)
   const replyLock = useSubmitLock(); // 회신 기록 중복 클릭 잠금
+  const [remindFor, setRemindFor] = useState<string | null>(null); // 독촉 패널을 연 발주서 id (#269). 버튼을 눌러야만 값이 생긴다
   const [logKey, setLogKey] = useState(0); // 바뀔 때마다 변경 이력을 다시 불러온다
   const [itemView, setItemView] = useState({ scope: "", ...DEFAULT_ITEM_VIEW }); // 발주서와 상태별로 표의 선택을 기억한다
 
@@ -212,7 +215,9 @@ function Detail() {
   const closeBusy = closeLock.busy; // 마감 요청 중
   const replyOpen = replying && can(order, "supplier_reply"); // 입고 완료·취소로 바뀌면 패널을 닫은 것으로 본다
   const replyBusy = replyLock.busy; // 회신 기록 요청 중
-  const panelOpen = cancelOpen || closeOpen || replyOpen; // 패널은 한 번에 하나만
+  const remindOpen = reminderPanelOpen(remindFor, id, can(order, "remind")); // 발주서가 바뀌거나 remind 가 사라지면 닫힌 것으로 본다
+  if (remindFor !== null && !remindOpen) setRemindFor(null); // 닫힌 채로 값이 남아 나중에 저절로 다시 열리는 일을 막는다 (렌더 중 상태 정리)
+  const panelOpen = cancelOpen || closeOpen || replyOpen || remindOpen; // 패널은 한 번에 하나만
   const replyPreview = replyGapText({ due_date: order.due_date, supplier_due_date: replyDate || null }); // 고른 날짜와 약속 납기 비교
   const replyRange = dateRange(); // 서버와 같은 선택 범위
   const reasonRequired = order.status === "ORDERED"; // 발주함 취소만 사유 필수
@@ -307,9 +312,12 @@ function Detail() {
           onClick={() => { setError(null); setClosing(true); }}>잔량 마감</button>}
         {can(order, "supplier_reply") && <button type="button" disabled={receiving || panelOpen || busy || actLock.busy}
           onClick={() => { setError(null); setReplying(true); }}>회신 기록</button>}
+        {can(order, "remind") && <button type="button" disabled={receiving || panelOpen || busy || actLock.busy}
+          onClick={() => { setError(null); setRemindFor(id); }}>독촉 메일 보내기</button>}
         {can(order, "receive") && !receiving && <button ref={receiptButton} className="primary-action" type="button" disabled={panelOpen}
           onClick={() => { setError(null); setReceiving(true); }}>입고 등록</button>}
       </div>
+      {remindOpen && <ReminderPanel key={id} id={id} onChanged={() => { load(); setLogKey((k) => k + 1); }} onSent={() => { setRemindFor(null); toast("독촉 메일을 보냈어요"); }} onClose={() => setRemindFor(null)} />}
       {cancelOpen && (
         <form style={S.sectionCard} aria-labelledby="cancel-heading" onSubmit={(e) => { e.preventDefault(); if (!busy && (!reasonRequired || cancelReason.trim())) cancelOrder(); }}>
           <h2 id="cancel-heading" style={{ marginTop: 0 }}>발주서 취소</h2>

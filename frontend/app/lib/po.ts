@@ -49,7 +49,7 @@ export type PurchaseOrder = {
 export type PoStatus = "DRAFT" | "APPROVED" | "ORDERED" | "RECEIVED" | "CANCELLED"; // 서버가 쓰는 상태 5개
 
 // 서버 po_states.allowed_actions 가 주는 동작 이름 (backend/app/services/po_states.py)
-export type PoAction = "edit" | "approve" | "order" | "cancel" | "close_remaining" | "email" | "receive" | "supplier_reply" | "document";
+export type PoAction = "edit" | "approve" | "order" | "cancel" | "close_remaining" | "email" | "receive" | "supplier_reply" | "document" | "remind";
 
 // 이 발주서에서 action 을 할 수 있는지. 화면 버튼은 이것만 본다 (서버 규칙과 같은 값)
 // 칸이 없는 옛 응답은 빈 목록으로 본다: 버튼이 숨는 쪽이 안전하다 (누르면 409 가 나는 버튼보다 낫다)
