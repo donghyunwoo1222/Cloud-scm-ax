@@ -120,6 +120,11 @@ export function panelNotice(s: { noInput: boolean; error: string }): string {
   return s.noInput ? DISABLED : s.error;
 }
 
+// ESC 로 패널을 닫을지: 한글 조합 중 ESC 는 조합 취소라 닫지 않는다
+export function shouldCloseOnKey(e: { key: string; isComposing: boolean }): boolean {
+  return e.key === "Escape" && !e.isComposing;
+}
+
 // 이 오류가 오면 입력창을 숨기고 목차만 보여 줄지 (스위치 꺼짐·LLM 꺼짐)
 export function hidesInput(e: ErrorLike): boolean {
   return e.code === "CHAT_DISABLED" || (e.code === "LLM_UNAVAILABLE" && (e.details as { reason?: string } | null)?.reason === "DISABLED");

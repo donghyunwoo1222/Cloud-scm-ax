@@ -104,7 +104,7 @@ export function ChatPanel({ items, open, onClose, onNavigate, closeRef }: {
 
   return (
     <section id="chat-panel" className="chat-panel no-print" aria-label="사용법 안내" hidden={!open}
-      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
+      onKeyDown={(e) => { if (shouldCloseOnKey({ key: e.key, isComposing: e.nativeEvent.isComposing })) onClose(); }}>
       {/* ESC: 키 이벤트는 포커스가 패널 안에 있을 때만 여기로 온다 */}
       <div className="chat-head">
         <strong>사용법 안내</strong>

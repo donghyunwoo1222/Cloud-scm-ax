@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { buildHistory, checkSend, errorText, hidesInput, itemsForPath, panelNotice, shouldSendOnEnter, sourceHref, type GuideItem, type Turn } from "./chat.ts";
+import { buildHistory, checkSend, errorText, hidesInput, itemsForPath, panelNotice, shouldCloseOnKey, shouldSendOnEnter, sourceHref, type GuideItem, type Turn } from "./chat.ts";
 
 const ans = (ids: string[]) => ({ kind: "ANSWER" as const, answer: "답 글", sources: ids.map((id) => ({ id, title: id, path: null })) });
 const turn = (key: number, reply: Turn["reply"]): Turn => ({ key, question: `질문${key}`, reply });
@@ -114,6 +114,12 @@ test("panelNotice: 입력창이 숨겨지면 오류가 비어도 고정 안내, 
   assert.equal(panelNotice({ noInput: true, error: "다른 오류" }), disabled);
   assert.equal(panelNotice({ noInput: false, error: "" }), "");
   assert.equal(panelNotice({ noInput: false, error: "다른 오류" }), "다른 오류");
+});
+
+test("shouldCloseOnKey: ESC 만 닫고 한글 조합 중 ESC 는 닫지 않는다", () => {
+  assert.equal(shouldCloseOnKey({ key: "Escape", isComposing: false }), true);
+  assert.equal(shouldCloseOnKey({ key: "Escape", isComposing: true }), false);
+  assert.equal(shouldCloseOnKey({ key: "a", isComposing: false }), false);
 });
 
 // 챗봇 파일 원문 검사: 대화·질문을 브라우저 저장소나 콘솔에 남기거나 HTML 로 그리는 코드가 없어야 한다
