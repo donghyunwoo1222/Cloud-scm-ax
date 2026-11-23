@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation"; // 지금 주소(현�
 import { ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react"; // 자식 화면 타입, 주소 읽는 부품 감싸기, 함수 고정, 처음·변경 때 실행, 포커스용 ref, 상태
 
 import { ApiError, api } from "../lib/api"; // 공통 API 호출 함수·오류 종류
+import { Toc } from "../lib/chat"; // 안내 챗봇 목차 모양
+import { ChatPanel } from "../lib/chat-panel"; // 안내 챗봇 사이드 패널 (#199)
 import { Me, MeContext, NOTICE_KEY, ROLE_LABEL } from "../lib/me"; // 내 정보 모양·공유 상자·역할 이름
 import { S } from "../lib/styles"; // 화면 공통 스타일
 import { ToastProvider } from "../lib/toast"; // 성공 알림 토스트 (화면 어디서나 useToast 로 부른다)
@@ -85,6 +87,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(() => {
     try { return typeof window !== "undefined" && window.localStorage.getItem("sidebar-collapsed") === "1"; } catch { return false; }
   });
+  const [toc, setToc] = useState<Toc | null>(null); // 안내 챗봇 목차 (받기 전·실패·꺼짐이면 null 또는 enabled=false → 열기 버튼 없음)
+  const [chatOpen, setChatOpen] = useState(false); // 안내 챗봇 패널이 열려 있는지
+  const [narrow, setNarrow] = useState(false); // 730px 미만(모바일)인지: 챗봇이 전체 화면 시트가 되어 뒤 화면을 막는다
+  const tocAsked = useRef(false); // 목차는 페이지를 열 때 한 번만 부른다 (실패해도 다시 부르지 않는다)
+  const chatDesktopButton = useRef<HTMLButtonElement>(null); // 상단 바의 열기 버튼 (닫을 때 포커스를 돌려준다)
+  const chatMobileButton = useRef<HTMLButtonElement>(null); // 앱바의 열기 버튼
+  const chatCloseButton = useRef<HTMLButtonElement>(null); // 패널의 닫기 버튼
+  const restoreChatFocus = useRef(false); // 닫은 뒤 열기 버튼으로 포커스를 돌려줄지 (메뉴와 같은 이유)
   const openButton = useRef<HTMLButtonElement>(null); // 앱바의 햄버거 버튼 (닫을 때 포커스를 돌려준다)
   const closeButton = useRef<HTMLButtonElement>(null); // 드로어의 닫기 버튼 (열 때 포커스를 옮긴다)
   const restoreFocus = useRef(false); // 닫은 뒤 햄버거로 포커스를 돌려줄지 (닫는 순간에는 뒤 화면이 아직 inert 라 포커스가 안 들어간다)
@@ -98,6 +108,41 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       if (!(e instanceof ApiError && e.status === 401)) setFailed(true); // 401 은 api 함수가 이동시키니 그 밖의 실패만 안내한다
     });
   }, [attempt, router]);
+
+  useEffect(() => {
+    // 로그인 확인 뒤 챗봇 목차를 한 번만 부른다. 임시 비밀번호 상태에서는 부르지 않는다. 실패(403·네트워크)는 버튼을 안 보이게 할 뿐 재시도하지 않는다
+    if (!me || me.must_change_password || tocAsked.current) return;
+    tocAsked.current = true;
+    api<Toc>("/chat/guide/toc").then(setToc).catch(() => {});
+  }, [me]);
+
+  useEffect(() => {
+    const wide = window.matchMedia("(min-width: 730px)"); // 메뉴 드로어와 같은 기준
+    const update = () => setNarrow(!wide.matches);
+    update();
+    wide.addEventListener("change", update);
+    return () => wide.removeEventListener("change", update);
+  }, []);
+
+  // 챗봇 패널을 닫는다. 버튼·ESC 로 닫으면 열기 버튼으로 포커스를 돌려주고, 링크 이동(모바일)으로 닫을 때는 돌려주지 않는다
+  const closeChat = useCallback((returnFocus: boolean) => {
+    restoreChatFocus.current = returnFocus;
+    setChatOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (chatOpen || !restoreChatFocus.current) return;
+    restoreChatFocus.current = false;
+    (narrow ? chatMobileButton : chatDesktopButton).current?.focus(); // 뒤 화면의 inert 가 풀린 뒤라 포커스가 들어간다
+  }, [chatOpen, narrow]);
+
+  useEffect(() => {
+    if (!chatOpen || !narrow) return; // 데스크톱은 뒤 화면을 막지 않는다
+    const html = document.documentElement; // 모바일 시트가 열린 동안 뒤 화면 스크롤 잠금
+    const before = html.style.overflow;
+    html.style.overflow = "hidden";
+    return () => { html.style.overflow = before; };
+  }, [chatOpen, narrow]);
 
   function dismissNotice() {
     setNotice("");
@@ -133,6 +178,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       wide.removeEventListener("change", onWide);
     };
   }, [menuOpen, closeMenu]);
+
+  function openChat() {
+    closeMenu(false); // 메뉴 드로어와 챗봇은 동시에 열리지 않는다
+    setChatOpen(true);
+  }
+
+  const chatReady = !!me && !me.must_change_password && !!toc?.enabled; // 열기 버튼·패널을 둘지: 켜져 있을 때만 (꺼짐·실패면 없음)
 
   function toggleSidebar() {
     const next = !collapsed;
@@ -195,8 +247,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <div className="drawer-scrim" data-open={menuOpen} aria-hidden="true" onClick={() => closeMenu(true)} />
         )}
         {/* 드로어 뒤의 반투명 배경: 누르면 닫힌다 (키보드는 Esc·닫기 버튼이 있어 탭 순서에서 뺀다) */}
-        <div style={S.content} inert={menuOpen}>
-          {/* inert: 드로어가 열려 있는 동안 뒤 화면은 클릭·Tab·낭독 대상에서 빠진다 (포커스가 드로어 밖으로 새지 않는다) */}
+        <div style={S.content} inert={menuOpen || (chatOpen && narrow)}>
+          {/* inert: 드로어(또는 모바일 챗봇 시트)가 열려 있는 동안 뒤 화면은 클릭·Tab·낭독 대상에서 빠진다 (포커스가 드로어 밖으로 새지 않는다) */}
           {me && (
           <div className="app-bar">
             <button className="app-bar-menu" ref={openButton} type="button" aria-label="메뉴 열기"
@@ -207,6 +259,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               <Suspense fallback="Cloud SCM"><CurrentTitle /></Suspense>
               {/* 주소를 읽는 부품은 Suspense 로 감싸야 Next.js 16 빌드가 된다 */}
             </span>
+            {chatReady && (
+              <button type="button" className="chat-open chat-open-mobile no-print" ref={chatMobileButton}
+                aria-expanded={chatOpen} aria-controls="chat-panel" onClick={openChat}>사용법 질문</button>
+            )}
           </div>
           )}
           {/* 모바일 앱바: 56px 한 줄 (햄버거 + 현재 화면 이름). 데스크톱에서는 숨긴다 */}
@@ -214,6 +270,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <header className="desktop-topbar" style={S.topbar}>
             <UserSummary me={me} />
             {/* 내 이름·회사명·역할 */}
+            {chatReady && (
+              <button type="button" className="chat-open chat-open-desktop no-print" ref={chatDesktopButton}
+                aria-expanded={chatOpen} aria-controls="chat-panel" onClick={openChat}>사용법 질문</button>
+            )}
             <button type="button" onClick={logout}>
               로그아웃
             </button>
@@ -230,6 +290,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           {/* 각 화면 내용. 로그인 확인 전에도 그려 두되(Next.js 가 화면 구조를 미리 검사할 수 있게) 확인 전까지는 숨긴다.
               데이터는 화면이 아니라 서버가 지킨다: 로그인 안 한 상태의 API 호출은 401 → 로그인 화면 */}
         </div>
+        {chatReady && toc && (
+          <Suspense fallback={null}>
+            <ChatPanel items={toc.items} open={chatOpen} closeRef={chatCloseButton}
+              onClose={() => closeChat(true)} onNavigate={() => { if (narrow) closeChat(false); }} />
+            {/* 열기 버튼은 상단 바·앱바에만 둔다(본문 위에 떠 있는 버튼 없음). 패널은 inert 영역 밖이라 모바일 시트가 열려도 눌린다 */}
+          </Suspense>
+        )}
       </div>
     </MeContext.Provider>
     </ToastProvider>
