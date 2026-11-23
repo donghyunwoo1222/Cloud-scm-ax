@@ -2,6 +2,7 @@ from fastapi import FastAPI  # FastAPI 앱 클래스
 
 from app.api import (  # 경로가 든 모듈들
     auth,
+    chat,
     companies,
     dashboard,
     health,
@@ -44,3 +45,4 @@ app.include_router(import_templates.router, prefix="/api/v1")  # 가져오기 �
 app.include_router(slack_link.router, prefix="/api/v1")  # 슬랙 연결 코드 발급·해제 (#197)
 app.include_router(slack_events.router, prefix="/api/v1")  # 슬랙 Events API 받는 문 (#197, 로그인 대신 서명 검증)
 app.include_router(supplier_reply.router, prefix="/api/v1")  # 공급업체 확인 링크 (#265, 로그인 대신 메일 링크 토큰)
+app.include_router(chat.router, prefix="/api/v1")  # 안내 챗봇 (#199, 기본 꺼짐)

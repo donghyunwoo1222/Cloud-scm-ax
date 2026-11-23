@@ -10,7 +10,8 @@ import time  # 잠깐 기다리기
 from sqlalchemy import delete, select  # DELETE·SELECT 문
 from sqlalchemy.orm import Session  # DB 세션
 
-from app.models import (  # 표 10개
+from app.models import (  # 표 12개
+    ChatDailyStat,
     Company,
     IdempotencyKey,
     InventoryMovement,
@@ -66,7 +67,7 @@ def run_in_new_session(engine, fn):
 def delete_companies(engine, company_ids: list[int]) -> None:
     """테스트가 commit 한 회사들과 그 회사의 모든 행을 지운다. 다른 표를 가리키는 표부터 차례로."""
     with Session(engine) as session:
-        for model in (SlackLink, IdempotencyKey, InventoryMovement, PoChangeLog, PoEmailLog, PurchaseOrderItem, PurchaseOrder, Product, Supplier, User):  # 가리키는 쪽부터 (이력 두 표는 발주서보다 먼저)
+        for model in (ChatDailyStat, SlackLink, IdempotencyKey, InventoryMovement, PoChangeLog, PoEmailLog, PurchaseOrderItem, PurchaseOrder, Product, Supplier, User):  # 가리키는 쪽부터 (이력 두 표는 발주서보다 먼저)
             session.execute(delete(model).where(model.company_id.in_(company_ids)))
         session.execute(delete(Company).where(Company.id.in_(company_ids)))  # 마지막에 회사
         session.commit()

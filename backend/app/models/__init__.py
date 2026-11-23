@@ -1,5 +1,6 @@
-# 표 정의 층: ERD의 11개 표(업무 7개 + 멱등 키 + 발주서 변경 이력 + 슬랙 연결 + 메일 발송 이력). 여기서 모두 불러와야 Alembic이 Base.metadata 에서 다 본다
+# 표 정의 층: ERD의 12개 표(업무 7개 + 멱등 키 + 발주서 변경 이력 + 슬랙 연결 + 메일 발송 이력 + 챗봇 일별 통계). 여기서 모두 불러와야 Alembic이 Base.metadata 에서 다 본다
 from app.models.base import Base  # 모든 모델의 부모
+from app.models.chat_daily_stat import ChatDailyStat  # 안내 챗봇 일별 통계 (#199)
 from app.models.company import Company  # 회사
 from app.models.idempotency_key import IdempotencyKey  # 멱등 키 (#190)
 from app.models.inventory_movement import InventoryMovement  # 입출고 이력
@@ -13,6 +14,7 @@ from app.models.user import User  # 사용자
 
 __all__ = [  # 밖에서 from app.models import ... 로 쓸 이름 목록
     "Base",
+    "ChatDailyStat",
     "Company",
     "IdempotencyKey",
     "InventoryMovement",

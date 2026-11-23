@@ -92,4 +92,4 @@ class GeminiClient:
             raise GeminiError("unexpected response", cause="bad_shape", finish=finish) from None  # 후보가 없음(차단 등)·모양이 다름
         cost = (tokens_in * settings.llm_price_input_usd_per_mtok
                 + tokens_out * settings.llm_price_output_usd_per_mtok) / 1_000_000  # 예) 입력 1,000·단가 0.1 → $0.0001
-        return LLMReply(text=text, cost_usd=cost, finish_reason=finish)
+        return LLMReply(text=text, cost_usd=cost, finish_reason=finish, tokens_in=tokens_in)

@@ -80,6 +80,7 @@ class LLMReply:
     text: str  # 모델이 낸 글자 (JSON 이어야 한다)
     cost_usd: float  # 이번 호출 비용. 어댑터가 응답의 토큰 수 × 자기 모델 단가로 계산한다
     finish_reason: object = None  # 모델이 멈춘 이유(STOP·MAX_TOKENS 등). 로그 전에 _safe_finish 로 거른다 (#231)
+    tokens_in: int = 0  # 입력 토큰 수(지표용, #199). 어댑터가 응답의 사용량에서 채운다
 
 
 class LLMRetryable(Exception):
@@ -158,15 +159,20 @@ def _add_cost(cost_usd: float) -> None:
         _monthly[1] += cost_usd  # 끝난 뒤에야 비용을 알아 마지막 한 번(동시면 그 수만큼)은 한도를 조금 넘을 수 있다
 
 
-def ask(company_id: int, purpose: str, data, schema: type[LLMOutput]) -> LLMOutput:
+def ask(company_id: int, purpose: str, data, schema: type[LLMOutput], *,
+        reference: str | None = None, usage: dict | None = None) -> LLMOutput:
     """purpose 의 지시문으로 data 를 LLM 에 보내고, schema 를 통과한 결과만 돌려준다. 실패는 모두 LLMUnavailable(503).
 
     company_id 는 호출하는 API 가 로그인 토큰에서 얻은 값(user.company_id)만 넘긴다. 요청 본문 값을 넘기면 안 된다(데이터 원칙 1).
     data 는 dict·list 등 JSON 으로 바꿀 수 있는 값. 결과는 "제안"이므로 기능 쪽이 서버 규칙으로 다시 검사하고 사용자 확인을 받는다.
+    reference: 우리가 쓴 참고 문서(예: 사용 안내서, #199). 믿을 수 있는 글이라 system 에 넣고 입력 상한(data 크기)에는 세지 않는다.
+    usage: 넘기면 끝난 뒤 {"tokens_in": 재시도까지 합친 입력 토큰 수} 를 채운다(실패해도 채운다).
     """
     instruction = PROMPTS[purpose]  # 등록 안 된 목적은 코드 실수라 KeyError 로 바로 드러낸다
+    if reference is not None:  # 참고 문서는 지시와 같은 system 쪽에, 데이터 구분자와 다른 이름표로 넣는다
+        instruction = f"{instruction}\n\n<reference>\n{reference}\n</reference>"
     started = now()
-    attempts, cost, outcome, error = 0, 0.0, "OK", "-"  # error: 마지막 오류의 종류 이름만 (문장은 남기지 않는다)
+    attempts, cost, outcome, error, tokens_in = 0, 0.0, "OK", "-", 0  # error: 마지막 오류의 종류 이름만 (문장은 남기지 않는다)
     http, cause, finish, bad = "-", "-", "-", "-"  # #231: 마지막 시도의 상태 숫자·원인·멈춘 이유·BAD_OUTPUT 사유. 허용된 값만 담는다
     try:
         if not _enabled():
@@ -206,6 +212,7 @@ def ask(company_id: int, purpose: str, data, schema: type[LLMOutput]) -> LLMOutp
                 # from None: 제공자 오류 원문(입력이 섞일 수 있다)이 추적 정보로 따라가지 않게 한다
                 raise LLMUnavailable("UPSTREAM") from None
             cost += reply.cost_usd
+            tokens_in += reply.tokens_in if type(reply.tokens_in) is int else 0  # 지표용 숫자만 더한다
             _add_cost(reply.cost_usd)
             http = cause = "-"  # 응답을 받았으니 앞선 시도의 오류 정보는 지운다
             finish = _safe_finish(reply.finish_reason)
@@ -219,11 +226,13 @@ def ask(company_id: int, purpose: str, data, schema: type[LLMOutput]) -> LLMOutp
         outcome = exc.reason
         raise
     finally:
+        if usage is not None:
+            usage["tokens_in"] = tokens_in
         # 한 줄만 남긴다. 데이터·프롬프트·모델 출력·예외 문장·이메일·키·토큰은 남기지 않는다
         # 실패는 WARNING: 로그 설정이 없는 기본 상태(WARNING 이상만 출력)에서도 보이게 한다. 성공은 INFO
         log.log(logging.INFO if outcome == "OK" else logging.WARNING,
-                "llm purpose=%s company_id=%s attempts=%d latency_ms=%d outcome=%s error=%s http=%s cause=%s finish=%s bad=%s cost_usd=%.6f",
-                purpose, company_id, attempts, (now() - started) * 1000, outcome, error, http, cause, finish, bad, cost)
+                "llm purpose=%s company_id=%s attempts=%d latency_ms=%d outcome=%s error=%s http=%s cause=%s finish=%s bad=%s cost_usd=%.6f tokens_in=%d",
+                purpose, company_id, attempts, (now() - started) * 1000, outcome, error, http, cause, finish, bad, cost, tokens_in)
 
 
 def default_client() -> LLMClient | None:

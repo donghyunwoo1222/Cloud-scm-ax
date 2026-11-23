@@ -270,3 +270,42 @@ def test_retry_count_and_wait_come_from_settings(on, monkeypatch, clock):
     fake = use(monkeypatch, clock, [LLMRetryable()])
     assert reason_of(ask) == "UPSTREAM" and len(fake.calls) == 4
     assert clock.sleeps == pytest.approx([0.2, 0.4, 0.8])
+
+
+def test_reference_goes_to_system_only(on, monkeypatch, clock):
+    """#199: 참고 문서(안내서)는 system 에만, 질문 데이터는 구분자 안 user 에만. 참고 문서는 입력 상한에 세지 않는다."""
+    monkeypatch.setattr(settings, "llm_max_input_chars", 100)
+    fake = use(monkeypatch, clock, [GOOD])
+    ask_ref = llm.ask(1, "test", {"q": "승인은?"}, Pick, reference="## [G-X] 안내" + "가" * 500)
+    assert ask_ref == Pick(column="B")
+    system, user, _ = fake.calls[0]
+    assert "<reference>\n## [G-X] 안내" in system and "G-X" not in user
+    assert "승인은?" in user and "승인은?" not in system
+
+
+def test_without_reference_system_is_unchanged(on, monkeypatch, clock):
+    """reference 를 안 주면 system 글자가 예전과 같다(열 매핑·슬랙 주문 호출부 영향 없음)."""
+    fake = use(monkeypatch, clock, [GOOD])
+    ask()
+    assert "<reference>" not in fake.calls[0][0]
+
+
+def test_usage_sums_tokens_in_across_retries(on, monkeypatch, clock, caplog):
+    """재시도마다 받은 입력 토큰을 모두 더한다. 실패로 끝나도 usage 를 채우고, 로그에는 숫자만 남는다."""
+
+    class Counting(FakeClient):
+        def complete(self, system, user, timeout):
+            reply = super().complete(system, user, timeout)
+            return LLMReply(text=reply.text, cost_usd=0.0, tokens_in=700)
+
+    fake = Counting(clock, ["not json"])
+    monkeypatch.setattr(llm, "client", fake)
+    usage = {}
+    assert reason_of(lambda: llm.ask(1, "test", {"q": 1}, Pick, usage=usage)) == "BAD_OUTPUT"
+    assert usage == {"tokens_in": 700}
+    fake2 = Counting(clock, [GOOD])
+    monkeypatch.setattr(llm, "client", fake2)
+    monkeypatch.setattr(llm.log, "disabled", False)  # 같은 실행의 DB 준비(alembic fileConfig)가 꺼 둔 로거를 다시 켠다
+    with caplog.at_level(logging.INFO, logger="app.services.llm"):
+        llm.ask(1, "test", {"q": 1}, Pick, usage=usage)
+    assert usage == {"tokens_in": 700} and caplog.records[-1].getMessage().endswith("tokens_in=700")

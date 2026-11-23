@@ -40,6 +40,7 @@
 | F1 | POST /auth/otp/verify, POST /auth/otp/resend | 관리자 로그인 메일 인증코드 확인·재발송. 임시 토큰은 otp_pending 쿠키(브라우저가 이 경로에만 자동으로 보냄) (#179) | 비밀번호 단계를 통과한 관리자 |
 | F1 | GET /me | 내 정보·회사·역할 | 둘 다 |
 | 자동화 슬랙 연결 | GET /slack/link, POST /slack/link/code, POST /slack/link/unlink | 내 슬랙 연결 상태, 6자리 연결 코드 발급(10분, 원문은 응답에만), 연결 해제. 자기 연결만 다루고 회사·사용자는 토큰에서만. 슬랙이 꺼져 있으면 발급은 503 `SLACK_DISABLED`, 이미 연결이면 409 `SLACK_ALREADY_LINKED`, 해제는 언제나 된다 (#197) | 둘 다 |
+| 자동화 안내 챗봇 | POST /chat/guide, GET /chat/guide/toc | 사용 안내서(`backend/app/guide/guide.md`)만 근거로 사용법 질문에 답한다(#199). 아래 "안내 챗봇" 참고. 목차는 LLM 을 부르지 않고 스위치가 꺼져도 응답한다 | 둘 다 |
 | 자동화 슬랙 받는 문 | POST /slack/events | 슬랙 Events API 가 부르는 경로(배포용, 개발은 Socket Mode 워커). 로그인 대신 슬랙 서명(`X-Slack-Signature`, 5분 넘은 시각 거부)을 원문 본문으로 검증하고 실패하면 401 `SLACK_BAD_SIGNATURE`. 슬랙이 꺼져 있거나 서명 키가 없으면 404. `url_verification` 은 challenge 를 돌려주고, 나머지는 바로 200 을 보낸 뒤 뒤에서 처리한다(3초 안에 답, event_id 로 한 번만). DM "연결 123456" → 연결 코드 확인. 연결된 사용자의 그 밖의 글은 채팅 발주(`chat_order.propose`)로 보내 요약 + [확인][취소] 버튼으로 답한다("취소"·"도움말"은 서버가 직접 답하고 LLM 을 부르지 않으며, 사람별 분당 3회 제한은 서버 메모리). 회사는 `slack_links` 행에서만 (#197) | 슬랙(서명) |
 | 자동화 슬랙 버튼 받는 문 | POST /slack/interactions | 슬랙 버튼(block_actions)이 부르는 경로(배포용, 개발은 Socket Mode 워커의 interactive). 본문은 `application/x-www-form-urlencoded` 의 `payload` 칸(JSON). 서명 검증·404·401 규칙은 /slack/events 와 같고, 본문을 읽을 수 없으면 400 `BAD_REQUEST`. 바로 200 을 보낸 뒤 뒤에서(별도 DB 세션) 처리한다. [확인]→`chat_order.confirm`(초안만 생성), [취소]→`cancel`. 누른 사람·회사는 `slack_links` 행에서만 알아내고, 버튼 value 에는 서명된 토큰만 있다. 처리 뒤 `chat.update` 로 버튼을 결과 문구로 바꾸되(보조), 두 번 클릭은 서버의 nonce 가 막는다. 다른 사람이 누르면 누른 사람에게만 보이는 안내 (#197) | 슬랙(서명) |
 | 자동화 아침 추천 알림 | (경로 없음) 명령 `python -m app.slack_digest` | 바깥 예약 실행(배포 #43, 서울 9시)이 하루 한 번 부르는 일회성 명령. 연결된 활성 사용자에게 오늘의 추천을 슬랙 DM 으로 보낸다(웹 추천 계산 그대로, 최대 10줄, 넘치면 "외 N개"). 추천 0개면 안 보낸다. 링크는 `APP_BASE_URL` 이 https:// 로 시작할 때만 `/recommendations`. 사람마다 `idempotency_keys`(`slack:digest`, `날짜:user_id`)로 하루 한 통, 보낸 뒤에만 확정(실패하면 다시 실행 때 그 사람만). 종료 코드 1 = 실패 있음. 읽기·알림만. 채널별 역할과 알림 링크 규칙은 [channels-and-deeplinks.md](./channels-and-deeplinks.md) 참고 (#197, #198) | (명령) |
@@ -197,6 +198,15 @@
 - 두 경로 모두 요청 본문의 모르는 칸(예: `company_id`, `purchase_order_id`)은 422, 토큰은 1~100자. 응답 머리글 `Cache-Control: no-store`. 검증 오류 응답은 칸 이름·사유만 담고 입력값(토큰)을 되돌려 주지 않는다(`app/errors.py`).
 - 직원 대신 입력은 로그인 경로 `POST /purchase-orders/{id}/supplier-reply`(위 표, #265 PR4)이고 같은 날짜 범위 함수(`supplier_reply.check_reply_date`)를 쓴다. 공개 응답의 허용 칸(`PUBLIC_KEYS`)은 그대로이고 직원이 적은 사유는 공개 응답에 나가지 않는다.
 - 앱 안의 IP 기반 속도 제한은 없다(배포 플랫폼 몫, #43). 토큰은 32바이트 난수라 추측이 어렵고, 회신 변경은 5번으로 막는다. IP 는 저장하지 않는다.
+
+### 안내 챗봇 (#199 PR2)
+
+- `POST /chat/guide` 본문 `{"question": "1~500자(앞뒤 공백 제거)", "history": [{"question": "500자 이하", "sources": ["항목 ID, 5개 이하"]}]}`. `history`는 10개까지, 모르는 칸(예: 이전 답변 `answer`, `company_id`)이면 422. 이전 답변 글은 받지 않는다(조작된 대화 이력 방지). 질문 500자 + 이전 질문 10개면 약 6,000자라 LLM 입력 상한(`LLM_MAX_INPUT_CHARS` 20,000자)에 닿기 전에 여기서 막힌다. 안내서는 LLM 의 system 쪽 참고 문서(`ask(reference=)`)라 이 상한에 세지 않는다.
+- 응답 `{"kind": "ANSWER"|"NOT_FOUND"|"DATA_QUESTION", "answer": 글, "sources": [{"id", "title", "path"}]}`. 근거 ID 는 서버가 안내서의 실제 항목 ID 와 대조해 없는 것은 버리고(최대 3개), ANSWER 인데 남은 근거가 없으면 NOT_FOUND 로 바꾼다. NOT_FOUND·DATA_QUESTION 의 `answer`는 서버의 고정 문장이다. 링크 `path`는 LLM 이 아니라 근거 항목의 "화면:" 줄로 만든다("준비 중" 항목은 null). 답 본문의 주소(http·www)는 지운다.
+- LLM 에 보내는 것은 질문, 이전 질문, 실제 항목 ID 로 거른 이전 근거 ID 뿐이다. 회사 데이터는 보내지 않는다. 질문·답변 글은 DB·로그에 남기지 않는다(통계 표 `chat_daily_stats`에 숫자만, 로그는 `outcome`·`tokens_in`).
+- 검사 순서와 오류: 스위치 `CHAT_GUIDE_ENABLED=false` → 503 `CHAT_DISABLED` / 같은 사용자의 1분 6번째 → 429 `CHAT_RATE_LIMITED`(`details.retry_after_seconds`, 서버 메모리) / 질문·이전 질문에 이메일·휴대전화·지역번호 전화(구분자 있을 때)·주민번호(하이픈 있을 때) 모양 → 422 `CHAT_PII_BLOCKED`(`details`에 위치·종류만, 원문 없음) / 회사 오늘 상한 → 429 `CHAT_DAILY_LIMIT`(`details.limit`) / LLM 실패 → 503 `LLM_UNAVAILABLE`(`details.reason`은 #180 그대로). 화면은 모두 안내 문장과 목차 링크로 처리한다.
+- 챗봇 호출도 LLM 공통 한도(`LLM_DAILY_CALLS_PER_COMPANY`, 재시도 포함·월 예산)에 함께 센다. 챗봇 상한 100이면 재시도까지 최대 300번이므로 켤 때 공통 한도를 그 이상으로 올린다.
+- `GET /chat/guide/toc` 응답 `{"enabled": 챗봇 스위치와 LLM 이 모두 켜졌는지, "items": [{"id", "title", "path", "target", "status"}]}`.
 
 ### 회사 정보 (#156)
 
@@ -389,6 +399,10 @@
 | SUPPLIER\_LINK\_INVALID | 404 | 공급업체 확인 링크: 없는·만료·옛 토큰, 스위치 꺼짐, 토큰이 생길 수 없는 상태. 문장은 "링크가 만료되었거나 더 이상 쓸 수 없습니다" 하나로 같다(#265) | 공개 경로 |
 | SUPPLIER\_REPLY\_CLOSED | 409 | 취소·입고 완료 발주에 확인·회신(보기만 가능, #265) | 공개 경로 |
 | SUPPLIER\_REPLY\_LIMIT | 409 | 회신 납기를 이미 5번 바꾼 뒤 다른 날짜를 보냄. 같은 날짜 재전송·확인만은 해당 없음(#265) | 공개 경로 |
+| CHAT\_DISABLED | 503 | 안내 챗봇 스위치가 꺼져 있음(#199) | 안내 챗봇 |
+| CHAT\_RATE\_LIMITED | 429 | 같은 사용자가 1분에 5번을 넘겨 질문함. details.retry\_after\_seconds(#199) | 안내 챗봇 |
+| CHAT\_DAILY\_LIMIT | 429 | 회사 오늘 챗봇 요청 상한에 닿음. details.limit(#199) | 안내 챗봇 |
+| CHAT\_PII\_BLOCKED | 422 | 질문·이전 질문에 개인정보 모양이 있어 LLM 으로 보내지 않음. details 에 위치·종류만(#199) | 안내 챗봇 |
 | HTTP\_ERROR | 400·405 등 | 위 코드에 해당하지 않는 프레임워크 오류(깨진 요청 본문, 허용하지 않는 메서드 등). 없는 경로는 NOT\_FOUND(`app/errors.py`) | 공통 |
 
 에러가 날 때 어느 칸이 문제인지는 `details`에 칸 이름과 사유로 담는다(VALIDATION\_ERROR). 401과 403은 왜 실패했는지 최소한만 알려준다.
