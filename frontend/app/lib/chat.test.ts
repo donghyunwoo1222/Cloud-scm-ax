@@ -87,7 +87,7 @@ test("sourceHref: null 은 링크 없음(준비 중), 사이트 안 경로만 �
 });
 
 test("sourceHref: // · http · 역슬래시로 시작하는 주소는 링크가 아니다", () => {
-  for (const bad of ["//evil.com", "http://evil.com", "https://evil.com/x", "/\\evil.com", "javascript:alert(1)", "dashboard", ""]) {
+  for (const bad of ["//evil.com", "http://evil.com", "https://evil.com/x", "/\\evil.com", "/\t/evil.com", "/ x", "/a\\b", "/a\nb", "javascript:alert(1)", "dashboard", ""]) {
     assert.equal(sourceHref(bad), null, bad);
   }
 });

@@ -43,8 +43,9 @@ export function shouldSendOnEnter(e: { key: string; shiftKey: boolean; isComposi
 }
 
 // 출처 링크 고르기: 사이트 안 경로("/" 로 시작, "//"·"/\" 로 시작하지 않음)만 링크로 쓴다. 그 밖(null·http 주소 등)은 링크 없음
+// 공백류(탭·줄바꿈 포함)와 역슬래시가 하나라도 있으면 링크가 아니다: 브라우저가 주소의 탭·줄바꿈을 지워 "/(탭)/evil.com" 이 "//evil.com" 이 될 수 있다
 export function sourceHref(path: string | null): string | null {
-  if (!path || !path.startsWith("/") || path.startsWith("//") || path.startsWith("/\\")) return null;
+  if (!path || !path.startsWith("/") || path.startsWith("//") || /[\s\\]/.test(path)) return null;
   return path;
 }
 
