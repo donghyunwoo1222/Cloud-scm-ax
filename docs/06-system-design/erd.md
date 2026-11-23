@@ -276,10 +276,39 @@ erDiagram
 | blocked\_pii | 정수 | 필수 | 개인정보 모양이라 LLM 으로 보내지 않은 수 |
 | limited | 정수 | 필수 | 분당 한도·일일 상한으로 막은 수 |
 | tokens\_in | 큰 정수 | 필수 | 입력 토큰 합계(재시도 포함). 호출당 평균 = tokens\_in ÷ requests |
+| helpful / not\_helpful | 정수 | 필수 | ANSWER 답의 "도움이 됐어요" / "아니에요" 수(#199 PR4). 합계는 그날 answered 이하(CHECK `ck_chat_daily_stats_feedback_le_answered`). requests 에 넣지 않는다 |
 
 모든 숫자 칸은 기본 0이고 CHECK로 0 이상이다. 요청이 끝나면 `requests = answered + not_found + data_question + failed`가 성립한다(처리 중인 요청만큼은 잠깐 어긋난다). `blocked_pii`·`limited`는 LLM 으로 보내지 않은 요청이라 `requests`에 넣지 않는다.
 
 동시 요청: 상한 확인과 증가는 `INSERT … ON CONFLICT (company_id, day) DO UPDATE SET requests = requests + 1 WHERE requests < 상한 RETURNING requests` 한 문장이다. 돌려받은 행이 없으면 상한에 닿은 것이다. 이 문장은 바로 커밋해 LLM 을 기다리는 동안 행 잠금을 잡고 있지 않고, 결과 숫자는 호출이 끝난 뒤 두 번째 UPSERT 로 더한다(시작한 날짜의 행에). 예) 상한 100에서 99번 쓴 뒤 두 요청이 동시에 오면 하나만 100이 되고 다른 하나는 429 `CHAT_DAILY_LIMIT`.
+
+피드백 칸은 `POST /chat/guide/feedback`의 조건부 UPDATE 한 문장(`… WHERE helpful + not_helpful < answered`)으로만 올린다. 서비스의 일반 더하기 함수(`add`)로는 올릴 수 없다. 누가 어느 답에 눌렀는지 저장하지 않으므로 같은 답에 여러 번 누르는 것은 막지 못하고, 그날 답한 수만큼으로 묶을 뿐이다.
+
+#### 챗봇 지표 정의와 조회 (#199)
+
+| 지표 | 계산식 | 뜻 |
+| --- | --- | --- |
+| 찾지 못함 비율 | not\_found ÷ (answered + not\_found + data\_question) | 안내서에 없는 질문의 비율(LLM 실패는 분모에서 뺀다) |
+| 도움 안 됨 비율 | not\_helpful ÷ (helpful + not\_helpful) | 답은 했지만 도움이 안 된 비율 |
+| 응답률 | (helpful + not\_helpful) ÷ answered | 답 중 피드백을 받은 비율 |
+| 호출당 입력 토큰 | tokens\_in ÷ requests | 안내서 크기·비용 추세(RAG 전환 #318 판단) |
+
+해석 주의: 하루가 아니라 기간 합계로 보고, 분모가 30건 미만이면 비율로 판단하지 않는다(예: 3건 중 2건 = 67%는 의미가 없다). 같은 답 반복 누르기를 막지 못하므로 도움 안 됨 비율은 방향만 본다. #318 전환 기준값은 그 이슈에서 정한다. 조회 화면·API 는 없고 아래 SQL 로 본다(읽기만).
+
+```sql
+-- 최근 30일, 회사별 챗봇 지표 (분모가 0 이면 NULL)
+SELECT company_id,
+       SUM(requests) AS requests,
+       ROUND(SUM(not_found)::numeric / NULLIF(SUM(answered + not_found + data_question), 0), 3) AS not_found_rate,
+       ROUND(SUM(not_helpful)::numeric / NULLIF(SUM(helpful + not_helpful), 0), 3) AS not_helpful_rate,
+       SUM(helpful + not_helpful) AS feedback_n,
+       ROUND(SUM(helpful + not_helpful)::numeric / NULLIF(SUM(answered), 0), 3) AS response_rate,
+       ROUND(SUM(tokens_in)::numeric / NULLIF(SUM(requests), 0)) AS tokens_per_request
+FROM chat_daily_stats
+WHERE day >= CURRENT_DATE - 29
+GROUP BY company_id
+ORDER BY company_id;
+```
 
 ### slack\_links (슬랙 연결, #197)
 

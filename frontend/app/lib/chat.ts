@@ -12,8 +12,10 @@ export type Toc = { enabled: boolean; items: GuideItem[] };
 export type Source = { id: string; title: string; path: string | null };
 // POST /chat/guide 응답
 export type Answer = { kind: "ANSWER" | "NOT_FOUND" | "DATA_QUESTION"; answer: string; sources: Source[] };
+// 답 하나의 피드백 상태: 보내는 중 / 기록됨 / 실패(그 칸에만 보일 문장). 없으면 아직 안 누름
+export type Feedback = { state: "sending" | "done" } | { state: "error"; message: string };
 // 화면 목록의 대화 한 칸. reply 가 null 이면 아직 답을 기다리는 중("보내는 중…")
-export type Turn = { key: number; question: string; reply: Answer | null };
+export type Turn = { key: number; question: string; reply: Answer | null; feedback?: Feedback };
 // 서버에 보내는 이전 대화 한 칸: 질문과 출처 ID 만 (답 글은 절대 보내지 않는다)
 export type HistoryTurn = { question: string; sources: string[] };
 
@@ -129,4 +131,60 @@ export function shouldCloseOnKey(e: { key: string; isComposing: boolean }): bool
 // 이 오류가 오면 입력창을 숨기고 목차만 보여 줄지 (스위치 꺼짐·LLM 꺼짐)
 export function hidesInput(e: ErrorLike): boolean {
   return e.code === "CHAT_DISABLED" || (e.code === "LLM_UNAVAILABLE" && (e.details as { reason?: string } | null)?.reason === "DISABLED");
+}
+
+// ----- 패널 대화 상태 (리듀서) -----
+// 대화 목록·오류 줄·입력 숨김을 바꾸는 곳을 이 함수 하나로 모은다. 한 동작이 바꾸는 칸이 정해져 있어
+// "한 곳이 넣은 상태를 다른 곳이 지우는" 실수를 시험(chat.test.ts 의 전이 표)으로 막는다
+export type ChatState = { turns: Turn[]; error: string; noInput: boolean };
+export const initialChat: ChatState = { turns: [], error: "", noInput: false };
+
+export type ChatAction =
+  | { type: "SEND_START"; key: number; question: string } // 질문을 "보내는 중…"으로 붙이고 오류 줄을 비운다
+  | { type: "SEND_OK"; key: number; reply: Answer } // 그 질문에 답을 붙인다
+  | { type: "SEND_FAIL"; key: number; error: string } // 그 질문을 빼고 오류 줄을 쓴다
+  | { type: "DISABLED"; key: number; error: string } // SEND_FAIL + 입력창 숨김 (스위치·LLM 꺼짐)
+  | { type: "NEW_CHAT" } // 대화와 오류 줄을 비운다 (입력 숨김은 그대로)
+  | { type: "FEEDBACK_START"; key: number } // 그 답 칸만 "보내는 중" (오류 줄·입력 숨김은 건드리지 않는다)
+  | { type: "FEEDBACK_OK"; key: number } // 그 답 칸만 "기록됨"
+  | { type: "FEEDBACK_FAIL"; key: number; message: string }; // 그 답 칸에만 실패 문장 (다시 누를 수 있다)
+
+// 한 칸의 피드백만 바꾼다. 새 대화로 그 칸이 사라졌으면 상태를 그대로 돌려준다
+function withFeedback(s: ChatState, key: number, feedback: Feedback): ChatState {
+  if (!s.turns.some((t) => t.key === key)) return s;
+  return { ...s, turns: s.turns.map((t) => (t.key === key ? { ...t, feedback } : t)) };
+}
+
+export function chatReducer(s: ChatState, a: ChatAction): ChatState {
+  switch (a.type) {
+    case "SEND_START":
+      return { ...s, error: "", turns: [...s.turns, { key: a.key, question: a.question, reply: null }] };
+    case "SEND_OK":
+      return { ...s, turns: s.turns.map((t) => (t.key === a.key ? { ...t, reply: a.reply } : t)) }; // 새 대화로 사라진 칸이면 아무것도 붙지 않는다
+    case "SEND_FAIL":
+      return { ...s, error: a.error, turns: s.turns.filter((t) => t.key !== a.key) };
+    case "DISABLED":
+      return { ...s, error: a.error, noInput: true, turns: s.turns.filter((t) => t.key !== a.key) };
+    case "NEW_CHAT":
+      return { ...s, turns: [], error: "" };
+    case "FEEDBACK_START":
+      return withFeedback(s, a.key, { state: "sending" });
+    case "FEEDBACK_OK":
+      return withFeedback(s, a.key, { state: "done" });
+    case "FEEDBACK_FAIL":
+      return withFeedback(s, a.key, { state: "error", message: a.message });
+  }
+}
+
+// ----- 피드백 ("도움이 됐어요 / 아니에요") -----
+
+// 버튼을 보일 답: ANSWER 만 (NOT_FOUND·DATA_QUESTION 은 서버 고정 문장이라 평가할 내용이 없다)
+export const showsFeedback = (reply: Answer | null): boolean => reply?.kind === "ANSWER";
+
+// 다시 누를 수 있는지: 아직 안 눌렀거나 실패했을 때만 (보내는 중·기록됨이면 꺼진다)
+export const canGiveFeedback = (f: Feedback | undefined): boolean => !f || f.state === "error";
+
+// 피드백 실패 문장 (서버 원문 미노출). 스위치가 꺼졌으면 따로 알린다
+export function feedbackErrorText(e: ErrorLike): string {
+  return e.code === "CHAT_DISABLED" ? "지금은 의견을 보낼 수 없어요." : "의견을 보내지 못했어요. 잠시 뒤 다시 눌러 주세요.";
 }

@@ -26,3 +26,11 @@ class ChatGuideRequest(BaseModel):
 
     question: Question
     history: list[ChatTurn] = Field(default_factory=list, max_length=10)  # 최근 이전 질문 10개까지 (넘으면 화면이 새 대화 안내)
+
+
+class ChatFeedbackRequest(BaseModel):
+    """ANSWER 답 하나에 대한 "도움이 됐어요(true) / 아니에요(false)". 질문·답 글, 출처 ID, 회사는 받지 않는다(모르는 칸이면 422)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    helpful: bool = Field(strict=True)  # true·false 만 ("yes"·1 은 422)
