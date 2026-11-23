@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { blockedText, reminderErrorText, reminderPanelOpen } from "./reminder.ts";
+import { blockedText, NO_ERRORS, panelErrors, reminderErrorText, reminderPanelOpen } from "./reminder.ts";
 
 const err = (status: number, code: string, details: unknown = null, message = "서버 원문 SMTP 535 secret") => ({ status, code, message, details });
 
@@ -60,4 +60,34 @@ test("MAIL_SENT_NOT_SAVED: 메일은 나갔다는 뜻과 다시 보내지 말라
 test("모르는 코드는 상태 코드별 일반 문장 (원문 없음)", () => {
   assert.ok(reminderErrorText(err(404, "X")).includes("찾을 수 없"));
   assert.ok(reminderErrorText(err(403, "X")).includes("권한"));
+});
+
+test("panelErrors (a): 발송 실패 뒤 미리보기 불러오기가 성공해도 발송 오류는 남는다", () => {
+  let s = panelErrors(NO_ERRORS, { type: "send-fail", text: "연결 실패", code: "MAIL_FAILED" });
+  s = panelErrors(s, { type: "load-ok" });
+  assert.equal(s.sendError, "연결 실패");
+});
+
+test("panelErrors (b): 다시 발송을 시작하면 발송 오류가 지워진다", () => {
+  const s = panelErrors({ ...NO_ERRORS, sendError: "연결 실패" }, { type: "send-start" });
+  assert.equal(s.sendError, "");
+});
+
+test("panelErrors (c): 패널이 닫히면 모두 지워진다", () => {
+  const s = panelErrors({ sendError: "x", loadError: "y", unsaved: true }, { type: "close" });
+  assert.deepEqual(s, NO_ERRORS);
+});
+
+test("panelErrors (d): MAIL_SENT_NOT_SAVED 뒤 다시 불러와도 unsaved 와 문장이 유지된다", () => {
+  let s = panelErrors(NO_ERRORS, { type: "send-fail", text: "나갔지만 저장 실패", code: "MAIL_SENT_NOT_SAVED" });
+  s = panelErrors(s, { type: "load-ok" });
+  s = panelErrors(s, { type: "load-fail", text: "불러오기 실패" });
+  assert.equal(s.unsaved, true);
+  assert.equal(s.sendError, "나갔지만 저장 실패");
+  assert.equal(panelErrors(NO_ERRORS, { type: "send-fail", text: "a", code: "MAIL_FAILED" }).unsaved, false); // 다른 실패는 잠그지 않는다
+});
+
+test("panelErrors: 불러오기 실패는 발송 오류를 건드리지 않는다", () => {
+  const s = panelErrors({ ...NO_ERRORS, sendError: "연결 실패" }, { type: "load-fail", text: "불러오기 실패" });
+  assert.deepEqual([s.sendError, s.loadError], ["연결 실패", "불러오기 실패"]);
 });

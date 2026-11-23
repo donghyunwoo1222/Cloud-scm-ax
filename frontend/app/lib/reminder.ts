@@ -56,3 +56,23 @@ export function blockedText(p: Pick<ReminderPreview, "blocked" | "max_per_order"
 // 독촉 패널을 열어 둘지. openFor = 사용자가 버튼을 눌러 연 발주서 id(없으면 null).
 // 지금 보는 발주서가 아니거나 서버가 remind 를 막았으면 닫힌 것이다 (닫히면 패널이 사라져 앞머리 글도 함께 비워진다)
 export const reminderPanelOpen = (openFor: string | null, id: string, canRemind: boolean) => openFor !== null && openFor === id && canRemind;
+
+// 패널의 오류 상태. 발송 오류(sendError)와 미리보기 불러오기 오류(loadError)를 따로 둬서, 다시 불러오기가 발송 오류를 지우지 못하게 한다
+export type PanelErrors = { sendError: string; loadError: string; unsaved: boolean }; // unsaved: 메일은 나갔는데 기록 저장 실패 → 다시 보내기 금지
+export const NO_ERRORS: PanelErrors = { sendError: "", loadError: "", unsaved: false };
+export type PanelEvent =
+  | { type: "load-ok" } // 미리보기 불러오기 성공: 불러오기 오류만 지운다
+  | { type: "load-fail"; text: string }
+  | { type: "send-start" } // 사용자가 확인창을 수락해 발송을 시작: 이전 발송 오류를 지운다
+  | { type: "send-fail"; text: string; code?: string }
+  | { type: "close" }; // 패널이 닫힘: 모두 비운다
+
+export function panelErrors(state: PanelErrors, ev: PanelEvent): PanelErrors {
+  switch (ev.type) {
+    case "load-ok": return { ...state, loadError: "" };
+    case "load-fail": return { ...state, loadError: ev.text };
+    case "send-start": return { ...state, sendError: "" }; // unsaved 는 유지 (이미 나간 메일, 버튼이 잠겨 있어 보통 오지 않는다)
+    case "send-fail": return { ...state, sendError: ev.text, unsaved: state.unsaved || ev.code === "MAIL_SENT_NOT_SAVED" };
+    case "close": return NO_ERRORS;
+  }
+}
