@@ -305,6 +305,7 @@ def test_usage_sums_tokens_in_across_retries(on, monkeypatch, clock, caplog):
     assert usage == {"tokens_in": 700}
     fake2 = Counting(clock, [GOOD])
     monkeypatch.setattr(llm, "client", fake2)
+    monkeypatch.setattr(llm.log, "disabled", False)  # 같은 실행의 DB 준비(alembic fileConfig)가 꺼 둔 로거를 다시 켠다
     with caplog.at_level(logging.INFO, logger="app.services.llm"):
         llm.ask(1, "test", {"q": 1}, Pick, usage=usage)
     assert usage == {"tokens_in": 700} and caplog.records[-1].getMessage().endswith("tokens_in=700")
