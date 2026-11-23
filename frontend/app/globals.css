@@ -1241,7 +1241,7 @@ details.reason > p {
 
 @media print {
   @page { size: A4; margin: 12mm; }
-  .sidebar, .app-bar, .desktop-topbar, .drawer-scrim, .no-print { display: none !important; }
+  .sidebar, .app-bar, .desktop-topbar, .drawer-scrim, .chat-panel, .chat-open, .no-print { display: none !important; }
   body, main { background: #fff !important; }
   main { padding: 0 !important; max-width: none !important; }
   .po-paper { border: 0; padding: 0; max-width: none; }
@@ -1435,3 +1435,49 @@ details.reason > p {
 .slack-unlink { padding-top: var(--space-md); border-top: 1px solid var(--color-border); }
 .slack-facts { display: flex; flex-wrap: wrap; gap: var(--space-md) var(--space-xl); margin: 0 0 var(--space-md); }
 .slack-facts dd { margin: var(--space-xs) 0 0; font-weight: 500; overflow-wrap: anywhere; }
+
+/* 안내 챗봇 패널(#199): 데스크톱은 오른쪽에 겹쳐 뜨는 380px(가림막·뒤 화면 inert 없음), 730px 미만은 전체 화면 시트 */
+.chat-open-mobile { display: none; }
+
+.chat-panel {
+  position: fixed;
+  inset: 0 0 0 auto;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  background: var(--color-card);
+  border-left: 1px solid var(--color-border);
+  box-shadow: 0 0 24px rgb(30 41 59 / 16%);
+}
+
+.chat-panel[hidden] { display: none; }
+
+.chat-head { display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--color-border); }
+.chat-head strong { flex: 1; }
+.chat-close { display: inline-flex; align-items: center; justify-content: center; width: var(--control-min); padding: 0; border-color: transparent; background: transparent; }
+.chat-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--space-md); display: grid; gap: var(--space-md); align-content: start; }
+.chat-body h2 { margin: 0 0 var(--space-xs); font-size: var(--text-sm); }
+.chat-body ul { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-xs); }
+.chat-toc-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); }
+.chat-toc summary { cursor: pointer; font-weight: 600; margin-bottom: var(--space-xs); }
+.chat-ask { min-height: var(--chip-min); padding-inline: var(--space-sm); font-size: var(--text-sm); flex: none; }
+.chat-log { display: grid; gap: var(--space-md); }
+.chat-turn { display: grid; gap: var(--space-xs); }
+.chat-q { margin: 0; justify-self: end; max-width: 90%; padding: var(--space-xs) var(--space-sm); background: var(--color-selected); border-radius: var(--radius-sm); overflow-wrap: anywhere; white-space: pre-wrap; }
+.chat-a { display: grid; gap: var(--space-xs); justify-items: start; }
+.chat-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; } /* 답 글은 글자 그대로: 줄바꿈과 "1." 목록을 유지 */
+.chat-source { display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-xs) var(--space-sm); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--text-sm); }
+.chat-foot { border-top: 1px solid var(--color-border); padding: var(--space-sm) var(--space-md); display: grid; gap: var(--space-xs); }
+.chat-foot form { display: grid; gap: var(--space-xs); }
+.chat-foot textarea { width: 100%; resize: none; }
+.chat-send-row { display: flex; align-items: center; justify-content: space-between; }
+.chat-error { margin: 0; color: var(--color-destructive); background: var(--color-destructive-bg); border: 1px solid var(--color-destructive); border-radius: var(--radius-sm); padding: var(--space-xs) var(--space-sm); font-size: var(--text-sm); }
+.chat-full { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); }
+.chat-full p { margin: 0; font-size: var(--text-sm); }
+
+@media (max-width: 729px) {
+  .chat-open-desktop { display: none; }
+  .chat-open-mobile { display: inline-flex; margin-left: auto; }
+  .chat-panel { inset: 0; z-index: 60; width: 100%; border-left: 0; box-shadow: none; } /* 메뉴 드로어(z 50) 위 */
+}
