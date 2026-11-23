@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation"; // 지금 화면 경로 ("이 화
 import { KeyboardEvent, useEffect, useRef, useState } from "react"; // 상태·포커스·스크롤
 
 import { ApiError, api } from "./api"; // 공통 API 호출 함수
-import { Answer, GuideItem, MAX_QUESTION, Turn, askText, buildHistory, checkSend, errorText, hidesInput, itemsForPath, panelNotice, shouldCloseOnKey, shouldSendOnEnter, sourceHref } from "./chat"; // 순수 함수와 타입
+import { Answer, GuideItem, MAX_QUESTION, MAX_TURNS, Turn, askText, buildHistory, checkSend, errorText, hidesInput, itemsForPath, panelNotice, shouldCloseOnKey, shouldSendOnEnter, sourceHref } from "./chat"; // 순수 함수와 타입
 import { useSubmitLock } from "./submit-lock"; // 전송 중 연타 잠금
 
 // 안내 챗봇 패널. 대화는 이 컴포넌트의 React 상태(메모리)에만 있다: 새로고침하면 사라지고, 닫아도(hidden) 유지되고, 화면을 옮겨도 유지된다
@@ -27,15 +27,23 @@ export function ChatPanel({ items, open, onClose, onNavigate, closeRef }: {
   const seq = useRef(0); // 대화 칸 번호
   const input = useRef<HTMLTextAreaElement>(null); // 입력창 (열면 포커스)
   const body = useRef<HTMLDivElement>(null); // 스크롤 영역 (새 답이 오면 아래로)
+  const panel = useRef<HTMLElement>(null); // 패널 전체 (포커스가 안에 있는지 확인)
+  const fullNew = useRef<HTMLButtonElement>(null); // 10개 찼을 때의 [새 대화] 버튼
+  const refocus = useRef(false); // 입력창이 사라질 때 포커스가 패널 안에 있었는지
   const toc = useRef<HTMLDetailsElement>(null); // 목차 ("목차 보기" 버튼이 여기로 옮긴다)
 
   const doneCount = turns.filter((t) => t.reply !== null).length; // 답이 온 질문 수
   const verdict = checkSend(text, doneCount); // 보낼 수 있는지
-  const full = doneCount >= 10 && !noInput; // 10개 차면 입력 대신 새 대화 안내
+  const full = doneCount >= MAX_TURNS && !noInput; // 10개 차면 입력 대신 새 대화 안내
 
   useEffect(() => {
-    if (open) (input.current ?? closeRef.current)?.focus(); // 열면 입력창으로, 입력창이 없으면 닫기 버튼으로
-  }, [open, closeRef, noInput, full]);
+    if (open) (input.current ?? closeRef.current)?.focus(); // 열 때만 입력창으로, 입력창이 없으면 닫기 버튼으로
+  }, [open, closeRef]);
+
+  useEffect(() => {
+    if ((full || noInput) && refocus.current) (fullNew.current ?? closeRef.current)?.focus(); // 입력창이 사라져 포커스가 길을 잃지 않게 (패널 안에 있었을 때만)
+    refocus.current = false;
+  }, [full, noInput, closeRef]);
 
   useEffect(() => {
     if (body.current && turns.length > 0) body.current.scrollTop = body.current.scrollHeight; // 새 질문·답이 보이게 아래로
@@ -51,6 +59,7 @@ export function ChatPanel({ items, open, onClose, onNavigate, closeRef }: {
       setTocOpen(false);
       try {
         const reply = await api<Answer>("/chat/guide", { method: "POST", body: { question, history } });
+        refocus.current = panel.current?.contains(document.activeElement) ?? false; // 아직 입력창이 있을 때의 포커스 위치
         setTurns((t) => t.map((x) => (x.key === key ? { ...x, reply } : x))); // 답을 붙인다
         if (fromInput) setText(""); // 성공하면 입력창을 비운다
       } catch (e) {
@@ -58,7 +67,10 @@ export function ChatPanel({ items, open, onClose, onNavigate, closeRef }: {
         if (!fromInput) setText((cur) => cur || question); // 입력창의 글은 그대로 두고, 목차에서 보낸 질문은 비어 있을 때만 돌려놓는다
         const like = e instanceof ApiError ? e : { status: 0, code: "NETWORK_ERROR" };
         setError(errorText(like));
-        if (hidesInput(like)) setNoInput(true);
+        if (hidesInput(like)) {
+          refocus.current = panel.current?.contains(document.activeElement) ?? false;
+          setNoInput(true);
+        }
       }
     });
   }
@@ -103,7 +115,7 @@ export function ChatPanel({ items, open, onClose, onNavigate, closeRef }: {
   };
 
   return (
-    <section id="chat-panel" className="chat-panel no-print" aria-label="사용법 안내" hidden={!open}
+    <section id="chat-panel" ref={panel} className="chat-panel no-print" aria-label="사용법 안내" hidden={!open}
       onKeyDown={(e) => { if (shouldCloseOnKey({ key: e.key, isComposing: e.nativeEvent.isComposing })) onClose(); }}>
       {/* ESC: 키 이벤트는 포커스가 패널 안에 있을 때만 여기로 온다 */}
       <div className="chat-head">
@@ -152,7 +164,7 @@ export function ChatPanel({ items, open, onClose, onNavigate, closeRef }: {
         {full ? (
           <div className="chat-full">
             <p>대화가 길어졌어요. 새 대화를 시작해 주세요</p>
-            <button type="button" onClick={newChat}>새 대화</button>
+            <button type="button" ref={fullNew} onClick={newChat}>새 대화</button>
           </div>
         ) : !noInput && (
           <form onSubmit={(e) => { e.preventDefault(); submit(); }}>
