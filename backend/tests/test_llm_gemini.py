@@ -79,7 +79,9 @@ def test_cost_from_tokens_and_prices(gemini, monkeypatch):
     monkeypatch.setattr(settings, "llm_price_output_usd_per_mtok", 0.4)
     use(monkeypatch, [gemini_body(usage={"promptTokenCount": 1000, "candidatesTokenCount": 500,
                                          "thoughtsTokenCount": 100})])
-    assert GeminiClient().complete("s", "u", 1).cost_usd == pytest.approx(0.00034)
+    reply = GeminiClient().complete("s", "u", 1)
+    assert reply.cost_usd == pytest.approx(0.00034)
+    assert reply.tokens_in == 1000  # #199 지표: 입력 토큰 수를 그대로 넘긴다
 
 
 @pytest.mark.parametrize("error,expected", [
