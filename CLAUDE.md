@@ -38,13 +38,14 @@ MVP 완료 기준: F1~F8 이슈 충족, 대표 시나리오 통과, 데이터 �
 6. 발주 상태는 `DRAFT → APPROVED → ORDERED → RECEIVED`이고, 한 번도 입고되지 않은 발주만 `CANCELLED`가 될 수 있다. 부분 입고 후에도 ORDERED를 유지하고, 초과 입고는 막는다. 승인은 관리자만 한다.
    - 부분 입고된 발주는 사유를 적어 잔량 마감(ORDERED → RECEIVED)할 수 있다. 마감 수량은 저장하지 않고 발주 − 누적 입고로 계산한다.
    - 발주서 상태나 동작을 바꾸면 `docs/06-system-design/state-machines.md`의 체크리스트와 `backend/tests/test_po_transitions.py`를 함께 고친다.
+   - 납기 독촉 메일(#269)은 상태를 바꾸지 않는 동작(remind)이며, 담당자의 확인 없이 보내는 경로를 만들지 않는다.
 7. 리드타임은 공급업체에 저장한다. 품목마다 기본 공급업체가 필수다.
 8. 공급업체·품목은 삭제하지 않고 항상 비활성(`is_active`)으로 바꾼다. 삭제 기능은 없다. 비활성은 새 발주(새 발주서 작성·품목 추가·추천 목록·초안 생성)에만 안 나오고, 비활성이 든 DRAFT는 승인 때 막는다. 출고·조정·정정, 이미 ORDERED인 발주의 입고, 직접 입고(반품 등)도 허용한다.
 9. 직원 계정은 관리자가 직접 만든다(이메일 + 임시 비밀번호).
 
 `sku_id`는 `products.id`이고 재고·입출고·발주·추천은 이 번호로만 연결한다. `sku_code`는 `products.sku`로 사람이 읽는 코드이며 검색·표시에만 쓴다. 색·사이즈·규격(color·size·spec)과 group_code는 구분용 속성이다.
 
-표 10개: companies, users, suppliers, products, purchase_orders, purchase_order_items, inventory_movements, idempotency_keys(멱등 키, 업무 데이터가 아닌 기술용 기록, #190), po_change_log(발주서 변경 이력, 추가 전용, #181), slack_links(슬랙 연결, 기술용, #197). 재고 표, 추천 결과 표는 두지 않고, 발주 상태 변경도 별도 상태 이력 표 없이 po_change_log에 남긴다. 자세한 구조는 `docs/06-system-design/erd.md`를 따른다.
+표 12개: companies, users, suppliers, products, purchase_orders, purchase_order_items, inventory_movements, idempotency_keys(멱등 키, 업무 데이터가 아닌 기술용 기록, #190), po_change_log(발주서 변경 이력, 추가 전용, #181), slack_links(슬랙 연결, 기술용, #197), po_email_log(메일 발송 이력, 추가 전용, #182), chat_daily_stats(챗봇 일별 통계, 숫자만, 기술용, #199). 재고 표, 추천 결과 표는 두지 않고, 발주 상태 변경도 별도 상태 이력 표 없이 po_change_log에 남긴다. 자세한 구조는 `docs/06-system-design/erd.md`를 따른다.
 
 ## 5. 발주 추천 공식 (AX 1차 버전)
 
@@ -98,6 +99,7 @@ MVP 완료 기준: F1~F8 이슈 충족, 대표 시나리오 통과, 데이터 �
 - 문서의 "확정"과 "임시 확정"을 구분해서 쓴다. 임시 확정 항목을 바꿀 때는 이유를 알리고 확인을 받는다.
 - 구현 이슈는 '[N주차-번호] 제목' 형식이고, 상위 기능 이슈(#2~#8, #11, #12)와 주차 마일스톤에 연결한다.
 - 작업을 시작하기 전에 docs/PROGRESS.md 를 먼저 읽는다.
+- 화면·메뉴·버튼을 바꾸는 PR 은 같은 PR 에서 `backend/app/guide/guide.md` 도 함께 고친다(`frontend/app/lib/guide-paths.test.ts` 가 안내서의 화면 경로를 검사한다).
 - PR 을 만들 때 docs/PROGRESS.md 의 "지금 위치"와 "정해진 공통 규칙"을 갱신하고, 보고한 "꼭 알기"를 "꼭 알기 모음"에 추가한다.
 - "나중에 챙길 일"은 해당 이슈를 시작할 때 확인하고, 처리했으면 지운다.
 
