@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { buildHistory, chatReducer, checkSend, errorText, hidesInput, itemsForPath, panelNotice, shouldCloseOnKey, shouldSendOnEnter, sourceHref, type ChatState, type GuideItem, type Turn } from "./chat.ts";
+import { buildHistory, canGiveFeedback, chatReducer, checkSend, feedbackErrorText, errorText, hidesInput, itemsForPath, panelNotice, shouldCloseOnKey, shouldSendOnEnter, showsFeedback, sourceHref, type ChatState, type GuideItem, type Turn } from "./chat.ts";
 
 const ans = (ids: string[]) => ({ kind: "ANSWER" as const, answer: "답 글", sources: ids.map((id) => ({ id, title: id, path: null })) });
 const turn = (key: number, reply: Turn["reply"]): Turn => ({ key, question: `질문${key}`, reply });
@@ -182,6 +182,58 @@ test("전이: 리듀서는 받은 상태를 고치지 않는다 (새 객체를 �
     chatReducer(before, a);
   }
   assert.equal(JSON.stringify(before), copy);
+});
+
+// ----- 피드백 -----
+
+test("전이: 피드백 동작은 그 답 칸의 feedback 만 바꾸고 오류 줄·입력 숨김·다른 칸은 그대로", () => {
+  const before = { ...base(), noInput: false };
+  for (const [a, expected] of [
+    [{ type: "FEEDBACK_START", key: 1 }, { state: "sending" }],
+    [{ type: "FEEDBACK_OK", key: 1 }, { state: "done" }],
+    [{ type: "FEEDBACK_FAIL", key: 1, message: "실패" }, { state: "error", message: "실패" }],
+  ] as const) {
+    const s = chatReducer(before, a);
+    assert.deepEqual(s.turns[0].feedback, expected);
+    assert.equal(s.turns[1], before.turns[1]);
+    assert.equal(s.error, "이전 오류"); // 피드백 실패가 패널 오류 줄을 쓰거나 지우지 않는다
+    assert.equal(s.noInput, false);
+  }
+});
+
+test("전이: 새 대화 뒤에 온 피드백 결과는 아무것도 붙이지 않는다", () => {
+  const cleared = chatReducer(base(), { type: "NEW_CHAT" });
+  for (const a of [{ type: "FEEDBACK_OK", key: 1 }, { type: "FEEDBACK_FAIL", key: 1, message: "x" }] as const) {
+    assert.equal(chatReducer(cleared, a), cleared);
+  }
+});
+
+test("전이: 질문 동작은 이미 남긴 피드백을 지우지 않는다", () => {
+  let s = chatReducer(base(), { type: "FEEDBACK_OK", key: 1 });
+  s = chatReducer(s, { type: "SEND_START", key: 3, question: "q" });
+  s = chatReducer(s, { type: "SEND_FAIL", key: 3, error: "e" });
+  assert.deepEqual(s.turns[0].feedback, { state: "done" });
+});
+
+test("showsFeedback: ANSWER 만 버튼, NOT_FOUND·DATA_QUESTION·대기 중은 없음", () => {
+  assert.equal(showsFeedback(ans(["G-A"])), true);
+  assert.equal(showsFeedback({ kind: "NOT_FOUND", answer: "x", sources: [] }), false);
+  assert.equal(showsFeedback({ kind: "DATA_QUESTION", answer: "x", sources: [] }), false);
+  assert.equal(showsFeedback(null), false);
+});
+
+test("canGiveFeedback: 안 눌렀거나 실패면 누를 수 있고, 보내는 중·기록됨이면 꺼진다", () => {
+  assert.equal(canGiveFeedback(undefined), true);
+  assert.equal(canGiveFeedback({ state: "error", message: "x" }), true);
+  assert.equal(canGiveFeedback({ state: "sending" }), false);
+  assert.equal(canGiveFeedback({ state: "done" }), false);
+});
+
+test("feedbackErrorText: 꺼짐은 따로, 나머지는 같은 문장 (서버 원문 없음)", () => {
+  assert.equal(feedbackErrorText({ status: 503, code: "CHAT_DISABLED" }), "지금은 의견을 보낼 수 없어요.");
+  for (const e of [{ status: 0, code: "NETWORK_ERROR" }, { status: 500, code: "UNKNOWN_ERROR" }, { status: 422, code: "VALIDATION_ERROR" }]) {
+    assert.equal(feedbackErrorText(e), "의견을 보내지 못했어요. 잠시 뒤 다시 눌러 주세요.");
+  }
 });
 
 test("정적 검사: 챗봇 파일에 브라우저 저장소 접근이 없다", () => {
