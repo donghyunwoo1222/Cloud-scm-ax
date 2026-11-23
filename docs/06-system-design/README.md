@@ -11,6 +11,7 @@
 | [architecture.md](./architecture.md) | 기술 스택, 구성도, 폴더 구조, 추천 계산 함수, 배포·운영, 주차별 계획 |
 | [state-machines.md](./state-machines.md) | 발주서 상태 전이표·상태별 되는 일·표 밖 전이 2곳, 암묵적 상태 머신 17개, 새 상태 추가 체크리스트(#260) |
 | [channels-and-deeplinks.md](./channels-and-deeplinks.md) | 채널별 역할(슬랙·카카오·메일·엑셀), 알림 → 화면 딥링크 규칙(#198, 코드 구현은 PR 2 예정) |
+| [money-rules.md](./money-rules.md) | 외화 발주 금액 규칙(환율·기준 단위, 총액에서 한 번 버림, 원가), 통화표, 고정 테스트 숫자(#267 PR 0) |
 
 읽는 순서: ERD → API → 아키텍처.
 
