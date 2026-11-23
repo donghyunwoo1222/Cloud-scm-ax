@@ -508,3 +508,13 @@ def test_same_name_different_options_are_distinguishable(session, world, shop, a
     confirm(session, world, propose(session, world, ai, L(2)).token)  # 검정(번호 2)을 먼저 초안에 담는다
     again = propose(session, world, ai, L(2))  # 같은 품목을 다시 → 이미 작성 중. 어느 품목인지 줄에 나온다
     assert f"2번 기본 티셔츠 · 검정 / M ({black.sku}): 이미 작성 중 발주서에 있어요" in again.text
+
+
+def test_foreign_supplier_message_names_supplier(session, world, shop, ai):
+    # 외화 공급업체(#267)는 웹과 같이 전체 거절하고, 일반 문장 대신 업체 이름과 직접 작성 안내를 보여 준다
+    token = propose(session, world, ai, L(2)).token
+    world["a_supplier"].default_currency = "USD"
+    session.commit()
+    reply = confirm(session, world, token)
+    assert reply.outcome == "BLOCKED_FOREIGN_CURRENCY_SUPPLIER" and not orders(session, world)
+    assert "A업체" in reply.text and "작성 화면에서 직접" in reply.text

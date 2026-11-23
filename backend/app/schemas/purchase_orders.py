@@ -1,12 +1,24 @@
 """발주서 요청·응답 모양 (#33: 작성·수정·조회. 승인·발주·취소는 #34, 입고는 #35)."""
 
 from datetime import date, datetime  # 날짜·시각 칸
+from decimal import Decimal  # 외화 금액 응답 (JSON 에서는 글자, #267)
 from typing import Annotated, Literal  # 타입에 검사를 덧붙이는 도구, 정해진 값 중 하나
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator  # 모양 정의·검사 도구
+from pydantic import (  # 모양 정의·검사 도구
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 from app.schemas.common import (  # 공통 칸 타입(번호·수량·단가 상한 #71)·PATCH 규칙
     MAX_ORDER_LINES,
+    BigWon,
+    Currency,
+    ExchangeRate,
+    FreightTerms,
+    FxPrice,
     Id,
     Memo,
     OptionalText,
@@ -36,16 +48,45 @@ class ItemIn(OrderQuantity):
     model_config = ConfigDict(extra="forbid")  # 모르는 칸(추천 근거 등 서버가 정하는 값)은 422
 
     product_id: Id  # 발주할 품목 (같은 회사, 활성 품목만 새로 넣을 수 있다)
-    unit_price: Won | None = None  # 재고 단위 발주에서만 요청에 포함하는 단가
+    unit_price: Won | None = None  # 원화 발주의 재고 단위 줄에서만 보내는 단가 (원)
+    fx_price: FxPrice | None = None  # 외화 발주의 단가 (재고 단위 줄은 재고 단위당, 박스 줄은 발주단위당, #267)
 
     @model_validator(mode="after")
     def price_for_stock_quantity(self):
-        if (self.quantity is None) != (self.unit_price is None):
+        if self.unit_price is not None and self.fx_price is not None:
+            raise ValueError("unit_price와 fx_price를 함께 보낼 수 없습니다.")
+        if self.quantity is not None and self.unit_price is None and self.fx_price is None:
+            raise ValueError("재고 단위 발주에는 unit_price(원화) 또는 fx_price(외화)를 보내세요.")
+        if self.quantity is None and self.unit_price is not None:
             raise ValueError("재고 단위 발주에만 unit_price를 보내세요.")
         return self
 
 
-class PurchaseOrderCreate(BaseModel):
+class ExtraCost(BaseModel):
+    """부대비용 한 줄 (#267, 내부 전용). 금액은 원화 정수, 필수."""
+
+    model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422
+
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]  # 항목 이름 (예: 통관 수수료)
+    amount: BigWon  # 금액 (원)
+
+
+ExtraCosts = Annotated[list[ExtraCost], Field(max_length=20)]  # 부대비용 줄 최대 20개
+SpecialTerms = Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)] | None  # 특약 (공급업체와 합의하는 글)
+
+
+class CostFields(BaseModel):
+    """작성·수정 공통 원가 칸 (#267). 작성에서 currency·freight_terms·special_terms 를 안 보내면 공급업체 기본값을 복사한다."""
+
+    currency: Currency | None = None  # 통화 (작성에서 생략하면 공급업체 기본 통화)
+    exchange_rate: ExchangeRate | None = None  # 기준 단위당 원 (외화만, 작성 중에는 비워도 되고 승인 때 필수)
+    freight_terms: FreightTerms | None = None  # 운송비 조건 코드
+    freight_amount: BigWon | None = None  # 운송비 (원). null = 미입력, 0 = 무료
+    extra_costs: ExtraCosts | None = None  # 부대비용 줄 (null 은 빈 목록과 같다)
+    special_terms: SpecialTerms = None  # 특약
+
+
+class PurchaseOrderCreate(CostFields):
     model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422 (status·po_number 를 못 정하게)
 
     supplier_id: Id  # 발주 대상 공급업체 (활성만)
@@ -56,12 +97,15 @@ class PurchaseOrderCreate(BaseModel):
     items: Annotated[list[ItemIn], Field(min_length=1, max_length=MAX_ORDER_LINES)]  # 품목 줄 1~2000개 (초과는 422, #184)
 
 
-class PurchaseOrderUpdate(PatchModel):
-    """DRAFT 일 때만. 보낸 칸만 바꾼다. items 를 보내면 그 목록이 최종 목록이다(없는 줄은 삭제)."""
+class PurchaseOrderUpdate(CostFields, PatchModel):
+    """DRAFT 일 때만. 보낸 칸만 바꾼다. items 를 보내면 그 목록이 최종 목록이다(없는 줄은 삭제).
+
+    통화를 바꾸면 items 도 함께 보내야 한다(새 통화의 단가로 다시 입력, 서비스에서 422, #267).
+    """
 
     model_config = ConfigDict(extra="forbid")  # 공급업체 변경 등은 422 (다른 업체 발주는 새 발주서로)
 
-    REQUIRED = ("items",)  # items 에 null 은 422 (비우려면 보내지 않는다)
+    REQUIRED = ("items", "currency")  # items·currency 에 null 은 422
 
     due_date: date | None = None  # 약속 납기 (null 이면 비움)
     memo: Memo = None  # 메모 (null 이면 비움)
@@ -81,18 +125,34 @@ class ItemOut(BaseModel):
     group_code: str | None = None  # 품목 그룹 코드
     unit: str  # 품목 단위 (품목 마스터의 현재 값, 개·박스 등)
     quantity: int  # 발주 수량
-    unit_price: int  # 발주 단가
+    unit_price: int | None  # 발주 단가 (원). 외화 줄은 null (#267)
+    fx_unit_price: Decimal | None = None  # 외화 줄의 재고 단위 단가 (발주서 통화)
+    fx_box_unit_price: Decimal | None = None  # 외화 박스 줄의 발주단위 단가
+    fx_line_total: Decimal | None = None  # 외화 줄 금액 (정확한 값, 원화 환산은 발주서 cost 에만)
     units_per_box: int | None  # 발주 당시 입수
     box_unit_price: int | None  # 발주 당시 박스당 단가
     box_quantity: int | None  # 박스 단위로 발주한 수량
     order_unit: str  # 발주 당시 발주단위 이름 (박스 줄이 아니면 재고 단위)
     unit_factor: int  # 발주 당시 환산계수 (박스 줄이 아니면 1)
     min_order_units: int | None = None  # 발주 당시 최소 주문량(발주단위 수) 스냅샷 (#194)
-    line_total: int  # 박스 발주 금액은 박스 수 × 박스 단가
+    line_total: int | None  # 박스 발주 금액은 박스 수 × 박스 단가 (원). 외화 줄은 null (줄에 원화를 보이지 않는다, #282)
     recommended_quantity: int | None  # 추천으로 만든 줄이면 당시 추천 수량
     recommendation_reason: str | None  # 당시 추천 이유 문장
     received_quantity: int  # 누적 입고량 = 입고 − 입고 정정 (이력 합계)
     closed_quantity: int | None = None  # 잔량 마감 수량 = 발주 − 누적 입고 (RECEIVED 일 때만, 그 외 null. 저장하지 않고 계산, #252)
+
+
+class CostOut(BaseModel):
+    """원가 합산 (#267, 서버 계산, 저장하지 않는다). 원가 = 품목 원화 합계 + 운송비 + 부대비용 (부가세 미포함)."""
+
+    goods_fx_total: Decimal | None  # 외화 발주의 품목 외화 합계 (원화 발주는 null)
+    goods_krw: int | None  # 품목 원화 합계 (승인 뒤는 스냅샷, 외화인데 환율이 없으면 null)
+    freight: int | None  # 운송비 (null = 미입력)
+    extras_total: int  # 부대비용 합계
+    total: int | None  # 원가 (goods_krw 가 없으면 null)
+    missing: list[str]  # 미입력 항목: exchange_rate, freight
+    received_goods_krw: int | None  # 입고 기준 품목 원화 합계 (발주함·입고 완료만, 마감 수량 제외)
+    received_total: int | None  # 입고 기준 원가 (운송비·부대비용은 전액)
 
 
 class PurchaseOrderOut(BaseModel):
@@ -121,6 +181,15 @@ class PurchaseOrderOut(BaseModel):
     emailed_by: int | None  # 마지막 메일 보낸 사용자 (#158)
     created_at: datetime  # 만든 시각
     updated_at: datetime  # 고친 시각
+    currency: str  # 통화 (#267)
+    rate_unit: int  # 환율 기준 단위 (엔·동 100)
+    exchange_rate: Decimal | None  # 기준 단위당 원 (원화는 null)
+    krw_goods_total: int | None  # 승인 때 고정한 품목 원화 합계 (승인 전 null)
+    freight_terms: str | None  # 운송비 조건 코드
+    freight_amount: int | None  # 운송비 (원, 내부 전용)
+    extra_costs: list[ExtraCost]  # 부대비용 줄 (원, 내부 전용)
+    special_terms: str | None  # 특약
+    cost: CostOut  # 원가 합산 (서버 계산, 내부 전용)
     items: list[ItemOut]  # 품목 줄
 
 

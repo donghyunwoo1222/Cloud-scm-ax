@@ -35,6 +35,7 @@ from app.schemas.common import MAX_QUANTITY  # 환산 후 수량 상한
 from app.schemas.recommendations import DraftCreate, DraftItemIn  # create_drafts 입력
 from app.services import idempotency, llm  # 중복 막기, LLM 공통 래퍼
 from app.services.products import product_label  # 품목 표시(옵션 포함, 아침 DM 과 같은 함수)
+from app.services.purchase_orders import FOREIGN_SUPPLIER  # 외화 공급업체 거절 코드 (#267)
 from app.services.recommendations import create_drafts, list_recommendations  # 웹과 같은 추천·초안
 
 log = logging.getLogger(__name__)
@@ -279,7 +280,8 @@ def confirm(db: Session, company_id: int, user_id: int, token: str, today: date,
     except AppError as exc:  # 더 이상 추천 대상이 아님·비활성·이미 초안 등
         db.rollback()
         _out("CONFIRM", f"BLOCKED_{exc.code}", company_id, user_id, len(lines))
-        return Reply(MSG_BLOCKED, outcome=f"BLOCKED_{exc.code}")
+        text = exc.message if exc.code == FOREIGN_SUPPLIER else MSG_BLOCKED  # 외화 업체는 업체 이름과 직접 작성 안내를 그대로 (#267, 고정 문장이라 사용자 글이 아니다)
+        return Reply(text, outcome=f"BLOCKED_{exc.code}")
     except Exception:
         db.rollback()  # 예상 못 한 오류: 되돌리고 부르는 쪽(어댑터)이 알 수 있게 그대로 올린다
         raise

@@ -11,6 +11,9 @@ class Supplier(CompanyMixin, Base):
     __table_args__ = (
         UniqueConstraint("company_id", "name", name="uq_suppliers_company_name"),  # 회사 안에서 업체명 중복 불가
         CheckConstraint("lead_time_days >= 0", name="ck_suppliers_lead_time"),  # 리드타임은 0 이상
+        CheckConstraint("default_currency IN ('KRW', 'USD', 'EUR', 'JPY', 'CNY', 'VND')", name="ck_suppliers_default_currency"),
+        CheckConstraint("default_freight_terms IN ('INCLUDED', 'BILLED', 'COLLECT', 'EXW', 'FOB', 'CIF', 'DDP')",
+                        name="ck_suppliers_default_freight_terms"),
     )
 
     name: Mapped[str]  # 업체명
@@ -21,3 +24,7 @@ class Supplier(CompanyMixin, Base):
     payment_terms: Mapped[str | None]  # 지불조건 기본값 (예: "월말 마감 익월 10일 현금", 발주서 문서에 쓴다)
     lead_time_days: Mapped[int]  # 발주해서 받을 때까지 걸리는 일수
     is_active: Mapped[bool] = mapped_column(server_default=true())  # 기본 참, 삭제 대신 비활성
+    # 발주서 기본 조건 (#267): 발주서를 만들 때 한 번 복사한다. 나중에 바꿔도 이미 만든 발주서는 그대로
+    default_currency: Mapped[str] = mapped_column(server_default="KRW")  # 기본 통화
+    default_freight_terms: Mapped[str | None]  # 기본 운송비 조건 코드
+    default_special_terms: Mapped[str | None]  # 기본 특약

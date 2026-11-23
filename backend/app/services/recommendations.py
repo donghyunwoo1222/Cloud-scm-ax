@@ -26,6 +26,7 @@ from app.services.products import (
     filter_product_search,  # 재고 목록과 품목 목록이 같은 이름·SKU 검색을 쓴다
 )
 from app.services.purchase_orders import (
+    FOREIGN_SUPPLIER,  # 외화 공급업체 거절 코드 (#267)
     check_items,  # 요청 품목 검사: 같은 품목 두 줄 409, 다른 회사 404, 비활성 품목 409
     inactive,  # 409 INACTIVE_REFERENCE 오류
     next_po_number,  # 발주번호 (회사 행을 잠근 뒤에 불러야 순번이 안 겹친다)
@@ -174,6 +175,12 @@ def create_drafts(company_id: int, db: Session, user_id: int, today: date, data:
         if isinstance(result, Excluded) or result.recommended_quantity is None:  # 제외(데이터 부족·판매 없음) 또는 재고 충분
             not_recommended.append({"field": "items", "product_id": product.id, "sku": product.sku,
                                     "reason": result.code if isinstance(result, Excluded) else "ENOUGH_STOCK"})
+    foreign = {s.id: s.name for _, s, _, _, _ in rows  # 외화 공급업체(기본 통화) 또는 외화로 작성 중인 초안이 있는 업체
+               if s.default_currency != "KRW" or (s.id in drafts and drafts[s.id].currency != "KRW")}
+    if foreign:  # 추천 초안은 원화 단가로 만들기 때문에 외화 발주서에 넣을 수 없다. 하나라도 있으면 전체 거절 (결정 11)
+        names = ", ".join(sorted(foreign.values()))
+        raise AppError(409, FOREIGN_SUPPLIER, f"외화 공급업체({names})는 작성 화면에서 직접 만드세요.",
+                       [{"field": "items", "supplier_id": sid, "supplier_name": name} for sid, name in sorted(foreign.items())])
     if not_recommended:  # 목록을 본 뒤 입고 등으로 바뀐 경우 (예: 가용재고 50 → 200 > 재주문점 70). 사용자 결정: 전체 거절
         raise AppError(409, "NOT_RECOMMENDED",
                        f"지금은 추천 대상이 아닌 품목이 있습니다({', '.join(n['sku'] for n in not_recommended)}). 추천 목록을 새로 불러오세요.",
@@ -202,6 +209,7 @@ def create_drafts(company_id: int, db: Session, user_id: int, today: date, data:
                 due_date=today + timedelta(days=supplier.lead_time_days),  # 예상 납기 = 오늘 + 리드타임 (예: 11-04 + 5일 = 11-09)
                 created_by=user_id,  # 상태는 DB 기본값 DRAFT
                 payment_terms=supplier.payment_terms,  # 공급업체 기본 지불조건 복사 (#157)
+                freight_terms=supplier.default_freight_terms, special_terms=supplier.default_special_terms,  # 기본 조건 복사 (#267, 통화는 원화)
             )
             db.add(order)
             db.flush()  # 발주서 id 받기 (확정은 아직)
