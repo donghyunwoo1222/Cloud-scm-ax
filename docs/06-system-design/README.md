@@ -16,7 +16,7 @@
 
 ## 핵심 설계 요약
 
-- 표 10개: companies, users, suppliers, products, purchase_orders, purchase_order_items, inventory_movements, idempotency_keys(멱등 키, #190), po_change_log(발주서 변경 이력, #181), slack_links(슬랙 연결, #197)
+- 표 12개: companies, users, suppliers, products, purchase_orders, purchase_order_items, inventory_movements, idempotency_keys(멱등 키, #190), po_change_log(발주서 변경 이력, #181), slack_links(슬랙 연결, #197), po_email_log(메일 발송 이력, 추가 전용, #182), chat_daily_stats(챗봇 일별 통계, 숫자만, 기술용, #199)
 - 재고는 컬럼으로 저장하지 않고 `inventory_movements`의 합계로 계산한다.
 - 모든 업무 표에 `company_id`를 둔다. 회사 정보는 토큰에서만 가져온다.
 - 마이너스 재고는 서버 트랜잭션과 행 잠금으로 막는다.
