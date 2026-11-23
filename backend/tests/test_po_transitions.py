@@ -259,7 +259,7 @@ def test_email_failure_keeps_approved(client, world, product, monkeypatch):
         raise smtplib.SMTPServerDisconnected("down")
     monkeypatch.setattr(po_mail, "deliver", broken)
     r = ACTIONS["email"](client, po)
-    assert error(r) == (502, "MAIL_FAILED", {"error": "SMTPServerDisconnected"})
+    assert error(r) == (502, "MAIL_FAILED", {"failure_code": "CONNECTION"})
     assert status_of(client, po) == "APPROVED"
 
 

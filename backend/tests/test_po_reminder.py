@@ -14,7 +14,15 @@ from app.auth.security import hash_reset_token  # 저장된 토큰 해시 비교
 from app.clock import seoul_today  # 서울 기준 오늘
 from app.config import Settings, settings  # 기본값 확인, 테스트 동안만 바꾸는 설정
 from app.main import app  # 등록된 경로 목록
-from app.models import PoChangeLog, PoEmailLog, PurchaseOrder, PurchaseOrderItem, Supplier, User
+from app.models import (
+    PoChangeLog,
+    PoEmailLog,
+    Product,
+    PurchaseOrder,
+    PurchaseOrderItem,
+    Supplier,
+    User,
+)
 from app.services import po_mail, po_reminder  # 가짜 발송 자리, 대상
 from tests.concurrency import delayed, hold_row_lock, ordered_po, run_at_once, run_in_new_session
 from tests.helpers import login_as  # 공통 로그인
@@ -394,3 +402,28 @@ def test_concurrent_reminders_send_only_once(engine, committed_company, monkeypa
     saved = run_in_new_session(engine, lambda s: [(r.kind, r.result) for r in s.scalars(
         select(PoEmailLog).where(PoEmailLog.purchase_order_id == order_id))])
     assert saved == [("REMINDER", "SENT")] and len(sent) == 1
+
+
+# ---------- 응답에 예외 이름 없음 · 품목명 이스케이프 (후속) ----------
+
+def test_failure_response_hides_exception_name_for_reminder_and_order(client, session, world, outbox, monkeypatch):
+    """502 응답에는 예외 클래스 이름·원문이 없고 고정 분류 코드만 있다 (독촉·발주서 메일 둘 다)."""
+    class SecretBoom(smtplib.SMTPException):  # 이름·원문이 응답에 새는지 보려는 가짜 예외
+        pass
+    order = overdue(client, session, world)
+    monkeypatch.setattr(po_mail, "deliver", broken(SecretBoom("secret-raw-text")))
+    for r in (remind(client, order), client.post(f"{URL}/{order['id']}/email", json={"intro": "x", "resend": True})):
+        assert code(r) == (502, "MAIL_FAILED") and r.json()["error"]["details"] == {"failure_code": "OTHER"}
+        assert "SecretBoom" not in r.text and "secret-raw-text" not in r.text
+
+
+def test_product_name_is_escaped_in_reminder_preview_and_mail(client, session, world, outbox):
+    evil = '<script>alert(1)</script> & "q"'
+    order = overdue(client, session, world)
+    session.execute(update(Product).where(Product.sku == "P1").values(name=evil))
+    session.commit()
+    shown = preview(client, order).json()["data"]["fixed_html"]
+    assert remind(client, order).status_code == 200
+    sent = html(outbox[-1])
+    for body in (shown, sent):
+        assert "<script>" not in body and "&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;q&quot;" in body

@@ -3,6 +3,7 @@
 메일 문장은 고정 틀이다(LLM 아님). 사용자는 앞머리 한 문단(intro)만 고친다. 숫자는 발주서 문서(build_document)와 같은 값을 쓴다.
 """
 
+import logging  # 실패 원문을 서버 로그에 남긴다
 import re  # 로컬 시험 주소 검사
 import secrets  # 공급업체 링크 토큰 (#265)
 import smtplib  # 표준 SMTP 클라이언트 (새 라이브러리 없음)
@@ -28,7 +29,8 @@ from app.services import purchase_orders as po_service  # 상태 변경 함수 s
 from app.services.po_states import ACTION_STATES  # 보낼 수 있는 상태 (#260)
 from app.services.tenant import get_owned, scoped  # 회사 조건이 붙은 조회 (다른 회사 404)
 
-SMTP_TIMEOUT = 10  # 메일 서버 응답을 기다리는 최대 초 (그동안 발주서 행이 잠겨 있다)
+log = logging.getLogger(__name__)  # 이 파일의 로그
+SMTP_TIMEOUT = 10 # 메일 서버 응답을 기다리는 최대 초 (그동안 발주서 행이 잠겨 있다)
 INTRO_MAX = 2000  # 앞머리 문단 최대 글자 수 (스키마와 같은 값)
 LINK_DAYS = 30  # 공급업체 확인 링크 유효 기간 (#265, 발송 시각부터)
 LINK_PREVIEW = "[발송할 때 이 발주서 전용 확인 링크가 들어갑니다]"  # 미리보기에는 진짜 토큰 대신 이 문구
@@ -221,7 +223,8 @@ def failure(exc: Exception, tail: str = "발주서는 승인됨 상태 그대로
         reason = "메일 서버가 받는 주소를 거부했습니다. 공급업체 이메일을 확인하세요."
     else:
         reason = "메일 서버에 연결하지 못했거나 발송 중 오류가 났습니다. 잠시 뒤 다시 시도하세요."
-    return AppError(502, "MAIL_FAILED", f"{reason} {tail}", {"error": type(exc).__name__})
+    log.warning("메일 발송 실패 %s: %s", type(exc).__name__, exc)  # 원문은 서버 로그에만 (본문·비밀번호는 예외에 없다)
+    return AppError(502, "MAIL_FAILED", f"{reason} {tail}", {"failure_code": failure_code(exc)})  # 응답에는 고정 분류 코드만
 
 
 def list_attempts(company_id: int, db: Session, order_id: int, page: PageParams) -> tuple[list[dict], dict]:
