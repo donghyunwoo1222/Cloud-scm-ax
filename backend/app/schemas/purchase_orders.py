@@ -193,3 +193,11 @@ class OrderEmailSend(BaseModel):
 
     intro: Annotated[str, Field(min_length=1, max_length=2000)]  # 앞머리 한 문단 (빈 글자는 422)
     resend: bool = False  # 이미 발주함(ORDERED)인 발주서를 다시 보낼 때만 true (확인창에서 한 번 더 물은 뒤)
+
+
+class ReminderSend(BaseModel):
+    """POST /purchase-orders/{id}/reminder 본문 (#269). 받는 사람·제목·고정 부분은 서버가 만들고, 사용자는 앞머리만 보낸다."""
+
+    model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422 (받는 주소·품목을 본문으로 바꿔치기할 수 없다)
+
+    intro: Annotated[str, Field(min_length=1, max_length=2000)]  # 앞머리 한 문단 (빈 글자는 422, 발주서 메일과 같은 길이)

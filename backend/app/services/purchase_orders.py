@@ -11,6 +11,7 @@ from sqlalchemy import case, delete, func, select  # 삭제, 조건 합계, 합�
 from sqlalchemy.orm import Session  # DB 세션 타입
 
 from app.clock import SEOUL, seoul_today  # 서울 시간대, 서울 기준 오늘
+from app.config import settings  # 독촉 스위치 (#269)
 from app.errors import AppError  # 공통 오류
 from app.models import (  # 표들
     Company,
@@ -287,6 +288,15 @@ def receipt_due_condition(receipt_due: ReceiptDue, today: date):
             return due.is_(None)
 
 
+def overdue_order_ids(company_id: int, db: Session, order_ids: list[int]) -> set[int]:
+    """납기가 지난 발주함(ORDERED) 발주서 id 들 (#269 독촉). 대시보드·목록과 같은 조건(receipt_due_condition) 한 곳을 쓴다."""
+    if not order_ids:
+        return set()
+    return set(db.scalars(select(PurchaseOrder.id).where(
+        PurchaseOrder.company_id == company_id, PurchaseOrder.id.in_(order_ids),
+        PurchaseOrder.status == "ORDERED", receipt_due_condition("OVERDUE", seoul_today()))))
+
+
 def orders_with_receipts(company_id: int, db: Session, order_ids: list[int]) -> set[int]:
     """입고 기록이 있는 발주서 ID를 한 번에 조회한다."""
     if not order_ids:
@@ -444,6 +454,8 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder], role: s
     """
     ids = [o.id for o in orders]
     has_receipts = orders_with_receipts(company_id, db, ids)  # 취소 검사와 같은 기준을 화면에 전달한다.
+    overdue = overdue_order_ids(company_id, db, [o.id for o in orders if o.status == "ORDERED"]) \
+        if settings.po_reminder_enabled else set()  # 독촉 버튼 (#269). 스위치가 꺼져 있으면 조회도 하지 않는다
     items = list(db.scalars(scoped(company_id, PurchaseOrderItem).where(
         PurchaseOrderItem.purchase_order_id.in_(ids)).order_by(PurchaseOrderItem.id))) if ids else []  # 모든 줄
     products = {p.id: p for p in db.scalars(scoped(company_id, Product).where(
@@ -472,7 +484,7 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder], role: s
             **{c: getattr(o, c) for c in PurchaseOrderOut.model_fields
                if c not in ("supplier_name", "items", "has_receipts", "allowed_actions")},
             supplier_name=suppliers[o.supplier_id].name, items=by_order[o.id], has_receipts=o.id in has_receipts,
-            allowed_actions=allowed_actions(o.status, role, o.id in has_receipts),  # 이미 읽은 값만 쓴다 (추가 조회 없음)
+            allowed_actions=allowed_actions(o.status, role, o.id in has_receipts, o.id in overdue),  # 이미 읽은 값만 쓴다 (추가 조회 없음)
         ).model_dump(mode="json")
         for o in orders
     ]
