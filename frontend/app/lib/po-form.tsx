@@ -10,7 +10,7 @@ import { ErrorText } from "./list"; // 서버 오류 표시
 import { optionSummary } from "./options"; // 고른 품목의 옵션 요약
 import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PurchaseOrder, unitConversion } from "./po"; // 발주서와 발주단위 환산 표시
 import {
-  costEstimate, costReducer, CURRENCIES, CURRENCY_CODES, Currency, EXTRA_COST_SUGGESTIONS, extraCostProblem, formatScaled, formatWon, FREIGHT_TERMS,
+  costEstimate, costReducer, freightLabel, CURRENCIES, CURRENCY_CODES, Currency, EXTRA_COST_SUGGESTIONS, extraCostProblem, formatScaled, formatWon, FREIGHT_TERMS,
   fxInputText, fxPriceInput, fxPriceProblem, fxTotalScaled, isCurrency, krwEstimate, MAX_EXTRA_COSTS, MAX_SPECIAL_TERMS, poPayload, rateInput, rateProblem, rateUnitLabel, toScaled, wonInput,
 } from "./po-fx"; // 외화·원가 계산과 입력 검사 (#267)
 import { ProductOption, ProductPicker } from "./product-picker"; // 발주 줄에서 품목을 검색해 바로 선택한다
@@ -308,7 +308,8 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       {shownProblem && <p role="alert" style={S.error}>{shownProblem}</p>}
 
       <fieldset style={{ ...S.sectionCard, minInlineSize: 0 }}>
-        <legend>운송비·부대비용·특약 (운송비 금액과 부대비용은 내부 원가용이라 공급업체 문서와 메일에 나가지 않습니다. 운송비 조건과 특약은 공급업체와 합의한 조건이라 문서에 표시됩니다)</legend>
+        <legend>운송비·부대비용·특약</legend>
+        <p style={{ ...S.hint, marginTop: 0 }}>운송비 금액과 부대비용은 내부 원가용이라 공급업체 문서와 메일에 나가지 않습니다. 운송비 조건과 특약은 공급업체와 합의한 조건이라 문서에 표시됩니다.</p>
         <div className="form-compact field-form" style={S.formGrid}>
           <Field label="운송비 조건" short="운송비 조건" className="field-half">
             <select value={cost.freightTerms} onChange={(e) => dispatch({ type: "freightTerms", value: e.target.value })} style={S.block}>
@@ -346,7 +347,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         {fx
           ? <p>품목 외화 합계 {formatScaled(fxTotal, decimals)} {currency} · 원화 환산(예상) {goodsKrw === null ? "환율을 입력하면 보입니다" : `${formatWon(goodsKrw)}원`}</p>
           : <p>예상 합계 {estimatedAmount.toLocaleString("ko-KR")}원</p>}
-        <p>운송비 {estimate.missing.includes("freight") ? "운송비 미입력" : `${formatWon(Number(freightAmount))}원`} · 부대비용 {formatWon(estimate.extrasTotal)}원</p>
+        <p>운송비 {estimate.missing.includes("freight") ? "운송비 미입력" : freightLabel(Number(freightAmount))} · 부대비용 {formatWon(estimate.extrasTotal)}원</p>
         <p><strong>예상 원가 {estimate.total === null ? "-" : `${formatWon(estimate.total)}원`}</strong> <span style={S.hint}>(품목 원화 합계 + 운송비 + 부대비용, 부가세 제외)</span></p>
       </section>
 

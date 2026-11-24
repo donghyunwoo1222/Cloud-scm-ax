@@ -16,7 +16,7 @@ const ITEM_FIELD_LABELS: Record<string, string> = {
 // 값 → 화면 글자. 비었으면 "없음", 상태 코드는 기존 상태 이름 표로, 공급업체 확인 시각은 서울 시각으로 (예: "ORDERED" → "발주함")
 const show = (field: string, value: string | null) =>
   value === null || value === "" ? "없음" : field === "status" ? STATUS_LABEL[value as PoStatus] ?? value
-    : field === "supplier_confirmed_at" ? fmtTime(value) : field === "freight_terms" ? FREIGHT_TERMS[value] ?? value : value; // 운송비 조건 코드는 화면 이름으로
+    : field === "supplier_confirmed_at" ? fmtTime(value) : field === "freight_terms" ? FREIGHT_TERMS[value] ?? value : field === "freight_amount" ? `${value}원` : value; // 운송비 조건 코드는 화면 이름으로
 
 // 이력 한 행을 한 줄 문장으로. 모르는 field 는 원래 이름을 그대로 쓴다
 // 예) items[A-1].unit_price 1000→1200 → "품목 A-1 단가: 1000 → 1200", due_date 없음 → "약속 납기: 없음 → 2026-11-20"
