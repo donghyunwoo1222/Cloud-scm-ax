@@ -322,6 +322,29 @@ def outbox(monkeypatch):
     return sent
 
 
+TALL = [  # 한 칸이 한 쪽보다 높은 줄바꿈 많은 입력 (스키마 상한 안: 메모 1000자, 특약 1000자)
+    {"special_terms": ("가" + chr(10)) * 100}, {"memo": ("x" + chr(10)) * 500}, {"memo": "다" * 1000, "special_terms": ("가" + chr(10)) * 100},
+]
+
+
+@pytest.mark.parametrize("tall", TALL, ids=["special100lines", "memo500lines", "memo1000chars_special100lines"])
+@pytest.mark.parametrize("currency", ["KRW", "USD"])
+def test_mail_send_succeeds_with_very_tall_conditions(client, world, items, session, outbox, monkeypatch, currency, tall):
+    """줄바꿈이 아주 많은 메모·특약(한 칸이 한 쪽보다 높음)이어도 메일 발송이 200이고 PDF 가 첨부된다 (원화·외화)."""
+    monkeypatch.setattr(po_document.settings, "fx_enabled", True)
+    world["a_supplier"].email = "sales@a-supplier.test"
+    session.commit()
+    login_as(client)
+    line, extra = (krw(items["P1"], 3, 1000), {}) if currency == "KRW" else (fx(items["P1"], 3, "10"), {"currency": "USD", "exchange_rate": "1350"})
+    d = create(client, world, line, freight_terms="FOB", **tall, **extra)
+    login_as(client, "admin@a.test")
+    client.post(f"{URL}/{d['id']}/approve")
+    r = client.post(f"{URL}/{d['id']}/email", json={"intro": "안녕하세요"})
+    assert r.status_code == 200, r.json()
+    [msg] = outbox
+    assert next(msg.iter_attachments()).get_content().startswith(b"%PDF")
+
+
 @pytest.mark.parametrize("currency", ["KRW", "USD"])
 def test_mail_send_succeeds_with_longest_conditions(client, world, items, session, outbox, monkeypatch, currency):
     """메모·특약 1000자, 납품장소·지불조건 200자(스키마 상한)여도 PDF 가 만들어지고 메일 발송이 성공한다 (원화·외화)."""

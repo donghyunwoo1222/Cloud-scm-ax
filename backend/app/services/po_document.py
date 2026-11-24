@@ -278,7 +278,7 @@ def draw_stamp(pdf: FPDF, stamp: dict, cx: float, cy: float, d: float = PDF_STAM
             pdf.text(cx - pdf.get_string_width(row["text"]) / 2, row["baseline"], row["text"])  # 가운데 맞춤
 
 
-def render_pdf(doc: dict) -> FPDF:
+def render_pdf(doc: dict, tall: bool | None = None) -> FPDF:
     """문서 응답과 같은 값으로 A4 PDF(FPDF 객체)를 만든다. 여러 쪽이면 표 머리가 반복되고, 발주 조건~승인 줄은 쪽 경계에서 갈리지 않는다."""
     pdf = FPDF(format="A4")  # 단위 mm, 폭 210
     pdf.set_margins(15, 15)  # 좌우 15mm → 본문 폭 180mm
@@ -369,12 +369,14 @@ def render_pdf(doc: dict) -> FPDF:
     # 3) 발주 조건 ~ 승인 줄: 쪽 경계에서 갈리지 않게 한 묶음으로 그린다
     conditions = condition_rows(doc)  # 운송조건·특약은 값이 있을 때만 줄이 늘어난다
     texts = [f"{index + 1}) {label} : {blank(value)}" for index, (label, value) in enumerate(conditions)]
-    tall = sum(7 * max(1, math.ceil(pdf.get_string_width(part) / 150)) for text in texts for part in text.split(chr(10))) > PDF_COND_MAX  # 글자 폭으로 줄 수를 어림한다(칸 폭 162 보다 여유 있게 150). fpdf 의 dry_run 은 쪽 끝에서 쪽을 넘겨 버려 쓰지 않는다. 메모·특약이 최대 길이면 한 쪽을 넘는다
-    if tall:  # 줄마다 쪽을 넘겨 나눌 수 있는 표로 그린다 (rowspan 칸 없음). 승인 줄 묶음은 그 뒤에 따로
-        with pdf.table(col_widths=(180,), line_height=7, text_align="LEFT", first_row_as_headings=False) as t:
-            t.row().cell("발주 조건", style=head, align="C")
-            for text in texts:
-                t.row().cell(text)
+    tall = bool(tall) or sum(7 * max(1, math.ceil(pdf.get_string_width(part) / 150)) for text in texts for part in text.split(chr(10))) > PDF_COND_MAX  # 글자 폭으로 줄 수를 어림한다(칸 폭 162 보다 여유 있게 150). fpdf 의 dry_run 은 쪽 끝에서 쪽을 넘겨 버려 쓰지 않는다. 메모·특약이 최대 길이면 한 쪽을 넘는다
+    if tall:  # 조건마다 multi_cell 로 그린다: 표 칸은 한 쪽보다 높으면 오류지만 multi_cell 은 글 중간에서도 쪽을 넘긴다. 승인 줄 묶음은 그 뒤에 따로
+        pdf.set_fill_color(238, 245, 228)  # 머리 칸 색 (head 와 같음)
+        pdf.set_font("Nanum", "B", 9.5)
+        pdf.multi_cell(180, 7, "발주 조건", border=1, align="C", fill=True, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Nanum", "", 9.5)
+        for text in texts:
+            pdf.multi_cell(180, 7, text, border=1, align="L", new_x="LMARGIN", new_y="NEXT")
     with pdf.unbreakable() as block:  # 반드시 block 으로 그려야 쪽이 넘어갈 때 다시 그려진다 (pdf 로 직접 그리면 사라짐)
         if not tall:
             with block.table(col_widths=(18, 162), line_height=7, text_align="LEFT", first_row_as_headings=False) as t:
@@ -401,6 +403,14 @@ def render_pdf(doc: dict) -> FPDF:
     return pdf
 
 
+def render_pdf_safe(doc: dict) -> FPDF:
+    """render_pdf 를 부르되, 높이 어림이 틀려 칸이 쪽보다 높다는 ValueError 가 나면 긴 조건 방식으로 한 번 더 그린다 (500 방지 안전망)."""
+    try:
+        return render_pdf(doc)
+    except ValueError:
+        return render_pdf(doc, tall=True)
+
+
 def build_pdf(doc: dict) -> bytes:
     """문서 응답과 같은 값으로 PDF 를 만든다 (메일 첨부용). 그리는 일은 render_pdf 가 한다. 파일 속성(제목·작성자)은 넣지 않는다(#281)."""
-    return bytes(render_pdf(doc).output())
+    return bytes(render_pdf_safe(doc).output())

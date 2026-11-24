@@ -212,3 +212,29 @@ def test_long_conditions_render_without_error_and_keep_closing_together(calls, f
     texts = "\n".join(c[4] for c in mine)
     assert "6) 특약" in texts and "위와 같이 발주합니다." in texts and "승인 :" in texts
     assert pdf.pages_count >= 2
+
+
+TALL_INPUTS = {  # 한 칸이 한 쪽(약 37줄)보다 높은 조건들 (줄바꿈이 많은 메모·특약)
+    "special38": {"special_terms": "가\n" * 38},
+    "special100": {"special_terms": "가\n" * 100},
+    "memo500": {"memo": "x\n" * 500},
+    "memo1000chars_special100": {"memo": "다" * 1000, "special_terms": "가\n" * 100},
+    "both100": {"memo": "x\n" * 100, "special_terms": "가\n" * 100},
+}
+
+
+@pytest.mark.parametrize("kind", ["KRW", "USD"])
+@pytest.mark.parametrize("count", [3, 30])
+@pytest.mark.parametrize("name", TALL_INPUTS)
+def test_very_tall_condition_cells_still_render(calls, name, count, kind):
+    """줄바꿈이 38줄 이상인 메모·특약(한 칸이 한 쪽보다 높음)도 오류 없이 PDF 가 되고 승인 줄이 그려진다 (원화·외화 × 품목 3·30줄)."""
+    base = make_doc(count) if kind == "KRW" else fx_doc(count)
+    pdf, mine = render(base | TALL_INPUTS[name], calls)
+    texts = "\n".join(c[4] for c in mine)
+    assert pdf.pages_count >= 2 and "위와 같이 발주합니다." in texts and "승인 :" in texts
+
+
+def test_build_pdf_falls_back_when_estimate_is_wrong(monkeypatch):
+    """높이 어림이 틀려 ValueError 가 나도 build_pdf 는 긴 조건 방식으로 다시 그려 PDF 를 돌려준다 (500 방지 안전망)."""
+    monkeypatch.setattr(pd, "PDF_COND_MAX", 10**6)  # 어림이 항상 "짧다"고 틀리게
+    assert pd.build_pdf(make_doc(3) | TALL_INPUTS["special100"]).startswith(b"%PDF")
