@@ -13,6 +13,7 @@ import {
   costEstimate, costReducer, freightLabel, CURRENCIES, CURRENCY_CODES, Currency, EXTRA_COST_SUGGESTIONS, extraCostProblem, formatScaled, formatWon, FREIGHT_TERMS,
   fxInputText, fxPriceInput, fxPriceProblem, fxTotalScaled, isCurrency, krwEstimate, MAX_EXTRA_COSTS, MAX_SPECIAL_TERMS, poPayload, rateInput, rateProblem, rateUnitLabel, toScaled, wonInput,
 } from "./po-fx"; // 외화·원가 계산과 입력 검사 (#267)
+import { keepAlerts, pickAlert, PriceAnswer, priceCheckBody } from "./po-price-alert"; // 단가 변동 경고 (#283)
 import { ProductOption, ProductPicker } from "./product-picker"; // 발주 줄에서 품목을 검색해 바로 선택한다
 import { FX_ENABLED } from "./config"; // 외화 화면 스위치 (기본 꺼짐)
 import { S } from "./styles"; // 화면 공통 스타일
@@ -25,6 +26,26 @@ type CostState = Parameters<typeof costReducer<Line>>[0]; // reducer 상태
 
 const EMPTY_LINE: Line = { key: 0, product_id: "", quantity: "", unit_price: "", box: false }; // 빈 줄
 const num = (v: string) => (v === "" ? null : Number(v)); // "10" → 10, 비우면 null (서버가 422 로 막는다. 1 이상·0 이상 검사는 서버가 한다)
+
+// 단가 변동 경고 훅 (#283): 입력이 멈춘 500ms 뒤 서버에 한 번 묻고, 응답은 (공급업체·품목·단가) 열쇠로 보관한다.
+// 줄을 그릴 때 열쇠가 맞을 때만 문장이 나오므로 따로 지우는 코드가 없다. 실패는 조용히 경고만 없애고 저장은 막지 않는다
+function usePriceAlerts(supplierId: string, lines: Line[], enabled: boolean) {
+  const [alerts, setAlerts] = useState<Record<string, string>>({});
+  const reqId = useRef(0); // 늦게 온 옛 응답을 버린다 (product-picker 방식)
+  const body = enabled ? priceCheckBody(supplierId, lines) : null;
+  const sig = body ? JSON.stringify(body) : ""; // 입력이 그대로면 효과를 다시 돌리지 않는다
+  useEffect(() => {
+    if (!sig) return;
+    const id = ++reqId.current;
+    const timer = setTimeout(() => {
+      api<PriceAnswer[]>("/purchase-orders/price-check", { method: "POST", body: JSON.parse(sig) })
+        .then((rows) => { if (id === reqId.current) setAlerts(keepAlerts(supplierId, rows)); })
+        .catch(() => { if (id === reqId.current) setAlerts({}); });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [sig, supplierId]);
+  return (line: Line) => pickAlert(alerts, supplierId, line);
+}
 
 // 발주서 작성·수정 폼 하나. order 가 있으면 수정(DRAFT 의 items 전체 교체), 없으면 새 작성
 export function PoForm({ order }: { order?: PurchaseOrder }) {
@@ -105,6 +126,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   }
 
   const targetSupplier = order ? String(order.supplier_id) : supplierId; // 기본 품목을 가져올 공급업체 (수정이면 발주서의 업체)
+  const priceAlertOf = usePriceAlerts(targetSupplier, lines, !fx); // 외화 발주는 비교하지 않는다(서버도 원화만)
   const pickedIds = new Set(lines.map((l) => Number(l.product_id)).filter(Boolean)); // 이미 담은 품목 번호 (선택 결과 표시용)
   const emptyRows = lines.flatMap((l, i) => (Number(l.quantity) >= 1 ? [] : [i + 1])); // 수량이 비었거나 0인 줄 번호 (1부터)
   const quantityProblem = checked && emptyRows.length ? `수량을 입력해 주세요: ${emptyRows.map((n) => `${n}번 줄`).join(", ")}` : ""; // 제출을 시도한 뒤에만 보이고, 고치면 바로 사라진다
@@ -285,6 +307,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
                   <input type="number" inputMode="numeric" required min={0} max={100_000_000} step={1} style={S.numInput}
                     value={line.unit_price} onChange={(e) => setLine(index, { unit_price: e.target.value })} aria-label={`${index + 1}번 줄 단가`} />
                 )}
+                {(() => { const msg = priceAlertOf(line); return msg ? <span role="status" style={S.priceAlert}>{msg}</span> : null; })()}
               </td>
               <td><button type="button" onClick={() => setLines((rows) => rows.filter((_, i) => i !== index))}>줄 삭제</button></td>
               {/* 0줄이 되면 서버가 422 (품목 줄 1개 이상)로 막는다 */}
