@@ -4,12 +4,16 @@
 """
 
 import importlib.util  # 마이그레이션의 채워 넣기 SQL 을 불러온다
+import json  # 문서 dict 를 글자로
+from io import BytesIO  # 엑셀 바이트 읽기
 from pathlib import Path  # 마이그레이션 파일 위치
 
 import pytest  # 테스트 도구
+from openpyxl import load_workbook  # 엑셀 읽기
 from sqlalchemy import select, text  # 조회, SQL 문장
 
 from app.models import PoChangeLog, Product, PurchaseOrder  # 표
+from app.services import po_document, po_mail  # 외화 문서·메일 본문
 from tests.helpers import login_as  # 공통 로그인
 
 URL = "/api/v1/purchase-orders"
@@ -230,16 +234,45 @@ def test_recommendation_draft_rejects_existing_foreign_draft(client, world, item
     assert r.status_code == 409 and r.json()["error"]["code"] == "FOREIGN_CURRENCY_SUPPLIER"
 
 
-# ----- 외화 문서는 PR 3 전까지 409 (임시 가드) -----
+# ----- 외화 문서·엑셀·PDF·메일 (#267 PR 3) -----
 
-def test_foreign_document_is_blocked_until_pr3(client, world, items):
+@pytest.mark.parametrize("currency, rate, price, shown, total", [
+    ("USD", "1350", "12.5", "12.50", "USD 25.00"),  # 2 × 12.50
+    ("JPY", "905.12", "500", "500", "JPY 1,000"),  # 2 × 500, 소수 0자리
+])
+def test_foreign_document_outputs(client, world, items, currency, rate, price, shown, total):
     login_as(client)
-    d = create(client, world, fx(items["P1"], 1, "1"), currency="USD", exchange_rate="1350")
+    d = create(client, world, fx(items["P1"], 2, price), currency=currency, exchange_rate=rate,
+               freight_terms="FOB", freight_amount=777771, special_terms="특약 문구",
+               extra_costs=[{"name": "통관비-내부", "amount": 555551}])
     login_as(client, "admin@a.test")
     client.post(f"{URL}/{d['id']}/approve")
-    for path in ("document", "document.xlsx", "email"):
-        r = client.get(f"{URL}/{d['id']}/{path}")
-        assert r.status_code == 409 and r.json()["error"]["code"] == "FX_DOCUMENT_NOT_READY", path
+    doc = client.get(f"{URL}/{d['id']}/document").json()["data"]  # 임시 가드(FX_DOCUMENT_NOT_READY)는 사라졌다
+    assert doc["currency"] == currency and doc["vat"] is None and doc["total_korean"] is None
+    assert doc["lines"][0]["unit_price"] == shown and doc["freight_terms"] == "FOB" and doc["special_terms"] == "특약 문구"
+    xlsx = client.get(f"{URL}/{d['id']}/document.xlsx")
+    assert xlsx.status_code == 200
+    cells = [str(c.value) for row in load_workbook(BytesIO(xlsx.content)).active.iter_rows() for c in row if c.value is not None]
+    assert any(c.startswith("합계금액: ") and total in c and "(부가세 제외)" in c for c in cells)
+    assert "부가세 (10%)" not in cells and "4) 기타" in cells and "5) 운송조건" in cells and "6) 특약" in cells
+    mail = client.get(f"{URL}/{d['id']}/email").json()["data"]["fixed_html"]
+    assert "(부가세 제외)" in mail and total in mail and "부가세 (10%)" not in mail and "일금" not in mail
+    text = po_mail.fixed_text(doc)
+    assert "(부가세 제외)" in text and "일금" not in text and "부가세 " not in text.replace("(부가세 제외)", "")
+    pdf = po_document.build_pdf(doc)
+    assert pdf.startswith(b"%PDF")
+    for secret in ("777771", "777,771", "555551", "통관비-내부", rate):  # 내부 전용 값은 어느 출력에도 없다
+        assert all(secret not in x for x in (json.dumps(doc, ensure_ascii=False), chr(10).join(cells), mail, text)), secret
+
+
+def test_krw_document_has_no_new_lines_without_values(client, world, items):
+    login_as(client)
+    d = create(client, world, krw(items["P1"], 1, 1000))
+    login_as(client, "admin@a.test")
+    client.post(f"{URL}/{d['id']}/approve")
+    doc = client.get(f"{URL}/{d['id']}/document").json()["data"]
+    assert doc["currency"] == "KRW" and doc["freight_terms"] is None and doc["special_terms"] is None
+    assert [label for label, _ in po_document.condition_rows(doc)] == ["납기일자", "납품장소", "지불조건", "기타"]
 
 
 # ----- 변경 이력·내보내기 -----

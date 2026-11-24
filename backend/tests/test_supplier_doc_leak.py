@@ -25,6 +25,10 @@ MEMO = "PUBLIC-MEMO-281"  # 메모는 공개 칸: 반드시 나가야 한다
 SECRETS = (REASON, CHANGE, EMAILED, USER_EMAIL, CLOSED)
 EMAIL_LOG = "secret-email-log-182@internal.test"  # 메일 발송 시도 이력(po_email_log)의 받는 주소·실패 코드 (#182)
 SECRETS += (EMAIL_LOG,)
+# #267 PR3: 원가 내부 전용 값의 표식 (환율·원화 환산 합계·운송비 금액·부대비용 이름·금액). 원화·외화 발주 모두에서 안 나가야 한다
+RATE, KRW_GOODS, FREIGHT, EXTRA_NAME, EXTRA_AMOUNT = "1357.91", 8765431, 7654329, "SECRET-EXTRA-267", 6543217
+SECRETS += (RATE, "1,357.91", str(KRW_GOODS), "8,765,431", str(FREIGHT), "7,654,329", EXTRA_NAME, str(EXTRA_AMOUNT), "6,543,217")
+TERMS = "PUBLIC-SPECIAL-267"  # 특약은 공개 칸: 반드시 나가야 한다
 INTERNAL_IDS = ("987650001", "987650002", "987650003", "987650004", "987650005", "987650006", "987650007")  # 회사·발주서·사용자·업체·품목·줄 id 2개
 
 # build_document 결과의 키 경로. 새 칸을 문서에 넣으면 이 테스트가 실패한다 → 분류표를 먼저 갱신하고 여기에 더한다
@@ -34,6 +38,7 @@ ALLOWED_KEYS = {
     "buyer", "buyer.name", "buyer.business_number", "buyer.representative", "buyer.phone", "buyer.address", "buyer.author_name",
     "lines", "lines[].no", "lines[].product_name", "lines[].product_sku", "lines[].unit", "lines[].quantity",
     "lines[].unit_price", "lines[].amount", "lines[].note",
+    "currency", "freight_terms", "special_terms",
     "supply_total", "vat", "total", "total_korean", "due_date", "delivery_address", "payment_terms", "memo",
     "approval", "approval.approver_name", "approval.approved_at", "approval.company_name",
     "approval.stamp", "approval.stamp.lines", "approval.stamp.ratio",
@@ -62,12 +67,13 @@ def item(item_id, name, boxed):
         "box_unit_price": 5000 if boxed else None, "box_quantity": 2 if boxed else None,
         "order_unit": "박스" if boxed else "개", "unit_factor": 10 if boxed else 1, "min_order_units": None,
         "line_total": 10000 if boxed else 3500, "recommendation_reason": REASON, "received_quantity": 0,
+        "fx_unit_price": "5.00", "fx_box_unit_price": "50.00" if boxed else None, "fx_line_total": "100.00" if boxed else "35.00",
         "closed_quantity": int(CLOSED),  # 잔량 마감 수량 (#252): 내부 전용, 공급업체 문서에 새면 안 된다
     }
 
 
-@pytest.fixture
-def doc(monkeypatch):
+@pytest.fixture(params=["KRW", "USD"])
+def doc(monkeypatch, request):
     """내부 전용 칸마다 표식을 넣은 발주서로 build_document 를 돌린 결과."""
     company_id, order_id, user_id, supplier_id = (int(x) for x in INTERNAL_IDS[:4])
     now = datetime(2026, 11, 18, 0, 30, tzinfo=UTC)
@@ -76,7 +82,9 @@ def doc(monkeypatch):
         supplier_id=supplier_id, created_by=user_id, approved_by=user_id, approved_at=now, approved_company_name=None,
         due_date=None, delivery_address=None, payment_terms="월말", memo=MEMO,
         emailed_at=now, emailed_to=EMAILED, emailed_by=user_id,
-        currency="KRW",  # 원화 발주서 (#267 PR 1: 외화 문서는 PR 3 전까지 409)
+        currency=request.param, freight_terms="FOB", special_terms=TERMS,  # 원화·외화 모두 시험 (#267 PR 3)
+        exchange_rate=RATE, krw_goods_total=KRW_GOODS, freight_amount=FREIGHT,
+        extra_costs=[{"name": EXTRA_NAME, "amount": EXTRA_AMOUNT}],  # 내부 전용 원가 칸
     )
     company = SimpleNamespace(id=company_id, name="한빛생활", business_number="1234567890", representative="홍길동",
                               phone="02-1", address="서울시 1")
@@ -133,6 +141,13 @@ def test_memo_is_intentionally_public(doc, calls):  # noqa: F811
     # 메모("4) 기타")는 공급업체에 전달되는 칸이다(#281 결정). 화면 라벨도 그렇게 안내한다
     for name, text in outputs(doc, calls).items():
         assert MEMO in text, f"공개 칸 memo 가 {name} 출력에서 빠졌습니다"
+
+
+def test_cost_terms_are_public_and_cost_is_not(doc, calls):  # noqa: F811
+    # 운송조건(코드가 아닌 글자)·특약은 나가고, 위 SECRETS(환율·원화 합계·운송비 금액·부대비용)는 나가지 않는다
+    assert doc["freight_terms"] == "FOB" and doc["special_terms"] == TERMS
+    for name, text in outputs(doc, calls).items():
+        assert TERMS in text and "FOB" in text, name
 
 
 def test_xlsx_author_property_is_empty(doc):

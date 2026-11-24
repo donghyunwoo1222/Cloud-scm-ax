@@ -49,6 +49,7 @@ def make_doc(text):
         "supplier": {"name": text, "contact_name": text, "phone": text, "email": text},
         "buyer": {"name": text, "business_number": text, "representative": text, "phone": text, "address": text, "author_name": text},
         "lines": [{"no": 1, "product_name": text, "product_sku": "S1", "unit": text, "quantity": 10, "unit_price": 1000, "amount": 10000, "note": text}],
+        "currency": "KRW", "freight_terms": None, "special_terms": None,  # #267 PR3 새 공개 칸
         "supply_total": 10000, "vat": 1000, "total": 11000, "total_korean": "일만일천",
         "due_date": "2026-11-30", "delivery_address": text, "payment_terms": text, "memo": text,
         "approval": {"approver_name": text, "approved_at": "2026-11-17 09:00", "company_name": "회사", "stamp": {}},

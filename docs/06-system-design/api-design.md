@@ -172,7 +172,7 @@
 ### 발주서 문서 (#157)
 
 - `purchase_orders`에 선택 칸 `delivery_address`(납품장소), `payment_terms`(지불조건)가 생겼다(각 200자까지, 작성·수정·응답 공통). 작성할 때 `payment_terms`를 안 보내면 공급업체 기본값을 복사하고(추천 초안도 같다), 수정에서 `null`·빈 글자는 비운다.
-- `GET /purchase-orders/{id}/document`: 화면과 엑셀이 같이 쓰는 값을 서버가 한 번 계산해 준다. `supplier`(수신처), `buyer`(발주처, 작성자 이름 포함), `lines`(No·품목명·SKU·단위·수량·단가·공급가액·비고), `supply_total`·`vat`·`total`·`total_korean`, `due_date`·`delivery_address`(비면 회사 주소)·`payment_terms`·`memo`. 회사 정보가 비어 있어도 만들어진다(해당 칸은 null).
+- `GET /purchase-orders/{id}/document`: 화면과 엑셀이 같이 쓰는 값을 서버가 한 번 계산해 준다. `supplier`(수신처), `buyer`(발주처, 작성자 이름 포함), `lines`(No·품목명·SKU·단위·수량·단가·공급가액·비고), `currency`, `supply_total`·`vat`·`total`·`total_korean`, `due_date`·`delivery_address`(비면 회사 주소)·`payment_terms`·`memo`, `freight_terms`(운송조건 글자, 없으면 null)·`special_terms`(특약, 없으면 null). 외화 발주서(`currency` ≠ KRW, #267 PR 3)는 `lines[].unit_price`·`amount`·`supply_total`·`total` 이 통화 자릿수에 맞춘 글자(`"1250.50"`, JPY·VND 는 `"500"`)이고 `vat`·`total_korean` 은 null 이다(부가세 줄 없음, "(부가세 제외)" 표기, 외화 부가세 기준은 #268 보류). 환율·원화 환산·운송비 금액·부대비용·원가는 문서에 없다. 회사 정보가 비어 있어도 만들어진다(해당 칸은 null).
 - 금액: 단가는 부가세 별도. 공급가액 합계의 10%를 원 미만 버림으로 한 번만 계산하고(줄별 세액 없음, 예: 1,005원 → 100원), 합계 = 공급가액 + 부가세. 박스 발주 줄은 단위 "박스", 수량은 박스 수, 단가는 박스 단가이고 비고에 `1박스=24개`를 적는다. 한글 금액은 `일금 팔십삼만육천 원정` 식이며 금액 문서 관례대로 1도 읽는다(`일천`, `일십만`).
 - `GET /purchase-orders/{id}/document.xlsx`: 같은 값의 엑셀 한 장(수량·단가·금액은 숫자 칸). 두 경로 모두 DRAFT·CANCELLED는 409 `INVALID_STATUS`, 다른 회사·없는 번호는 404. 읽기만 하므로 GET이다. 화면의 PDF는 브라우저 인쇄로 저장하고, 서버 PDF(`fpdf2`, 나눔고딕 동봉)는 메일 첨부(#158)에만 쓴다.
 
@@ -222,7 +222,7 @@
 - 작성·수정 본문에 `currency`(KRW·USD·EUR·JPY·CNY·VND), `exchange_rate`(기준 단위당 원, 0 초과 9,999.99 이하, 소수 둘째 자리까지), `freight_terms`(INCLUDED·BILLED·COLLECT·EXW·FOB·CIF·DDP), `freight_amount`(원, 0~1조, null = 미입력), `extra_costs`(`[{name(1~50자), amount(원)}]`, 최대 20줄), `special_terms`(1000자)가 생겼다. 작성에서 `currency`·`freight_terms`·`special_terms` 를 안 보내면 공급업체 기본값을 복사한다(보낸 null 은 비움). 수정에서 `currency` 는 null 불가, 통화를 바꾸면 `items` 도 함께 보내야 한다(422).
 - 품목 줄: 원화 발주서는 지금처럼 `unit_price`(원), 외화 발주서는 `fx_price`(재고 단위 줄은 재고 단위당, 박스 줄은 발주단위당)만 받는다. 섞으면 422. 외화 단가는 통화 최소 단위까지(USD 0.035·JPY 0.5 는 422, 센트 미만 미지원), 0 이상 99,999,999.99 이하. 원화에 환율을 주면 422. 금액 칸은 JSON 숫자 또는 숫자 글자를 받고, 응답의 외화 금액·환율은 글자(`"1350.25"`)다.
 - 응답: 발주서에 `currency`·`rate_unit`·`exchange_rate`·`krw_goods_total`(승인 때 고정)·`freight_terms`·`freight_amount`·`extra_costs`·`special_terms`, 그리고 서버가 계산한 `cost` 묶음 `{goods_fx_total, goods_krw, freight, extras_total, total, missing, received_goods_krw, received_total}`. `missing` 은 `exchange_rate`(외화인데 환율 없음)·`freight`(운송비 미입력). `received_*` 는 발주함·입고 완료에서 누적 입고 수량 기준(잔량 마감 수량 제외, 운송비·부대비용은 전액). 줄에는 `fx_unit_price`·`fx_box_unit_price`·`fx_line_total` 이 생겼고, 외화 줄은 `unit_price`·`line_total` 이 null 이다(줄에는 원화를 두지 않는다).
-- 원가 칸은 내부 전용이다. 공급업체용 문서(`/document`·`document.xlsx`·PDF·메일)는 바뀌지 않았고, 외화 발주서의 문서·메일은 PR 3 전까지 409 `FX_DOCUMENT_NOT_READY`.
+- 원가 칸은 내부 전용이다. 공급업체용 문서(`/document`·`document.xlsx`·PDF·메일)에는 통화·외화 금액·운송조건·특약만 나가고 나머지 원가 칸은 안 나간다(`supplier-document-fields.md`). 외화 발주서의 문서·메일·엑셀·PDF 는 PR 3 에서 열렸다(임시 가드 `FX_DOCUMENT_NOT_READY` 제거).
 - 공급업체 등록·수정·응답에 `default_currency`(기본 KRW, 수정에서 null 불가)·`default_freight_terms`·`default_special_terms`.
 - 발주서 내보내기(`/purchase-orders/export`)에 통화·환율·운송비 조건·운송비·부대비용 합계·특약·품목 원화 합계·원가, 줄별 외화 단가·외화 발주단위 단가·외화 금액 열이 생겼다.
 
