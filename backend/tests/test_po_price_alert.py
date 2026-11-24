@@ -155,6 +155,19 @@ def test_latest_approval_wins_and_ties_use_larger_id(client, session, ctx):
     assert alert_of(client, sup, pid, 1500)["po_id"] == later.id
 
 
+@pytest.mark.parametrize("status", ["APPROVED", "RECEIVED"])
+def test_order_without_approved_at_is_skipped_not_500(client, session, ctx, status):
+    cid, uid, sup, pid = ctx
+    broken = add_po(session, cid, uid, sup, pid, 1000, status=status)
+    broken.approved_at = None  # 앱으로는 안 생기지만 측정 스크립트 데이터에는 있다
+    session.commit()
+    login_as(client)
+    assert alert_of(client, sup, pid, 5000) is None  # 500 이 아니라 200, 비교할 발주가 없다
+    ok = add_po(session, cid, uid, sup, pid, 2000, approved_at=T0 - timedelta(days=60))  # 더 오래됐지만 비교 가능한 발주
+    a = alert_of(client, sup, pid, 2500)
+    assert a["po_id"] == ok.id and a["previous_unit_price"] == 2000  # 비교 대상으로 고른다
+
+
 def test_previous_box_line_is_converted_per_unit(client, session, ctx):
     cid, uid, sup, pid = ctx
     add_po(session, cid, uid, sup, pid, 999, box=(10, 5000))  # 박스 5,000원 ÷ 10개 = 개당 500원 (줄의 unit_price 999 는 쓰지 않는다)

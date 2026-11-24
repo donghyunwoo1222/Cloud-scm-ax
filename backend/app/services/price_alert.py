@@ -46,7 +46,7 @@ def message(direction: str, percent: int, previous: int, po_number: str, month_d
 
 
 def previous_lines(company_id: int, db: Session, supplier_id: int, product_ids: set[int]) -> dict:
-    """품목마다 직전 발주의 줄 한 건(쿼리 한 번). 승인 시각이 같으면 발주서 번호가 큰 쪽."""
+    """품목마다 직전 발주의 줄 한 건(쿼리 한 번). 승인 시각이 같으면 발주서 내부 id(purchase_orders.id)가 큰 쪽. 승인 시각이 없는 발주는 비교하지 않는다."""
     stmt = (
         select(PurchaseOrderItem, PurchaseOrder)
         .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderItem.purchase_order_id)
@@ -55,10 +55,11 @@ def previous_lines(company_id: int, db: Session, supplier_id: int, product_ids: 
             PurchaseOrder.supplier_id == supplier_id,
             PurchaseOrder.status.in_(COMPARE_STATES),
             PurchaseOrder.currency == "KRW",  # 외화 발주는 비교하지 않는다
+            PurchaseOrder.approved_at.is_not(None),  # 승인 시각이 비어 있는 데이터는 건너뛴다 (문장에 날짜가 필요하다)
             PurchaseOrderItem.product_id.in_(product_ids),
         )
         .ext(distinct_on(PurchaseOrderItem.product_id))  # 품목마다 첫 줄만
-        .order_by(PurchaseOrderItem.product_id, PurchaseOrder.approved_at.desc().nulls_last(), PurchaseOrder.id.desc())
+        .order_by(PurchaseOrderItem.product_id, PurchaseOrder.approved_at.desc(), PurchaseOrder.id.desc())
     )
     return {item.product_id: (item, order) for item, order in db.execute(stmt)}
 
