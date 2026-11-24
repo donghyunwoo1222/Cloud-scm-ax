@@ -14,11 +14,18 @@ from openpyxl import load_workbook  # 엑셀 읽기
 from sqlalchemy import select, text  # 조회, SQL 문장
 from sqlalchemy.exc import IntegrityError  # DB CHECK 위반
 
-from app.config import Settings  # 기본값 검사 (.env 를 읽지 않고)
+from app.config import Settings, settings  # 기본값 검사 (.env 를 읽지 않고), 켜고 끄는 스위치 객체
 from app.models import PoChangeLog, Product, PurchaseOrder  # 표
 from app.services import po_document, po_mail  # 외화 문서·메일 본문
 from app.services.po_money import CURRENCIES  # 통화 → (기준 단위, 소수 자리)
 from tests.helpers import login_as  # 공통 로그인
+
+
+@pytest.fixture(autouse=True)
+def fx_on(monkeypatch):
+    """이 파일은 외화 발주서를 만드는 시험이 많아 FX_ENABLED 를 켠 상태로 돌린다 (꺼짐 동작은 test_fx_input_guard.py)."""
+    monkeypatch.setattr(settings, "fx_enabled", True)
+
 
 URL = "/api/v1/purchase-orders"
 SUPPLIERS = "/api/v1/suppliers"
@@ -243,9 +250,9 @@ def test_recommendation_draft_rejects_existing_foreign_draft(client, world, item
 def test_foreign_document_is_blocked_when_fx_disabled(client, world, items, monkeypatch):
     """FX_ENABLED 가 꺼져 있으면(기본) 외화 발주서의 문서·엑셀·이메일 미리보기·메일 발송(PDF 첨부)이 모두 409."""
     assert Settings(_env_file=None, database_url="postgresql+psycopg://x/x", secret_key="x" * 32).fx_enabled is False  # 기본값은 꺼짐 (.env 를 읽지 않고 검사)
-    monkeypatch.setattr(po_document.settings, "fx_enabled", False)  # 개발자 .env 에 켜져 있어도 이 시험은 꺼진 상태
     login_as(client)
-    d = create(client, world, fx(items["P1"], 1, "1"), currency="USD", exchange_rate="1350")
+    d = create(client, world, fx(items["P1"], 1, "1"), currency="USD", exchange_rate="1350")  # 작성은 켠 상태(autouse)에서
+    monkeypatch.setattr(po_document.settings, "fx_enabled", False)  # 개발자 .env 에 켜져 있어도 이 시험은 꺼진 상태
     login_as(client, "admin@a.test")
     client.post(f"{URL}/{d['id']}/approve")
     for path in ("document", "document.xlsx", "email"):

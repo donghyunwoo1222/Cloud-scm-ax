@@ -223,6 +223,7 @@
 - 품목 줄: 원화 발주서는 지금처럼 `unit_price`(원), 외화 발주서는 `fx_price`(재고 단위 줄은 재고 단위당, 박스 줄은 발주단위당)만 받는다. 섞으면 422. 외화 단가는 통화 최소 단위까지(USD 0.035·JPY 0.5 는 422, 센트 미만 미지원), 0 이상 99,999,999.99 이하. 원화에 환율을 주면 422. 금액 칸은 JSON 숫자 또는 숫자 글자를 받고, 응답의 외화 금액·환율은 글자(`"1350.25"`)다.
 - 응답: 발주서에 `currency`·`rate_unit`·`exchange_rate`·`krw_goods_total`(승인 때 고정)·`freight_terms`·`freight_amount`·`extra_costs`·`special_terms`, 그리고 서버가 계산한 `cost` 묶음 `{goods_fx_total, goods_krw, freight, extras_total, total, missing, received_goods_krw, received_total}`. `missing` 은 `exchange_rate`(외화인데 환율 없음)·`freight`(운송비 미입력). `received_*` 는 발주함·입고 완료에서 누적 입고 수량 기준(잔량 마감 수량 제외, 운송비·부대비용은 전액). 줄에는 `fx_unit_price`·`fx_box_unit_price`·`fx_line_total` 이 생겼고, 외화 줄은 `unit_price`·`line_total` 이 null 이다(줄에는 원화를 두지 않는다).
 - 원가 칸은 내부 전용이다. 공급업체용 문서(`/document`·`document.xlsx`·PDF·메일)에는 통화·외화 금액·운송조건·특약만 나가고 나머지 원가 칸은 안 나간다(`supplier-document-fields.md`). `FX_ENABLED` 가 꺼져 있으면(기본) 외화 발주서의 문서·엑셀·메일은 409 `FX_DOCUMENT_NOT_READY`, 켜면 열린다(국내 먼저 배포).
+- `FX_ENABLED` 가 꺼져 있으면(기본) 발주서 작성·수정(`PATCH`)에서 KRW 가 아닌 `currency`, `exchange_rate`, 줄의 `fx_price` 를 보내거나, 공급업체 등록·수정에서 KRW 가 아닌 `default_currency` 를 보내면 422 `FX_DISABLED`("해외 거래 기능은 아직 사용할 수 없습니다. 통화는 원화(KRW)만 선택할 수 있습니다.")다. 키를 보내지 않으면 통과하고, 이미 만든 외화 발주서·업체의 조회·승인·취소는 막지 않으며, 켜면 입력이 열린다.
 - 공급업체 등록·수정·응답에 `default_currency`(기본 KRW, 수정에서 null 불가)·`default_freight_terms`·`default_special_terms`.
 - 발주서 내보내기(`/purchase-orders/export`)에 통화·환율·운송비 조건·운송비·부대비용 합계·특약·품목 원화 합계·원가, 줄별 외화 단가·외화 발주단위 단가·외화 금액 열이 생겼다.
 
