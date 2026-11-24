@@ -75,6 +75,7 @@ def item(item_id, name, boxed):
 @pytest.fixture(params=["KRW", "USD"])
 def doc(monkeypatch, request):
     """내부 전용 칸마다 표식을 넣은 발주서로 build_document 를 돌린 결과."""
+    monkeypatch.setattr(pd.settings, "fx_enabled", True)  # 외화(USD) 파라미터도 문서를 만든다 (끄면 409 가드)
     company_id, order_id, user_id, supplier_id = (int(x) for x in INTERNAL_IDS[:4])
     now = datetime(2026, 11, 18, 0, 30, tzinfo=UTC)
     order = SimpleNamespace(

@@ -236,11 +236,26 @@ def test_recommendation_draft_rejects_existing_foreign_draft(client, world, item
 
 # ----- 외화 문서·엑셀·PDF·메일 (#267 PR 3) -----
 
+def test_foreign_document_is_blocked_when_fx_disabled(client, world, items):
+    """FX_ENABLED 가 꺼져 있으면(기본) 외화 발주서의 문서·엑셀·이메일 미리보기·메일 발송(PDF 첨부)이 모두 409."""
+    assert po_document.settings.fx_enabled is False
+    login_as(client)
+    d = create(client, world, fx(items["P1"], 1, "1"), currency="USD", exchange_rate="1350")
+    login_as(client, "admin@a.test")
+    client.post(f"{URL}/{d['id']}/approve")
+    for path in ("document", "document.xlsx", "email"):
+        r = client.get(f"{URL}/{d['id']}/{path}")
+        assert r.status_code == 409 and r.json()["error"]["code"] == "FX_DOCUMENT_NOT_READY", path
+    r = client.post(f"{URL}/{d['id']}/email", json={"intro": "안녕하세요"})  # PDF 는 메일 발송 때 만든다
+    assert r.status_code == 409 and r.json()["error"]["code"] == "FX_DOCUMENT_NOT_READY"
+
+
 @pytest.mark.parametrize("currency, rate, price, shown, total", [
     ("USD", "1350", "12.5", "12.50", "USD 25.00"),  # 2 × 12.50
     ("JPY", "905.12", "500", "500", "JPY 1,000"),  # 2 × 500, 소수 0자리
 ])
-def test_foreign_document_outputs(client, world, items, currency, rate, price, shown, total):
+def test_foreign_document_outputs(client, world, items, currency, rate, price, shown, total, monkeypatch):
+    monkeypatch.setattr(po_document.settings, "fx_enabled", True)  # 외화 문서는 스위치를 켠 상태에서만
     login_as(client)
     d = create(client, world, fx(items["P1"], 2, price), currency=currency, exchange_rate=rate,
                freight_terms="FOB", freight_amount=777771, special_terms="특약 문구",

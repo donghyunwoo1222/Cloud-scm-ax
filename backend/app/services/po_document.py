@@ -13,6 +13,7 @@ from openpyxl.styles import Alignment, Font  # 가운데 정렬·굵은 글씨
 from sqlalchemy.orm import Session  # DB 세션 타입
 
 from app.clock import SEOUL  # 서울 시간대 (발주일자)
+from app.config import settings  # FX_ENABLED 스위치
 from app.errors import AppError  # 공통 오류
 from app.models import Company, Supplier, User  # 표들
 from app.services import purchase_orders as po_service  # 발주서 조회·응답 만들기
@@ -129,6 +130,8 @@ def build_document(company_id: int, db: Session, order_id: int) -> dict:
     order = po_service.get_order(company_id, db, order_id)  # 다른 회사 404
     if order.status not in ACTION_STATES["document"]:  # 승인 이후만 (DRAFT·CANCELLED 는 409)
         raise AppError(409, "INVALID_STATUS", "승인된 발주서만 문서로 볼 수 있습니다.", {"status": order.status})
+    if order.currency != "KRW" and not settings.fx_enabled:  # 외화 문서는 FX_ENABLED 가 켜질 때만 (국내 먼저 배포, #267)
+        raise AppError(409, "FX_DOCUMENT_NOT_READY", "외화 발주서의 문서·메일은 아직 준비 중입니다.", {"currency": order.currency})
     out = po_service.build_out(company_id, db, [order])[0]  # 줄 금액은 발주서 응답과 같은 계산을 쓴다
     company = db.get_one(Company, company_id)
     supplier = get_owned(company_id, db, Supplier, order.supplier_id)
