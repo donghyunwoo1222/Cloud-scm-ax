@@ -191,3 +191,13 @@ export function poPayload(v: PoFormValues, fxEnabled: boolean) {
 
 // 운송비 표시: NULL = 미입력, 0 = 무료, 그 밖은 원 금액. 예) (3000) → "3,000원", (0) → "무료(0원)", (null) → "미입력"
 export const freightLabel = (won: number | null): string => (won === null ? "미입력" : won === 0 ? "무료(0원)" : `${formatWon(won)}원`);
+
+// 운송조건·특약 구역에 보일 것: 값이 있는 것만. 둘 다 없으면 null (구역을 그리지 않는다)
+export const termsToShow = (freightTerms: string | null, specialTerms: string | null): { freight: string | null; special: string | null } | null => {
+  const freight = freightTerms ? FREIGHT_TERMS[freightTerms] ?? freightTerms : null; // 코드 → 한글 이름
+  const special = specialTerms && specialTerms.trim() ? specialTerms : null;
+  return freight || special ? { freight, special } : null;
+};
+
+// 입고 기준 원가 설명 (숫자 계산과 무관한 문구)
+export const RECEIVED_COST_NOTE = "품목은 입고한 수량만큼만, 운송비·부대비용은 전액 반영";

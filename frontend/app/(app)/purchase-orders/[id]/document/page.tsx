@@ -72,7 +72,7 @@ function Document() {
       {mailOpen && <div className="no-print"><EmailLogSection orderId={id} refreshKey={version} /></div>}
 
       <div className="po-paper">
-        <div className="po-scroll">
+        <div className="po-scroll"><div className="po-sheet">
           <h2>발 주 서</h2>
           <table>
             <colgroup><col style={{ width: 72 }} /><col /><col style={{ width: 150 }} /><col style={{ width: 82 }} /><col /></colgroup>
@@ -152,7 +152,7 @@ function Document() {
           {/* 승인 뒤 상호가 바뀐 경우에만 승인 때 이름을 따로 보인다 (같으면 중복 표시 안 함) */}
           {ap.company_name !== b.name && <p className="c" style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>승인 시점 상호 : {ap.company_name}</p>}
           </div>
-        </div>
+        </div></div>
       </div>
     </section>
   );
