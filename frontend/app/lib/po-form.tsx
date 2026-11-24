@@ -308,7 +308,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       {shownProblem && <p role="alert" style={S.error}>{shownProblem}</p>}
 
       <fieldset style={{ ...S.sectionCard, minInlineSize: 0 }}>
-        <legend>운송비·부대비용·특약 (내부 원가용, 공급업체 문서에는 나가지 않습니다)</legend>
+        <legend>운송비·부대비용·특약 (운송비 금액과 부대비용은 내부 원가용이라 공급업체 문서와 메일에 나가지 않습니다. 운송비 조건과 특약은 공급업체와 합의한 조건이라 문서에 표시됩니다)</legend>
         <div className="form-compact field-form" style={S.formGrid}>
           <Field label="운송비 조건" short="운송비 조건" className="field-half">
             <select value={cost.freightTerms} onChange={(e) => dispatch({ type: "freightTerms", value: e.target.value })} style={S.block}>

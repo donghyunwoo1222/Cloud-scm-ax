@@ -11,6 +11,7 @@ import { useToast } from "../../lib/toast"; // 성공 알림 토스트
 import { useSubmitLock } from "../../lib/submit-lock"; // 중복 클릭 잠금
 import { InfoTip } from "../../lib/tip"; // 보조 설명 말풍선
 import { FX_ENABLED } from "../../lib/config"; // 외화 화면 스위치 (기본 꺼짐)
+import { supplierBody } from "../../lib/supplier-body"; // 폼 값 → 본문
 import { CURRENCIES, CURRENCY_CODES, FREIGHT_TERMS, isCurrency, MAX_SPECIAL_TERMS } from "../../lib/po-fx"; // 기본 통화·운송비 조건 목록 (#267)
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
@@ -36,22 +37,6 @@ type Form = typeof EMPTY;
 
 // 오류 details 의 칸 이름 → 화면 이름
 const LABELS = { name: "업체명", lead_time_days: "리드타임", contact_name: "담당자", phone: "연락처", email: "이메일", payment_terms: "지불조건", memo: "메모", default_currency: "기본 통화", default_freight_terms: "기본 운송비 조건", default_special_terms: "기본 특약" };
-
-// 폼 값 → 서버로 보낼 본문. 빈 선택 칸은 null(비우기), 리드타임은 숫자로 (검사는 서버가 한다: 음수·소수는 422)
-function toBody(form: Form) {
-  return {
-    name: form.name, // 업체명 (앞뒤 공백은 서버가 지운다)
-    lead_time_days: form.lead_time_days === "" ? null : Number(form.lead_time_days), // "5" → 5, 비우면 null(→ 서버가 422)
-    contact_name: form.contact_name || null,
-    phone: form.phone || null,
-    email: form.email || null,
-    payment_terms: form.payment_terms || null,
-    memo: form.memo || null,
-    default_currency: FX_ENABLED ? form.default_currency : "KRW", // 통화는 비울 수 없다. 꺼져 있으면 KRW 로 보낸다
-    default_freight_terms: form.default_freight_terms || null, // 선택 안 함 → 미설정(null)
-    default_special_terms: form.default_special_terms.trim() || null,
-  };
-}
 
 // 공급업체 화면 (주소 /suppliers): 목록 + 등록·수정 폼 (수정·비활성은 업체 상세 화면에서 시작한다)
 export default function SuppliersPage() {
@@ -94,8 +79,8 @@ export default function SuppliersPage() {
   async function save(event: FormEvent) {
     event.preventDefault(); // 새로고침 막기
     try {
-      if (editingId === null) await api("/suppliers", { method: "POST", body: toBody(form) }); // 등록
-      else await api(`/suppliers/${editingId}`, { method: "PATCH", body: toBody(form) }); // 수정
+      if (editingId === null) await api("/suppliers", { method: "POST", body: supplierBody(form, FX_ENABLED) }); // 등록
+      else await api(`/suppliers/${editingId}`, { method: "PATCH", body: supplierBody(form, FX_ENABLED) }); // 수정
       setCreated(editingId === null);
       if (editingId !== null) toast("공급업체를 수정했어요"); // 등록은 아래 링크 문구가 알린다
       reset(); // 성공하면 폼 비우기
