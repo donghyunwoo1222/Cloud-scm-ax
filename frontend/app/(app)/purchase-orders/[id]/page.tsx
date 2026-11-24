@@ -12,10 +12,11 @@ import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
 import { useMe } from "../../../lib/me"; // 내 역할 (회사 정보 입력 링크는 관리자에게만. 상태 버튼은 allowed_actions)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { boxLimit, can, fmtDate, fmtTime, formatOrderUnitPrice, isClosedWithRemainder, lineAmount, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, replyGapText, replyLateDays, PoAction, PoItemSort, PurchaseOrder, quantityLabel, receiptText, remainingQuantity, totalAmount, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
+import { boxLimit, can, fmtDate, fmtTime, formatLineAmount, formatOrderUnitPrice, formatTotal, isClosedWithRemainder, currencyColumn, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, replyGapText, replyLateDays, PoAction, PoItemSort, PurchaseOrder, quantityLabel, receiptText, remainingQuantity, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 import { dateRange } from "../../../lib/supplier-reply"; // 회신 납기 선택 범위 (서버와 같은 오늘 ~ 1년 뒤)
+import { CostCard, KrwConversion } from "./cost-card"; // 원가 카드 (#267, 내부 전용)
 import { ChangeLogSection } from "./change-log"; // 변경 이력 섹션 (#181)
 import { EmailLogSection } from "./email-log"; // 메일 발송 이력 섹션 (#182)
 import { reminderPanelOpen } from "../../../lib/reminder"; // 패널을 열어 둘지 정하는 규칙 (#269)
@@ -489,7 +490,7 @@ function Detail() {
         <thead>
           <tr style={S.headRow}>
             {/* 수량·단가·금액과 입고 현황을 품목별로 나란히 배치한다. */}
-            <th>SKU</th><th>품목</th><th style={S.num}>단가(원)</th><th style={S.num}>발주 수량</th><th style={S.num}>금액(원)</th><th style={S.num}>입고 현황</th>
+            <th>SKU</th><th>품목</th><th style={S.num}>단가({currencyColumn(order.currency)})</th><th style={S.num}>발주 수량</th><th style={S.num}>금액({currencyColumn(order.currency)})</th><th style={S.num}>입고 현황</th>
           </tr>
         </thead>
         <tbody>
@@ -509,12 +510,12 @@ function Detail() {
                 <td style={S.nowrap}>{skuWithOptions(i.product_sku, i)}</td>
                 <td style={S.midCol}>{i.product_name}</td>
                 {/* 발주서에 저장된 단가로 이 줄의 발주 금액을 표시한다. */}
-                <td style={S.num}>{formatOrderUnitPrice(i)}</td>
+                <td style={S.num}>{formatOrderUnitPrice(i, order.currency)}</td>
                 <td style={S.num}>
                   {i.box_quantity == null ? `${ordered}${i.unit}` : unitConversion(i.box_quantity, i.order_unit ?? "박스", i.units_per_box ?? 1, i.unit, "()")}
                   {/* 발주단위 줄은 "3BOX (300EA)" */}
                 </td>
-                <td style={S.num}>{lineAmount(i).toLocaleString("ko-KR")}</td>
+                <td style={S.num}>{formatLineAmount(i, order.currency)}</td>
                 <td style={S.num}>
                   {/* 품목마다 실제 단위를 붙여 누적 입고와 남은 수량을 보여준다. */}
                   {receiptText(i, order.status)}
@@ -527,7 +528,7 @@ function Detail() {
           {/* 합계는 모든 품목을 포함하며, 각 줄의 금액과 같은 열에 맞춘다. */}
           <tr>
             <th scope="row" colSpan={4} style={S.num}>발주 금액 합계</th>
-            <td style={{ ...S.num, ...S.key }}>{totalAmount(order).toLocaleString("ko-KR")}원</td>
+            <td style={{ ...S.num, ...S.key }}>{formatTotal(order)}<KrwConversion order={order} /></td>
             <td />
           </tr>
         </tfoot>
@@ -553,16 +554,18 @@ function Detail() {
                 <div className="compact-sub">
                   <span>{skuWithOptions(i.product_sku, i)}</span>
                   <span>{receiptText(i, order.status)}</span>
-                  <span>금액 {lineAmount(i).toLocaleString("ko-KR")}원</span>
+                  <span>금액 {formatLineAmount(i, order.currency)}{order.currency === "KRW" ? "원" : ""}</span>
                   {/* 2줄: SKU · 입고 현황 · 금액 (단가는 표에서) */}
                 </div>
               </li>
             );
           })}
         </ul>
-        <p className="compact-total"><span>발주 금액 합계</span><strong>{totalAmount(order).toLocaleString("ko-KR")}원</strong></p>
+        <p className="compact-total"><span>발주 금액 합계</span><strong>{formatTotal(order)}</strong></p>
+        <p className="compact-total"><KrwConversion order={order} /></p>
         {/* 합계는 표처럼 모든 품목 기준 */}
       </div>
+      <CostCard order={order} />{/* 원가는 내부 전용: 발주 상세에만 보인다 */}
       </>
       )}
 

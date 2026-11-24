@@ -10,11 +10,12 @@ import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, Pager, useList } from "../../../lib/list"; // 목록 공통 부품
 import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
 import { fmtDate, formatOrderUnitPrice, isClosedWithRemainder, PurchaseOrder, STATUS_LABEL } from "../../../lib/po"; // 발주서 모양·상태 이름·날짜·단가 표시
+import { CURRENCIES, FREIGHT_TERMS, isCurrency } from "../../../lib/po-fx"; // 기본 통화·운송비 조건 이름 (#267)
 import { StatusBadge } from "../../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 
 // GET /api/v1/suppliers/{id} 중 이 화면이 쓰는 칸
-type Supplier = { id: number; name: string; lead_time_days: number; contact_name: string | null; phone: string | null; email: string | null; payment_terms: string | null; is_active: boolean };
+type Supplier = { id: number; name: string; lead_time_days: number; contact_name: string | null; phone: string | null; email: string | null; payment_terms: string | null; default_currency: string; default_freight_terms: string | null; default_special_terms: string | null; is_active: boolean };
 
 // 공급업체 상세 화면 (주소 /suppliers/번호): 업체 정보 + 발주 이력(약속 납기·단가·실제 입고일)
 function Detail() {
@@ -60,6 +61,9 @@ function Detail() {
           <div><dt>연락처</dt><dd>{supplier.phone ?? "-"}</dd></div>
           <div><dt>이메일</dt><dd>{supplier.email ?? "-"}</dd></div>
           <div><dt>지불조건</dt><dd>{supplier.payment_terms ?? "-"}</dd></div>
+          <div><dt>기본 통화</dt><dd>{isCurrency(supplier.default_currency) ? CURRENCIES[supplier.default_currency].label : supplier.default_currency}</dd></div>
+          <div><dt>기본 운송비 조건</dt><dd>{supplier.default_freight_terms ? FREIGHT_TERMS[supplier.default_freight_terms] ?? supplier.default_freight_terms : "-"}</dd></div>
+          <div><dt>기본 특약</dt><dd>{supplier.default_special_terms ?? "-"}</dd></div>
           <div><dt>상태</dt><dd>{supplier.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}</dd></div>
         </dl>
       )}
@@ -69,7 +73,7 @@ function Detail() {
       <div className="table-box">
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>발주번호</th><th>상태</th><th>품목</th><th style={S.num}>발주 수량</th><th style={S.num}>단가(원)</th><th>약속 납기</th><th>입고 완료일</th></tr>
+          <tr style={S.headRow}><th>발주번호</th><th>상태</th><th>품목</th><th style={S.num}>발주 수량</th><th style={S.num}>단가</th><th>약속 납기</th><th>입고 완료일</th></tr>
         </thead>
         <tbody>
           {list.rows.flatMap((o) =>
@@ -80,7 +84,7 @@ function Detail() {
                 <td>{index === 0 ? (o.status === "ORDERED" && o.items.some((i) => i.received_quantity > 0) ? "부분 입고" : STATUS_LABEL[o.status]) + (isClosedWithRemainder(o) ? " (잔량 마감)" : "") : ""}</td>
                 <td><span style={S.nowrap}>{skuWithOptions(i.product_sku, i)}</span> · {i.product_name}</td>
                 <td style={S.num}>{i.quantity}</td>
-                <td style={S.num}>{formatOrderUnitPrice(i)}</td>
+                <td style={S.num}>{formatOrderUnitPrice(i, o.currency)}</td>
                 <td style={S.nowrap}>{index === 0 ? (o.due_date ?? "-") : ""}</td>
                 <td style={S.nowrap}>{index === 0 ? fmtDate(o.received_at) : ""}</td>
               </tr>

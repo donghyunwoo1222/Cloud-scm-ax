@@ -2,19 +2,25 @@
 
 import Link from "next/link"; // 기존 발주서로 가는 링크
 import { useRouter } from "next/navigation"; // 저장 후 상세 화면으로 이동
-import { FormEvent, useEffect, useRef, useState } from "react"; // 폼 제출, 최초 조회, 줄 번호와 상태
+import { FormEvent, useEffect, useReducer, useRef, useState } from "react"; // 폼 제출, 최초 조회, 줄 번호와 상태, 통화와 줄을 함께 바꾸는 reducer
 
 import { api, ApiError, apiList, apiListAll } from "./api"; // 공통 API 호출 함수, 서버 오류
 import { Field } from "./field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { ErrorText } from "./list"; // 서버 오류 표시
 import { optionSummary } from "./options"; // 고른 품목의 옵션 요약
 import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PurchaseOrder, unitConversion } from "./po"; // 발주서와 발주단위 환산 표시
+import {
+  costEstimate, costReducer, CURRENCIES, CURRENCY_CODES, Currency, EXTRA_COST_SUGGESTIONS, extraCostProblem, formatScaled, formatWon, FREIGHT_TERMS,
+  fxInputText, fxPriceInput, fxPriceProblem, fxTotalScaled, isCurrency, krwEstimate, MAX_EXTRA_COSTS, MAX_SPECIAL_TERMS, rateInput, rateProblem, rateUnitLabel, toScaled, wonInput,
+} from "./po-fx"; // 외화·원가 계산과 입력 검사 (#267)
 import { ProductOption, ProductPicker } from "./product-picker"; // 발주 줄에서 품목을 검색해 바로 선택한다
 import { S } from "./styles"; // 화면 공통 스타일
 import { useToast } from "./toast"; // 성공 알림 토스트
 
-type Option = { id: number; name: string }; // 공급업체 선택지
-type Line = { key: number; product_id: string; quantity: string; unit_price: string; box: boolean }; // 줄 번호와 입력값
+type Option = { id: number; name: string; default_currency: string; default_freight_terms: string | null; default_special_terms: string | null }; // 공급업체 선택지 (기본 통화·운송비 조건·특약은 고르면 미리 채운다)
+type Extra = { key: number; name: string; amount: string }; // 부대비용 한 줄 (금액은 원, 글자로 다룬다)
+type Line = { key: number; product_id: string; quantity: string; unit_price: string; box: boolean }; // 줄 번호와 입력값 (unit_price 는 원화 발주면 원화 단가, 외화 발주면 외화 단가)
+type CostState = Parameters<typeof costReducer<Line>>[0]; // reducer 상태
 
 const EMPTY_LINE: Line = { key: 0, product_id: "", quantity: "", unit_price: "", box: false }; // 빈 줄
 const num = (v: string) => (v === "" ? null : Number(v)); // "10" → 10, 비우면 null (서버가 422 로 막는다. 1 이상·0 이상 검사는 서버가 한다)
@@ -31,13 +37,24 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   const [deliveryAddress, setDeliveryAddress] = useState(order?.delivery_address ?? ""); // 납품장소 (비우면 문서에 회사 주소)
   const [paymentTerms, setPaymentTerms] = useState(order?.payment_terms ?? ""); // 지불조건 (새 발주서는 서버가 공급업체 기본값을 채운다)
   const nextLineKey = useRef(order?.items.length ?? 1); // 앞 줄을 지워도 다른 줄의 검색 상태가 섞이지 않는다
-  const [lines, setLines] = useState<Line[]>(
-    order ? order.items.map((i, key) => ({
-      key,
-      product_id: String(i.product_id), quantity: String(i.box_quantity ?? i.quantity),
-      unit_price: String(i.unit_price), box: i.box_quantity != null,
-    })) : [{ ...EMPTY_LINE }],
-  ); // 품목 줄들 (수정이면 지금 줄들로 시작)
+  // 통화·환율·운송비 조건·특약·품목 줄을 reducer 하나가 같이 정한다: 통화가 바뀌면 환율과 줄 단가가 한 번에 비워진다 (po-fx.ts 상태 전이 표)
+  const [cost, dispatch] = useReducer(costReducer<Line>, undefined, (): CostState => {
+    const currency: Currency = order && isCurrency(order.currency) ? order.currency : "KRW";
+    return {
+      currency, rate: order?.exchange_rate ?? "", freightTerms: order?.freight_terms ?? "", specialTerms: order?.special_terms ?? "", cleared: false,
+      lines: order ? order.items.map((i, key) => ({
+        key,
+        product_id: String(i.product_id), quantity: String(i.box_quantity ?? i.quantity),
+        unit_price: currency === "KRW" ? String(i.unit_price ?? "") : fxInputText(i.fx_box_unit_price ?? i.fx_unit_price ?? "", currency), box: i.box_quantity != null,
+      })) : [{ ...EMPTY_LINE }], // 품목 줄들 (수정이면 지금 줄들로 시작)
+    };
+  });
+  const { currency, lines } = cost;
+  const fx = currency !== "KRW"; // 외화 발주서인지
+  const setLines = (update: (rows: Line[]) => Line[]) => dispatch({ type: "lines", update }); // 줄 편집은 reducer 로
+  const [freightAmount, setFreightAmount] = useState(order?.freight_amount != null ? String(order.freight_amount) : ""); // 운송비(원). 비움 = 미입력, 0 = 무료
+  const nextExtraKey = useRef(order?.extra_costs.length ?? 0); // 부대비용 줄 번호
+  const [extras, setExtras] = useState<Extra[]>((order?.extra_costs ?? []).map((e, key) => ({ key, name: e.name, amount: String(e.amount) }))); // 부대비용 줄들
   const [error, setError] = useState<unknown>(null); // 저장 오류 (입력값은 지우지 않는다)
   const [busy, setBusy] = useState(false); // 저장 중이면 버튼을 잠그고 글자를 바꾼다
   const [bulkBusy, setBulkBusy] = useState(false); // 기본 품목을 불러오는 중이면 버튼을 잠근다
@@ -54,7 +71,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
 
   // 선택 상자의 품목: 활성 품목 + (수정일 때) 이미 든 품목이 지금 비활성이어도 이름이 보이게 함께 넣는다
   const options = new Map<number, ProductOption>((order?.items ?? []).map((i) => [i.product_id, {
-    id: i.product_id, sku: i.product_sku, name: i.product_name, unit_cost: i.unit_price, unit: i.unit, is_active: false,
+    id: i.product_id, sku: i.product_sku, name: i.product_name, unit_cost: i.unit_price ?? 0, unit: i.unit, is_active: false,
     color: i.color, size: i.size, spec: i.spec,
   }]));
   Object.values(pickedProducts).forEach((p) => options.set(p.id, p)); // 앞선 검색에서 고른 품목
@@ -82,7 +99,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
     setPickedProducts((picked) => ({ ...picked, [product.id]: product }));
     if (lines[index].product_id === productId) return; // 같은 품목을 재선택해도 작성한 단가·수량은 보존한다
     const box = units != null;
-    setLine(index, { product_id: productId, unit_price: String(product.unit_cost), box,
+    setLine(index, { product_id: productId, unit_price: fx ? "" : String(product.unit_cost), box,
       ...(box || lines[index].box ? { quantity: "" } : {}) });
   }
 
@@ -109,7 +126,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       const added = fresh.map((p): Line => {
         const { units } = packingFor(String(p.id), p);
         const rec = recOf.get(p.id); // 추천 수량: 발주단위·최소 주문량까지 올림한 값, 없으면 비워 둔다
-        return { key: nextLineKey.current++, product_id: String(p.id), unit_price: String(p.unit_cost), box: units != null, quantity: rec != null ? String(rec) : "" };
+        return { key: nextLineKey.current++, product_id: String(p.id), unit_price: fx ? "" : String(p.unit_cost), box: units != null, quantity: rec != null ? String(rec) : "" };
       });
       setPickedProducts((picked) => ({ ...picked, ...Object.fromEntries(fresh.map((p) => [p.id, p])) }));
       setLines((rows) => [...rows.filter((l) => l.product_id !== ""), ...added]); // 품목을 안 고른 빈 줄은 지우고 채운다
@@ -124,11 +141,15 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
     }
   }
 
-  // 저장 전 수량 검사: 비었거나 0인 줄이 있으면 막고 어느 줄인지 보여 준다. 제출 버튼 클릭과 submit 양쪽에서 쓴다
+  // 외화 입력 문제 (원화 발주는 없다): 단가 자릿수·환율·부대비용. 저장을 한 번 시도한 뒤에 보이고 고치면 바로 사라진다
+  const fxProblem = (fx ? lines.flatMap((l, i) => { const p = fxPriceProblem(currency, l.unit_price); return p ? [`${i + 1}번 줄 ${p}`] : []; })[0] ?? rateProblem(cost.rate) : null) ?? extraCostProblem(extras);
+  const shownProblem = checked && fxProblem ? fxProblem : "";
+
+  // 저장 전 검사: 수량이 비었거나 0인 줄이 있으면 어느 줄인지 보여 주고, 외화·부대비용 입력이 틀렸으면 문장으로 막는다. 제출 버튼 클릭과 submit 양쪽에서 쓴다
   function blockEmptyQuantity() {
-    if (!emptyRows.length) return false;
+    if (!emptyRows.length && !fxProblem) return false;
     setChecked(true);
-    document.querySelector<HTMLInputElement>(`[data-qty-row="${emptyRows[0]}"]`)?.focus(); // 첫 문제 줄로 이동
+    if (emptyRows.length) document.querySelector<HTMLInputElement>(`[data-qty-row="${emptyRows[0]}"]`)?.focus(); // 첫 문제 줄로 이동
     return true;
   }
 
@@ -138,8 +159,14 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
     if (blockEmptyQuantity()) return;
     const items = lines.map((l) => ({
       product_id: num(l.product_id),
-      ...(l.box ? { box_quantity: num(l.quantity) } : { quantity: num(l.quantity), unit_price: num(l.unit_price) }),
+      ...(l.box ? { box_quantity: num(l.quantity) } : { quantity: num(l.quantity) }),
+      ...(fx ? { fx_price: l.unit_price } : l.box ? {} : { unit_price: num(l.unit_price) }), // 외화는 글자 그대로(정확한 소수), 원화 박스 줄은 단가를 서버가 품목 설정에서 읽는다
     })); // 서버는 보낸 단위에 맞춰 발주량과 당시 값을 저장한다
+    const costBody = {
+      currency, exchange_rate: fx ? cost.rate.trim() || null : null, freight_terms: cost.freightTerms || null,
+      freight_amount: freightAmount.trim() === "" ? null : Number(freightAmount), // 비움 = 미입력(null), 0 = 무료
+      extra_costs: extras.map((e) => ({ name: e.name.trim(), amount: Number(e.amount) })), special_terms: cost.specialTerms.trim() || null,
+    }; // 원가 칸 (내부 전용). 화면의 환산·합계는 예상이고 저장값은 서버가 계산한다
     const belowMoq = lines.flatMap((l) => {
       const { product, moq, orderUnit } = packingFor(l.product_id);
       const count = Number(l.quantity);
@@ -151,8 +178,8 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
     setBusy(true);
     try {
       const saved = order
-        ? await api<PurchaseOrder>(`/purchase-orders/${order.id}`, { method: "PATCH", body: { due_date: dueDate || null, memo: memo || null, delivery_address: deliveryAddress || null, payment_terms: paymentTerms || null, items } }) // 수정: items 전체 교체
-        : await api<PurchaseOrder>("/purchase-orders", { method: "POST", body: { supplier_id: num(supplierId), due_date: dueDate || null, memo: memo || null, delivery_address: deliveryAddress || null, payment_terms: paymentTerms || null, items } }); // 작성
+        ? await api<PurchaseOrder>(`/purchase-orders/${order.id}`, { method: "PATCH", body: { due_date: dueDate || null, memo: memo || null, delivery_address: deliveryAddress || null, payment_terms: paymentTerms || null, ...costBody, items } }) // 수정: items 전체 교체
+        : await api<PurchaseOrder>("/purchase-orders", { method: "POST", body: { supplier_id: num(supplierId), due_date: dueDate || null, memo: memo || null, delivery_address: deliveryAddress || null, payment_terms: paymentTerms || null, ...costBody, items } }); // 작성
       toast(order ? "발주서를 수정했어요" : "발주서를 만들었어요");
       router.push(`/purchase-orders/${saved.id}`); // 저장되면 상세 화면으로 (화면을 떠나므로 잠금은 풀지 않는다: 이동 중 클릭으로 한 장 더 생기지 않게)
     } catch (e) {
@@ -165,12 +192,17 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   // 이미 DRAFT 가 있는 공급업체면 서버가 details 에 기존 발주서 번호를 준다
   const duplicate = error instanceof ApiError && error.code === "DUPLICATE_DRAFT" ? (error.details as { purchase_order_id: number; po_number: string }) : null;
 
+  // 외화 발주: 줄마다 수량 × 외화 단가 (박스 줄은 박스 수 × 박스 단가). 원화는 총액에서 한 번만 버린 예상값
+  const fxTotal = fxTotalScaled(currency, lines.map((l) => ({ quantity: l.quantity, price: l.unit_price })));
+  const decimals = CURRENCIES[currency].decimals;
   const estimatedAmount = lines.reduce((sum, line) => {
     const count = Number(line.quantity);
     const price = line.box ? packingFor(line.product_id).price : Number(line.unit_price);
     if (!Number.isSafeInteger(count) || count < 1 || price == null || !Number.isSafeInteger(price) || price < 0) return sum;
     return sum + BigInt(count) * BigInt(price); // 여러 줄의 금액을 더해도 마지막 원까지 유지한다.
   }, BigInt(0));
+  const goodsKrw = fx ? krwEstimate(currency, fxTotal, cost.rate) : estimatedAmount; // 품목 원화 합계 예상 (외화인데 환율이 없으면 null)
+  const estimate = costEstimate(goodsKrw, freightAmount, extras);
 
   return (
     <form onSubmit={submit}>
@@ -179,7 +211,11 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
           <p>공급업체: {order.supplier_name} (바꿀 수 없습니다. 다른 업체는 새 발주서로 작성하세요)</p>
         ) : (
           <Field label="공급업체*" className="field-half">
-            <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} style={S.block}>
+            <select value={supplierId} style={S.block} onChange={(e) => {
+              setSupplierId(e.target.value);
+              const picked = suppliers.find((s) => String(s.id) === e.target.value);
+              if (picked) dispatch({ type: "supplier", currency: isCurrency(picked.default_currency) ? picked.default_currency : "KRW", freightTerms: picked.default_freight_terms, specialTerms: picked.default_special_terms }); // 기본 통화·운송비 조건·특약을 미리 채운다 (고치면 고친 값을 저장)
+            }}>
               <option value="">선택</option>
               {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
@@ -188,13 +224,26 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         <Field label="약속 납기" className="field-half"><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
         <Field label="납품장소" className="field-half"><input value={deliveryAddress} maxLength={200} placeholder="비우면 회사 주소" onChange={(e) => setDeliveryAddress(e.target.value)} /></Field>
         <Field label="지불조건" className="field-half"><input value={paymentTerms} maxLength={200} placeholder={order ? "" : "비우면 공급업체 기본값"} onChange={(e) => setPaymentTerms(e.target.value)} /></Field>
+        <Field label="통화*" short="통화" className="field-half">
+          <select value={currency} onChange={(e) => isCurrency(e.target.value) && dispatch({ type: "currency", currency: e.target.value })} style={S.block}>
+            {CURRENCY_CODES.map((c) => <option key={c} value={c}>{CURRENCIES[c].label}</option>)}
+          </select>
+        </Field>
+        {fx && (
+          <Field label={`환율 (${rateUnitLabel(currency)})`} short="환율" className="field-half">
+            <input inputMode="decimal" value={cost.rate} placeholder={`${rateUnitLabel(currency)} (예: ${currency === "JPY" ? "905.12" : "1350.25"})`} aria-label={`환율 ${rateUnitLabel(currency)}`}
+              onChange={(e) => dispatch({ type: "rate", rate: rateInput(cost.rate, e.target.value) })} />
+          </Field>
+        )}
         <Field label="기타 요청사항 (공급업체에 전달됩니다)"><input value={memo} placeholder="발주서 '4) 기타'에 그대로 나갑니다. 내부 메모는 적지 마세요" onChange={(e) => setMemo(e.target.value)} /></Field>
       </div>
 
+      {cost.cleared && <p role="status" style={S.hint}>통화를 바꿔서 품목 단가를 비웠습니다. 새 통화의 단가를 다시 입력해 주세요.</p>}
+      {fx && <p style={S.hint}>외화 발주: 줄에는 외화 금액만 보이고, 원화는 아래 총액에서 환율로 환산해 예상으로 보여 줍니다. 환율은 승인하면 고정됩니다(승인 전까지 비워 둘 수 있습니다).</p>}
       <div className="table-box">
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>품목*</th><th style={S.num}>수량*</th><th style={S.num}>단가(원)*</th><th></th></tr>
+          <tr style={S.headRow}><th>품목*</th><th style={S.num}>수량*</th><th style={S.num}>단가({fx ? currency : "원"})*</th><th></th></tr>
         </thead>
         <tbody>
           {lines.map((line, index) => {
@@ -226,7 +275,15 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
                 )}{/* 적게 입력하면 경고 색. 저장 때 확인창으로 한 번 더 묻는다 */}
               </td>
               <td style={S.num}>
-                {line.box && price != null ? (
+                {fx ? (
+                  <>
+                    <input type="text" inputMode="decimal" required style={S.numInput} value={line.unit_price} placeholder={decimals ? `0.${"0".repeat(decimals)}` : "0"}
+                      onChange={(e) => setLine(index, { unit_price: fxPriceInput(line.unit_price, e.target.value, currency) })} aria-label={`${index + 1}번 줄 외화 단가${line.box ? ` (${orderUnit}당)` : ""}`}
+                      aria-invalid={checked && fxPriceProblem(currency, line.unit_price) !== null} />
+                    {line.box && <span style={S.sub}>/ {orderUnit}</span>}
+                    {(() => { const p = toScaled(line.unit_price, decimals); return p !== null && count >= 1 ? <span style={S.sub}>금액 {formatScaled(BigInt(count) * p, decimals)} {currency}</span> : null; })()}{/* 줄에는 외화 금액만 */}
+                  </>
+                ) : line.box && price != null ? (
                   <>{price.toLocaleString("ko-KR")}원/{orderUnit}
                     {count > 0 && <span style={S.sub}>합계 {(count * price).toLocaleString("ko-KR")}원</span>}
                   </>
@@ -254,7 +311,50 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       )}{/* 수량이 비었거나 0인 줄만 지운다. 저장할 때 자동으로 빼지는 않는다 */}
       {notice && <p role="status" style={S.hint}>{notice}</p>}
       {quantityProblem && <p role="alert" style={S.error}>{quantityProblem}</p>}
-      <p style={S.hint}>예상 합계 {estimatedAmount.toLocaleString("ko-KR")}원</p>
+      {shownProblem && <p role="alert" style={S.error}>{shownProblem}</p>}
+
+      <fieldset style={{ ...S.sectionCard, minInlineSize: 0 }}>
+        <legend>운송비·부대비용·특약 (내부 원가용, 공급업체 문서에는 나가지 않습니다)</legend>
+        <div className="form-compact field-form" style={S.formGrid}>
+          <Field label="운송비 조건" short="운송비 조건" className="field-half">
+            <select value={cost.freightTerms} onChange={(e) => dispatch({ type: "freightTerms", value: e.target.value })} style={S.block}>
+              <option value="">선택 안 함</option>
+              {Object.entries(FREIGHT_TERMS).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+            </select>
+          </Field>
+          <Field label="운송비 (원)" short="운송비(원)" className="field-half">
+            <input inputMode="numeric" value={freightAmount} placeholder="비우면 미입력, 무료는 0" onChange={(e) => setFreightAmount(wonInput(freightAmount, e.target.value))} />
+          </Field>
+        </div>
+        <datalist id="extra-cost-names">{EXTRA_COST_SUGGESTIONS.map((n) => <option key={n} value={n} />)}</datalist>
+        {extras.map((x, index) => (
+          <div key={x.key} className="form-compact field-form" style={S.formGrid}>
+            <Field label={`부대비용 ${index + 1} 이름`} short={`부대비용 ${index + 1}`} className="field-half">
+              <input list="extra-cost-names" maxLength={50} value={x.name} placeholder="예: 통관 수수료" onChange={(e) => setExtras((rows) => rows.map((r) => (r.key === x.key ? { ...r, name: e.target.value } : r)))} />
+            </Field>
+            <Field label="금액 (원)" short="금액(원)" className="field-half">
+              <input inputMode="numeric" value={x.amount} onChange={(e) => setExtras((rows) => rows.map((r) => (r.key === x.key ? { ...r, amount: wonInput(r.amount, e.target.value) } : r)))} />
+            </Field>
+            <button type="button" onClick={() => setExtras((rows) => rows.filter((r) => r.key !== x.key))}>부대비용 삭제</button>
+          </div>
+        ))}
+        <button type="button" disabled={extras.length >= MAX_EXTRA_COSTS} onClick={() => setExtras((rows) => [...rows, { key: nextExtraKey.current++, name: "", amount: "" }])}>
+          부대비용 추가 ({extras.length}/{MAX_EXTRA_COSTS})
+        </button>
+        <Field label="특약 (공급업체와 합의한 조건)" short="특약">
+          <textarea rows={3} maxLength={MAX_SPECIAL_TERMS} value={cost.specialTerms} onChange={(e) => dispatch({ type: "specialTerms", value: e.target.value })} />
+        </Field>
+        <span style={S.sub}>{cost.specialTerms.length}/{MAX_SPECIAL_TERMS}자</span>
+      </fieldset>
+
+      <section aria-labelledby="cost-estimate" style={S.sectionCard}>
+        <h2 id="cost-estimate" style={{ marginTop: 0 }}>예상 원가 (예상, 저장하면 서버가 다시 계산합니다)</h2>
+        {fx
+          ? <p>품목 외화 합계 {formatScaled(fxTotal, decimals)} {currency} · 원화 환산(예상) {goodsKrw === null ? "환율을 입력하면 보입니다" : `${formatWon(goodsKrw)}원`}</p>
+          : <p>예상 합계 {estimatedAmount.toLocaleString("ko-KR")}원</p>}
+        <p>운송비 {estimate.missing.includes("freight") ? "운송비 미입력" : `${formatWon(Number(freightAmount))}원`} · 부대비용 {formatWon(estimate.extrasTotal)}원</p>
+        <p><strong>예상 원가 {estimate.total === null ? "-" : `${formatWon(estimate.total)}원`}</strong> <span style={S.hint}>(품목 원화 합계 + 운송비 + 부대비용, 부가세 제외)</span></p>
+      </section>
 
       <p style={{ ...S.buttons, marginTop: "var(--space-md)" }}>
         <button type="submit" disabled={busy} onClick={(e) => { if (blockEmptyQuantity()) e.preventDefault(); }}>{busy ? "저장 중…" : order ? "변경 저장" : "초안 저장"}</button>

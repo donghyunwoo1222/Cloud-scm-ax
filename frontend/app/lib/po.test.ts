@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { can, closedTotal, isClosedWithRemainder, overdueDays, receiptText, replyGapText, replyLateDays } from "./po.ts";
+import { can, closedTotal, formatLineAmount, formatOrderUnitPrice, formatTotal, isClosedWithRemainder, lineAmount, overdueDays, receiptText, replyGapText, replyLateDays, totalAmount } from "./po.ts";
+import type { PoItem, PurchaseOrder } from "./po.ts";
 
 test("서버가 준 allowed_actions 에 있는 동작만 true", () => {
   const staffDraft: Parameters<typeof can>[0] = { allowed_actions: ["edit", "cancel"] };
@@ -86,4 +87,37 @@ test("회신 기록 미리보기: 약속보다 늦음·이름·같은 날, 날�
 test("회신 기록 버튼은 allowed_actions 의 supplier_reply 를 따른다", () => {
   assert.equal(can({ allowed_actions: ["receive", "supplier_reply"] }, "supplier_reply"), true);
   assert.equal(can({ allowed_actions: ["document"] }, "supplier_reply"), false); // 입고 완료
+});
+
+// 외화 줄 (#267): 원화 단가가 null 이어도 깨지지 않는다. 줄에는 외화만, 원화는 총액 한 곳에만
+const fxItem = { quantity: 3, unit_price: null, fx_unit_price: "0.50", fx_box_unit_price: null, fx_line_total: "1.50", box_unit_price: null, order_unit: "EA" } as unknown as PoItem;
+const fxBoxItem = { quantity: 30, unit_price: null, fx_unit_price: null, fx_box_unit_price: "10.00", fx_line_total: "30.00", units_per_box: 10, box_quantity: 3, order_unit: "BOX" } as unknown as PoItem;
+const krwItem = { quantity: 3, unit_price: 1005, box_unit_price: null } as unknown as PoItem;
+
+test("외화 줄: 단가·금액은 외화로, 원화 줄 금액은 null", () => {
+  assert.equal(formatOrderUnitPrice(fxItem, "USD"), "0.50 USD");
+  assert.equal(formatOrderUnitPrice(fxBoxItem, "USD"), "10.00 USD / BOX");
+  assert.equal(lineAmount(fxItem), null); // BigInt(null) 로 깨지지 않는다
+  assert.equal(formatLineAmount(fxItem, "USD"), "1.50 USD");
+  assert.equal(formatLineAmount(fxBoxItem, "USD"), "30.00 USD");
+});
+
+test("엔화 줄은 소수 없이 표시", () => {
+  const jpy = { ...fxItem, fx_unit_price: "5000.00", fx_line_total: "15000.00" } as PoItem;
+  assert.equal(formatOrderUnitPrice(jpy, "JPY"), "5,000 JPY");
+  assert.equal(formatLineAmount(jpy, "JPY"), "15,000 JPY");
+});
+
+test("원화 줄은 기존 표시 그대로", () => {
+  assert.equal(formatOrderUnitPrice(krwItem), "1,005");
+  assert.equal(lineAmount(krwItem), BigInt(3015));
+  assert.equal(formatLineAmount(krwItem, "KRW"), "3,015");
+});
+
+test("합계: 원화는 원 합계, 외화는 null 이고 서버의 외화 합계를 보인다", () => {
+  const cost = { goods_fx_total: "1.50" } as PurchaseOrder["cost"];
+  assert.equal(totalAmount({ currency: "KRW", items: [krwItem, krwItem] }), BigInt(6030));
+  assert.equal(totalAmount({ currency: "USD", items: [fxItem] }), null);
+  assert.equal(formatTotal({ currency: "KRW", items: [krwItem], cost }), "3,015원");
+  assert.equal(formatTotal({ currency: "USD", items: [fxItem], cost }), "1.50 USD");
 });
