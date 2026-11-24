@@ -59,6 +59,8 @@
 - 칸: 발주서 `currency`·`rate_unit`·`exchange_rate`(Numeric 12,2)·`krw_goods_total`(승인 때 고정)·`freight_amount`·`extra_costs`, 줄 `fx_unit_price`·`fx_box_unit_price`(Numeric 14,2). 자세한 뜻은 `erd.md`.
 - 계산 위치: `purchase_orders.goods_krw_of`(품목 원화 합계 → `goods_krw_total`), `cost_of`(원가·입고 기준 → `cost_total`·`received_goods_krw`). 화면·내보내기는 이 값만 쓴다.
 - 입력 상한은 스키마(`schemas/common.py` 의 `FxPrice`·`ExchangeRate`·`BigWon`, 줄 2,000·수량 100만)가 먼저 막아, 이 모듈은 위 상한 테스트 범위 안의 값만 받는다. 금액 규칙 위반(`MoneyError`)은 422 `VALIDATION_ERROR` 다.
+- 외화 단가·환율을 **문자열**로 보내면 `to_decimal` 과 같은 모양만 받는다: ASCII 숫자와 소수점 하나("12.50"). 지수("1e1"), 전각·다른 문자 숫자("１２"), 부호("-0", "+1"), 앞뒤 공백, "1.", "NaN" 은 422. JSON 숫자(12.5)는 그대로 받는다.
+- DB 도 막는다: 통화와 기준 단위가 어긋나는 행(`ck_purchase_orders_rate_unit`), 승인한 적 있는 외화 발주서의 환율 NULL(`ck_purchase_orders_fx_rate_approved`).
 - 승인 뒤 환율 정정은 없다. 잘못 넣었으면 취소 후 새로 작성한다.
 
 ## 알려진 한계

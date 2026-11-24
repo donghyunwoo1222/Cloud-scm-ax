@@ -8,8 +8,10 @@ from pathlib import Path  # 마이그레이션 파일 위치
 
 import pytest  # 테스트 도구
 from sqlalchemy import select, text  # 조회, SQL 문장
+from sqlalchemy.exc import IntegrityError  # DB CHECK 위반
 
 from app.models import PoChangeLog, Product, PurchaseOrder  # 표
+from app.services.po_money import CURRENCIES  # 통화 → (기준 단위, 소수 자리)
 from tests.helpers import login_as  # 공통 로그인
 
 URL = "/api/v1/purchase-orders"
@@ -295,3 +297,50 @@ def test_backfill_fills_approved_orders_and_matches_received_cost(client, world,
     assert session.get(PurchaseOrder, draft["id"]).krw_goods_total is None
     got = client.get(f"{URL}/{full['id']}").json()["data"]
     assert got["status"] == "RECEIVED" and got["cost"]["received_goods_krw"] == got["krw_goods_total"] == 7005
+
+
+# ----- 리뷰 반영: DB 제약과 금액 문자열 모양 -----
+
+def db_rejects(session, sql, **params):
+    """SQL 이 CHECK 에 걸리는지 본다. 세이브포인트 안에서 실행해 실패해도 테스트 트랜잭션은 이어진다."""
+    try:
+        with session.begin_nested():
+            session.execute(text(sql), params)
+    except IntegrityError:
+        return True
+    return False
+
+
+def test_approved_fx_order_keeps_rate_in_db(client, world, items, session):
+    login_as(client)
+    draft = create(client, world, fx(items["P1"], 1, "1"), currency="USD")  # 작성 중에는 환율이 비어도 된다
+    assert not db_rejects(session, "UPDATE purchase_orders SET exchange_rate = NULL WHERE id = :i", i=draft["id"])
+    approve_and_order(client, client.patch(f"{URL}/{draft['id']}", json={"exchange_rate": "1350"}).json()["data"]["id"])
+    assert db_rejects(session, "UPDATE purchase_orders SET exchange_rate = NULL WHERE id = :i", i=draft["id"])
+
+
+@pytest.mark.parametrize("currency", list(CURRENCIES))
+def test_rate_unit_check_matches_currencies(client, world, items, session, currency):
+    """DB CHECK 의 기준 단위가 po_money.CURRENCIES 와 같다: 맞는 단위만 들어가고 다른 단위(1↔100)는 거절."""
+    login_as(client)
+    d = create(client, world, krw(items["P1"], 1, 1000))
+    unit = CURRENCIES[currency][0]
+    sql = "UPDATE purchase_orders SET currency = :c, rate_unit = :u WHERE id = :i"
+    assert db_rejects(session, sql, c=currency, u=100 if unit == 1 else 1, i=d["id"])  # 예) USD + 100, JPY + 1
+    assert not db_rejects(session, sql, c=currency, u=unit, i=d["id"])
+
+
+@pytest.mark.parametrize("bad", ["1e1", "１２", "-0", " 12", "+1", "1.", "NaN"])
+@pytest.mark.parametrize("field", ["fx_price", "exchange_rate"])
+def test_money_strings_follow_po_money_rule(client, world, items, field, bad):
+    login_as(client)
+    line = fx(items["P1"], 1, bad if field == "fx_price" else "1")
+    r = client.post(URL, json={"supplier_id": world["a_supplier"].id, "items": [line], "currency": "USD",
+                               **({"exchange_rate": bad} if field == "exchange_rate" else {})})
+    assert r.status_code == 422, r.json()
+
+
+def test_money_json_numbers_still_allowed(client, world, items):
+    login_as(client)
+    d = create(client, world, fx(items["P1"], 2, 1.25), currency="USD", exchange_rate=1350)  # 문서대로 JSON 숫자도 받는다
+    assert (d["items"][0]["fx_unit_price"], d["exchange_rate"], d["cost"]["goods_krw"]) == ("1.25", "1350.00", 3375)
