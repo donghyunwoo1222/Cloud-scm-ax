@@ -28,7 +28,10 @@
 | `buyer.phone` | 〃 | ○ | ○ | ○ | ○ (머리 표 발주처) | 공개 | |
 | `buyer.address` | 〃 | ○ | ○ | ○ | ○ (머리 표 발주처) | 공개 | |
 | `buyer.author_name` | `build_document` ← 작성자 이름 | ○ | ○ | ○ | ○ (머리 표 작성자, "답장하시면 ○○ 담당자에게") | 공개 (확정) | 담당자가 보이고 Reply-To 와 같은 사람이어야 공급업체가 누구에게 연락할지 안다 |
-| `lines[]` (no·product_name·product_sku·unit·quantity·unit_price·amount·note) | `build_document` ← `po_service.build_out` 에서 칸을 골라 씀 | ○ | ○ | ○ | ○ | 공개 | note 는 박스 환산(예: 1박스=10개) |
+| `lines[]` (no·product_name·product_sku·unit·quantity·unit_price·amount·note) | `build_document` ← `po_service.build_out` 에서 칸을 골라 씀 | ○ | ○ | ○ | ○ | 공개 | note 는 박스 환산(예: 1박스=10개). 외화 발주서는 단가·금액이 외화(통화 자릿수 글자, 원화 환산은 줄에 없음) |
+| `currency` | `build_document` ← 발주서 통화 | ○ (외화 표 열 머리·합계) | ○ | ○ | ○ | 공개 | #267 PR 3. KRW 는 표시 없이 기존 그대로 |
+| `freight_terms` | 〃 (운송비 조건 코드 → 글자 `FREIGHT_LABELS`) | ○ (발주 조건 "운송조건") | ○ | ○ | ○ | 공개 | 값이 있을 때만 줄이 생긴다(없으면 원화 출력이 이전과 글자까지 같다). 운송비 **금액**은 내부 전용 |
+| `special_terms` | 〃 | ○ (발주 조건 "특약") | ○ | ○ | ○ | 공개 | 값이 있을 때만 줄이 생긴다 |
 | `supply_total`·`vat`·`total`·`total_korean` | `build_document` (`vat_of`, `korean_amount`) | ○ | ○ | ○ | ○ | 공개 | |
 | `due_date` | `build_document` ← 발주서 | ○ | ○ | ○ | ○ | 공개 | |
 | `delivery_address` | 〃 (비면 회사 주소) | ○ | ○ | ○ | ○ | 공개 | |
@@ -50,7 +53,9 @@
 | 내부 id (회사·발주서·사용자·업체·품목·줄 id, `created_by`·`approved_by` 번호) | 각 표 | 문서에 필요 없다 |
 | 멱등 키 | `idempotency_keys` | |
 | 보낸 사용자 로그인 이메일 | 사용자 | 메일 머리글 Reply-To 에만 쓰인다(본문·문서·첨부에는 없음). Reply-To 유지는 3절에서 확정 |
-| 원가·마진 등 내부 수익성 정보 | (현재 없음) | 앞으로 생겨도 공급업체 문서에는 넣지 않는다 |
+| 환율 `exchange_rate`·`rate_unit`, 원화 환산 합계 `krw_goods_total`·`cost` | 발주서 (#267) | 외화 발주서 문서에도 원화 환산은 쓰지 않는다. 문서 외화 합계는 "(부가세 제외)" 로만 표시 |
+| 운송비 금액 `freight_amount`, 부대비용(이름·금액) `extra_costs` | 발주서 (#267) | 운송비는 조건(`freight_terms`)만 공개 |
+| 원가·마진 등 내부 수익성 정보 | `cost` 묶음 (#267) | 공급업체 문서에는 넣지 않는다. `test_supplier_doc_leak.py` 가 KRW·USD 발주서 모두에서 표식으로 감시한다 |
 
 ## 3. 결정 (#264 PR3에서 확정)
 

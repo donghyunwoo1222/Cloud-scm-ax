@@ -20,6 +20,7 @@ def make_doc(count=1, buyer="한빛생활용품", company=None, approver="박관
         "supplier": {"name": "대한물산", "contact_name": "김대한", "phone": "02-111-2222", "email": "a@b.kr"} | (supplier or {}),
         "buyer": {"name": buyer, "business_number": "1234567890", "representative": "홍길동", "phone": "031-000-1111",
                   "address": "경기도 성남시 1-2", "author_name": "이수진"},
+        "currency": "KRW", "freight_terms": None, "special_terms": None,  # #267 PR3: 새 공개 칸 (값이 없으면 출력이 이전과 같다)
         "lines": lines, "supply_total": supply, "vat": supply // 10, "total": supply + supply // 10, "total_korean": "만",
         "due_date": "2026-11-30", "delivery_address": "경기도 성남시 1-2", "payment_terms": "월말", "memo": "포장 주의",
         "approval": {"approver_name": approver, "approved_at": at, "company_name": name, "stamp": pd.stamp_of(name)},
@@ -170,3 +171,70 @@ def test_build_pdf_has_no_metadata():
     data = pd.build_pdf(make_doc(1))
     assert data.startswith(b"%PDF")
     assert b"/Author" not in data and b"/Title" not in data
+
+
+def fx_doc(count, currency="USD"):
+    """외화 문서 (#267 PR 3): 금액은 글자, 부가세·한글 금액 없음, 운송조건·특약 줄 있음."""
+    doc = make_doc(count)
+    digits = "0.00" if currency == "USD" else "0"
+    for line in doc["lines"]:
+        line["unit_price"], line["amount"] = "10.00" if digits == "0.00" else "10", "100.00" if digits == "0.00" else "100"
+    total = f"{100 * count}.00" if digits == "0.00" else str(100 * count)
+    return doc | {"currency": currency, "vat": None, "total_korean": None, "supply_total": total, "total": total,
+                  "freight_terms": "FOB", "special_terms": "특약 문구"}
+
+
+@pytest.mark.parametrize("currency", ["USD", "JPY"])
+def test_foreign_pdf_text_and_layout(calls, currency):
+    _, mine = render(fx_doc(14, currency), calls)
+    texts = "\n".join(c[4] for c in mine)
+    assert "(부가세 제외)" in texts and "부가세 (10%)" not in texts and "일금" not in texts and "5) 운송조건 : FOB" in texts
+    assert f"{currency} 1,400" in texts
+    pdf, _ = render(fx_doc(14, currency), calls)
+    assert pdf.pages_count == 1  # 외화·조건 두 줄이 늘어도 품목 14줄은 한 쪽 (부가세 두 줄이 빠져 오히려 여유)
+
+
+@pytest.mark.parametrize("count", range(1, 41))
+def test_foreign_closing_block_never_splits(calls, count):
+    _, mine = render(fx_doc(count), calls)
+    pages = {pages_of(mine, key).pop() for key in ("1) 납기일자", "6) 특약", "위와 같이 발주합니다.", "승인 :")}
+    assert len(pages) == 1, (count, pages)
+
+
+LONG = {"delivery_address": "가" * 200, "payment_terms": "나" * 200, "memo": "다 " * 500, "special_terms": "라 " * 500,
+        "freight_terms": "FOB"}  # 메모·특약 1000자, 납품장소·지불조건 200자 (스키마 상한)
+
+
+@pytest.mark.parametrize("fields", [LONG, LONG | {"memo": "다" * 1000, "special_terms": "라" * 1000}])
+def test_long_conditions_render_without_error_and_keep_closing_together(calls, fields):
+    """메모·특약이 모두 최대 길이여도 PDF 가 만들어지고(쪽 높이를 넘는 한 칸이 없다), 승인 줄까지 그려진다."""
+    pdf, mine = render(make_doc(3) | fields, calls)
+    texts = "\n".join(c[4] for c in mine)
+    assert "6) 특약" in texts and "위와 같이 발주합니다." in texts and "승인 :" in texts
+    assert pdf.pages_count >= 2
+
+
+TALL_INPUTS = {  # 한 칸이 한 쪽(약 37줄)보다 높은 조건들 (줄바꿈이 많은 메모·특약)
+    "special38": {"special_terms": "가\n" * 38},
+    "special100": {"special_terms": "가\n" * 100},
+    "memo500": {"memo": "x\n" * 500},
+    "memo1000chars_special100": {"memo": "다" * 1000, "special_terms": "가\n" * 100},
+    "both100": {"memo": "x\n" * 100, "special_terms": "가\n" * 100},
+}
+
+
+@pytest.mark.parametrize("kind", ["KRW", "USD"])
+@pytest.mark.parametrize("count", [3, 30])
+@pytest.mark.parametrize("name", TALL_INPUTS)
+def test_very_tall_condition_cells_still_render(calls, name, count, kind):
+    """줄바꿈이 38줄 이상인 메모·특약(한 칸이 한 쪽보다 높음)도 오류 없이 PDF 가 되고 승인 줄이 그려진다 (원화·외화 × 품목 3·30줄)."""
+    base = make_doc(count) if kind == "KRW" else fx_doc(count)
+    pdf, mine = render(base | TALL_INPUTS[name], calls)
+    texts = "\n".join(c[4] for c in mine)
+    assert pdf.pages_count >= 2 and "위와 같이 발주합니다." in texts and "승인 :" in texts
+
+
+def test_build_pdf_falls_back_when_estimate_is_wrong(monkeypatch):
+    """높이 어림이 틀려 ValueError 가 나도 build_pdf 는 긴 조건 방식으로 다시 그려 PDF 를 돌려준다 (500 방지 안전망)."""
+    monkeypatch.setattr(pd, "PDF_COND_MAX", 10**6)  # 어림이 항상 "짧다"고 틀리게
+    assert pd.build_pdf(make_doc(3) | TALL_INPUTS["special100"]).startswith(b"%PDF")

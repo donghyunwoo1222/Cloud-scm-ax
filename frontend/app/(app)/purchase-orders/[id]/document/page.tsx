@@ -17,14 +17,19 @@ type Doc = {
   po_number: string; status: string; order_date: string;
   supplier: { name: string; contact_name: string | null; phone: string | null; email: string | null };
   buyer: { name: string; business_number: string | null; representative: string | null; phone: string | null; address: string | null; author_name: string };
-  lines: { no: number; product_name: string; product_sku: string; unit: string; quantity: number; unit_price: number; amount: number; note: string }[];
-  supply_total: number; vat: number; total: number; total_korean: string;
+  // 외화 발주(currency != KRW)는 금액이 "1000.00" 같은 글자, vat·total_korean 은 null (부가세 제외 표기, #267)
+  currency: string;
+  lines: { no: number; product_name: string; product_sku: string; unit: string; quantity: number; unit_price: number | string; amount: number | string; note: string }[];
+  supply_total: number | string; vat: number | null; total: number | string; total_korean: string | null;
   due_date: string | null; delivery_address: string | null; payment_terms: string | null; memo: string | null;
+  freight_terms: string | null; special_terms: string | null; // 값이 있을 때만 발주 조건에 줄이 생긴다
   // 승인 기록 (#263). 승인자·시각은 승인 칸이 빈 발주서면 null. stamp 는 서버가 계산한 값을 그대로 그린다
   approval: { approver_name: string | null; approved_at: string | null; company_name: string; stamp: { lines: string[]; ratio: number } };
 };
 
 const won = (n: number) => n.toLocaleString("ko-KR"); // 836000 → 836,000
+// 금액 글자: 원화는 숫자, 외화는 서버가 자릿수를 맞춰 준 글자라 소수점 앞에만 쉼표를 넣는다 ("1000.00" → "1,000.00"). 숫자로 바꾸지 않아 오차가 없다
+const money = (v: number | string) => { const [i, f] = String(v).split("."); return i.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (f ? `.${f}` : ""); };
 const bizNo = (n: string | null) => (n && n.length === 10 ? `${n.slice(0, 3)}-${n.slice(3, 5)}-${n.slice(5)}` : n ?? ""); // 1234567890 → 123-45-67890
 const MIN_ROWS = 5; // 목업처럼 빈 줄을 채워 양식 모양을 유지한다
 
@@ -45,6 +50,11 @@ function Document() {
 
   const blanks = Array.from({ length: Math.max(0, MIN_ROWS - doc.lines.length) }, (_, i) => doc.lines.length + i + 1); // 빈 줄 번호
   const { supplier: s, buyer: b, approval: ap } = doc;
+  const fx = doc.currency !== "KRW"; // 외화: 부가세 줄·한글 금액 없음
+  const cur = fx ? ` (${doc.currency})` : ""; // 외화 표는 열 머리에 통화를 적는다
+  const conditions: [string, string | null][] = [["납기일자", doc.due_date], ["납품장소", doc.delivery_address], ["지불조건", doc.payment_terms], ["기타", doc.memo]];
+  if (doc.freight_terms) conditions.push(["운송조건", doc.freight_terms]);
+  if (doc.special_terms) conditions.push(["특약", doc.special_terms]);
 
   return (
     <section>
@@ -93,26 +103,33 @@ function Document() {
             </tbody>
           </table>
 
-          <div className="total-box">합계금액 : 일금 <b style={{ fontWeight: 500 }}>{doc.total_korean}</b> 원정 (₩{won(doc.total)}), 부가세 포함</div>
+          <div className="total-box">
+            {fx ? <>합계금액 : <b style={{ fontWeight: 500 }}>{doc.currency} {money(doc.total)}</b> (부가세 제외)</>
+              : <>합계금액 : 일금 <b style={{ fontWeight: 500 }}>{doc.total_korean}</b> 원정 (₩{won(doc.total as number)}), 부가세 포함</>}
+          </div>
 
           <table style={{ borderTop: 0 }}>
             <colgroup><col style={{ width: 34 }} /><col /><col style={{ width: 46 }} /><col style={{ width: 58 }} /><col style={{ width: 76 }} /><col style={{ width: 92 }} /><col style={{ width: 100 }} /></colgroup>
             {/* 머리 줄은 thead: 인쇄하면 2쪽째부터도 쪽마다 다시 나온다 (#264). 합계 줄은 쪽마다 반복되면 안 되니 tfoot 이 아니라 tbody */}
             <thead>
-              <tr><th>No.</th><th>품목명 (SKU)</th><th>단위</th><th>수량</th><th>단가</th><th>공급가액</th><th>비고</th></tr>
+              <tr><th>No.</th><th>품목명 (SKU)</th><th>단위</th><th>수량</th><th>단가{cur}</th><th>공급가액{cur}</th><th>비고</th></tr>
             </thead>
             <tbody>
               {doc.lines.map((l) => (
                 <tr key={l.no}>
                   <td className="c">{l.no}</td><td>{l.product_name} ({l.product_sku})</td><td className="c">{l.unit}</td>
-                  <td className="r">{won(l.quantity)}</td><td className="r">{won(l.unit_price)}</td><td className="r">{won(l.amount)}</td>
+                  <td className="r">{won(l.quantity)}</td><td className="r">{money(l.unit_price)}</td><td className="r">{money(l.amount)}</td>
                   <td style={{ fontSize: 11 }}>{l.note}</td>
                 </tr>
               ))}
               {blanks.map((n) => <tr key={n}><td className="c">{n}</td><td /><td /><td /><td /><td /><td /></tr>)}
-              <tr><th colSpan={5}>공급가액 합계</th><td className="r" colSpan={2}>{won(doc.supply_total)}</td></tr>
-              <tr><th colSpan={5}>부가세 (10%)</th><td className="r" colSpan={2}>{won(doc.vat)}</td></tr>
-              <tr><th colSpan={5}>합계</th><td className="r" colSpan={2}><b style={{ fontWeight: 500 }}>{won(doc.total)}</b></td></tr>
+              {fx ? (
+                <tr><th colSpan={5}>합계 (부가세 제외)</th><td className="r" colSpan={2}><b style={{ fontWeight: 500 }}>{doc.currency} {money(doc.total)}</b></td></tr>
+              ) : (<>
+                <tr><th colSpan={5}>공급가액 합계</th><td className="r" colSpan={2}>{won(doc.supply_total as number)}</td></tr>
+                <tr><th colSpan={5}>부가세 (10%)</th><td className="r" colSpan={2}>{won(doc.vat as number)}</td></tr>
+                <tr><th colSpan={5}>합계</th><td className="r" colSpan={2}><b style={{ fontWeight: 500 }}>{won(doc.total as number)}</b></td></tr>
+              </>)}
             </tbody>
           </table>
 
@@ -120,10 +137,9 @@ function Document() {
           <div className="po-keep">
           <table style={{ borderTop: 0 }}>
             <tbody>
-              <tr><td className="lb" rowSpan={4}>발주<br />조건</td><td>1) 납기일자 : {doc.due_date ?? ""}</td></tr>
-              <tr><td>2) 납품장소 : {doc.delivery_address ?? ""}</td></tr>
-              <tr><td>3) 지불조건 : {doc.payment_terms ?? ""}</td></tr>
-              <tr><td>4) 기타 : {doc.memo ?? ""}</td></tr>
+              {conditions.map(([label, value], i) => (
+                <tr key={label}>{i === 0 && <td className="lb" rowSpan={conditions.length}>발주<br />조건</td>}<td>{i + 1}) {label} : {value ?? ""}</td></tr>
+              ))}
             </tbody>
           </table>
           <p className="c" style={{ margin: "14px 0 0" }}>위와 같이 발주합니다.</p>

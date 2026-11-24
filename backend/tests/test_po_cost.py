@@ -4,13 +4,19 @@
 """
 
 import importlib.util  # 마이그레이션의 채워 넣기 SQL 을 불러온다
+import json  # 문서 dict 를 글자로
+import re  # 메일 합계 문장 뽑기
+from io import BytesIO  # 엑셀 바이트 읽기
 from pathlib import Path  # 마이그레이션 파일 위치
 
 import pytest  # 테스트 도구
+from openpyxl import load_workbook  # 엑셀 읽기
 from sqlalchemy import select, text  # 조회, SQL 문장
 from sqlalchemy.exc import IntegrityError  # DB CHECK 위반
 
+from app.config import Settings  # 기본값 검사 (.env 를 읽지 않고)
 from app.models import PoChangeLog, Product, PurchaseOrder  # 표
+from app.services import po_document, po_mail  # 외화 문서·메일 본문
 from app.services.po_money import CURRENCIES  # 통화 → (기준 단위, 소수 자리)
 from tests.helpers import login_as  # 공통 로그인
 
@@ -232,9 +238,12 @@ def test_recommendation_draft_rejects_existing_foreign_draft(client, world, item
     assert r.status_code == 409 and r.json()["error"]["code"] == "FOREIGN_CURRENCY_SUPPLIER"
 
 
-# ----- 외화 문서는 PR 3 전까지 409 (임시 가드) -----
+# ----- 외화 문서·엑셀·PDF·메일 (#267 PR 3) -----
 
-def test_foreign_document_is_blocked_until_pr3(client, world, items):
+def test_foreign_document_is_blocked_when_fx_disabled(client, world, items, monkeypatch):
+    """FX_ENABLED 가 꺼져 있으면(기본) 외화 발주서의 문서·엑셀·이메일 미리보기·메일 발송(PDF 첨부)이 모두 409."""
+    assert Settings(_env_file=None, database_url="postgresql+psycopg://x/x", secret_key="x" * 32).fx_enabled is False  # 기본값은 꺼짐 (.env 를 읽지 않고 검사)
+    monkeypatch.setattr(po_document.settings, "fx_enabled", False)  # 개발자 .env 에 켜져 있어도 이 시험은 꺼진 상태
     login_as(client)
     d = create(client, world, fx(items["P1"], 1, "1"), currency="USD", exchange_rate="1350")
     login_as(client, "admin@a.test")
@@ -242,9 +251,117 @@ def test_foreign_document_is_blocked_until_pr3(client, world, items):
     for path in ("document", "document.xlsx", "email"):
         r = client.get(f"{URL}/{d['id']}/{path}")
         assert r.status_code == 409 and r.json()["error"]["code"] == "FX_DOCUMENT_NOT_READY", path
+    r = client.post(f"{URL}/{d['id']}/email", json={"intro": "안녕하세요"})  # PDF 는 메일 발송 때 만든다
+    assert r.status_code == 409 and r.json()["error"]["code"] == "FX_DOCUMENT_NOT_READY"
+
+
+@pytest.mark.parametrize("currency, rate, price, shown, total", [
+    ("USD", "1350", "12.5", "12.50", "USD 25.00"),  # 2 × 12.50
+    ("JPY", "905.12", "500", "500", "JPY 1,000"),  # 2 × 500, 소수 0자리
+])
+def test_foreign_document_outputs(client, world, items, currency, rate, price, shown, total, monkeypatch):
+    monkeypatch.setattr(po_document.settings, "fx_enabled", True)  # 외화 문서는 스위치를 켠 상태에서만
+    login_as(client)
+    d = create(client, world, fx(items["P1"], 2, price), currency=currency, exchange_rate=rate,
+               freight_terms="FOB", freight_amount=777771, special_terms="특약 문구",
+               extra_costs=[{"name": "통관비-내부", "amount": 555551}])
+    login_as(client, "admin@a.test")
+    client.post(f"{URL}/{d['id']}/approve")
+    doc = client.get(f"{URL}/{d['id']}/document").json()["data"]  # 임시 가드(FX_DOCUMENT_NOT_READY)는 사라졌다
+    assert doc["currency"] == currency and doc["vat"] is None and doc["total_korean"] is None
+    assert doc["lines"][0]["unit_price"] == shown and doc["freight_terms"] == "FOB" and doc["special_terms"] == "특약 문구"
+    xlsx = client.get(f"{URL}/{d['id']}/document.xlsx")
+    assert xlsx.status_code == 200
+    cells = [str(c.value) for row in load_workbook(BytesIO(xlsx.content)).active.iter_rows() for c in row if c.value is not None]
+    assert any(c.startswith("합계금액: ") and total in c and "(부가세 제외)" in c for c in cells)
+    assert "부가세 (10%)" not in cells and "4) 기타" in cells and "5) 운송조건" in cells and "6) 특약" in cells
+    mail = client.get(f"{URL}/{d['id']}/email").json()["data"]["fixed_html"]
+    assert "(부가세 제외)" in mail and total in mail and "부가세 (10%)" not in mail and "일금" not in mail
+    text = po_mail.fixed_text(doc)
+    assert "(부가세 제외)" in text and "일금" not in text and "부가세 " not in text.replace("(부가세 제외)", "")
+    pdf = po_document.build_pdf(doc)
+    assert pdf.startswith(b"%PDF")
+    for secret in ("777771", "777,771", "555551", "통관비-내부", rate):  # 내부 전용 값은 어느 출력에도 없다
+        assert all(secret not in x for x in (json.dumps(doc, ensure_ascii=False), chr(10).join(cells), mail, text)), secret
+
+
+def test_krw_document_has_no_new_lines_without_values(client, world, items):
+    login_as(client)
+    d = create(client, world, krw(items["P1"], 1, 1000))
+    login_as(client, "admin@a.test")
+    client.post(f"{URL}/{d['id']}/approve")
+    doc = client.get(f"{URL}/{d['id']}/document").json()["data"]
+    assert doc["currency"] == "KRW" and doc["freight_terms"] is None and doc["special_terms"] is None
+    assert [label for label, _ in po_document.condition_rows(doc)] == ["납기일자", "납품장소", "지불조건", "기타"]
 
 
 # ----- 변경 이력·내보내기 -----
+
+def test_foreign_mail_total_sentence_never_says_byeoldo(client, world, items, monkeypatch):
+    """외화 메일의 합계 문장(HTML·글자 본문)은 "(부가세 제외)" 이고 "별도" 라는 말이 없다 (결정 15번). 표 줄의 단어와는 구분해 합계 문장만 본다."""
+    monkeypatch.setattr(po_document.settings, "fx_enabled", True)
+    login_as(client)
+    d = create(client, world, fx(items["P1"], 2, "12.5"), currency="USD", exchange_rate="1350")
+    login_as(client, "admin@a.test")
+    client.post(f"{URL}/{d['id']}/approve")
+    html = client.get(f"{URL}/{d['id']}/email").json()["data"]["fixed_html"]
+    sentence = re.search(r"합계금액 :[^<]*", html).group(0)  # <p> 안의 합계금액 문장
+    doc = client.get(f"{URL}/{d['id']}/document").json()["data"]
+    text_total = next(line for line in po_mail.fixed_text(doc).splitlines() if line.startswith("합계 "))
+    for sentence_text in (sentence, text_total):
+        assert "(부가세 제외)" in sentence_text and "별도" not in sentence_text, sentence_text
+
+
+@pytest.fixture
+def outbox(monkeypatch):
+    """가짜 메일 서버: 실제로 보내지 않고 보낸 메일을 목록에 담는다 (test_po_mail.py 와 같은 방식)."""
+    sent = []
+    monkeypatch.setattr(po_document.settings, "smtp_host", "smtp.test")
+    monkeypatch.setattr(po_document.settings, "smtp_from", "noreply@scm.test")
+    monkeypatch.setattr(po_mail, "deliver", sent.append)
+    return sent
+
+
+TALL = [  # 한 칸이 한 쪽보다 높은 줄바꿈 많은 입력 (스키마 상한 안: 메모 1000자, 특약 1000자)
+    {"special_terms": ("가" + chr(10)) * 100}, {"memo": ("x" + chr(10)) * 500}, {"memo": "다" * 1000, "special_terms": ("가" + chr(10)) * 100},
+]
+
+
+@pytest.mark.parametrize("tall", TALL, ids=["special100lines", "memo500lines", "memo1000chars_special100lines"])
+@pytest.mark.parametrize("currency", ["KRW", "USD"])
+def test_mail_send_succeeds_with_very_tall_conditions(client, world, items, session, outbox, monkeypatch, currency, tall):
+    """줄바꿈이 아주 많은 메모·특약(한 칸이 한 쪽보다 높음)이어도 메일 발송이 200이고 PDF 가 첨부된다 (원화·외화)."""
+    monkeypatch.setattr(po_document.settings, "fx_enabled", True)
+    world["a_supplier"].email = "sales@a-supplier.test"
+    session.commit()
+    login_as(client)
+    line, extra = (krw(items["P1"], 3, 1000), {}) if currency == "KRW" else (fx(items["P1"], 3, "10"), {"currency": "USD", "exchange_rate": "1350"})
+    d = create(client, world, line, freight_terms="FOB", **tall, **extra)
+    login_as(client, "admin@a.test")
+    client.post(f"{URL}/{d['id']}/approve")
+    r = client.post(f"{URL}/{d['id']}/email", json={"intro": "안녕하세요"})
+    assert r.status_code == 200, r.json()
+    [msg] = outbox
+    assert next(msg.iter_attachments()).get_content().startswith(b"%PDF")
+
+
+@pytest.mark.parametrize("currency", ["KRW", "USD"])
+def test_mail_send_succeeds_with_longest_conditions(client, world, items, session, outbox, monkeypatch, currency):
+    """메모·특약 1000자, 납품장소·지불조건 200자(스키마 상한)여도 PDF 가 만들어지고 메일 발송이 성공한다 (원화·외화)."""
+    monkeypatch.setattr(po_document.settings, "fx_enabled", True)
+    world["a_supplier"].email = "sales@a-supplier.test"
+    session.commit()
+    login_as(client)
+    line, extra = (krw(items["P1"], 3, 1000), {}) if currency == "KRW" else (fx(items["P1"], 3, "10"), {"currency": "USD", "exchange_rate": "1350"})
+    d = create(client, world, line, memo="다 " * 500, special_terms="라" * 1000, freight_terms="FOB",
+               delivery_address="가" * 200, payment_terms="나" * 200, **extra)
+    login_as(client, "admin@a.test")
+    client.post(f"{URL}/{d['id']}/approve")
+    r = client.post(f"{URL}/{d['id']}/email", json={"intro": "안녕하세요"})
+    assert r.status_code == 200, r.json()
+    [msg] = outbox
+    assert next(msg.iter_attachments()).get_content().startswith(b"%PDF")
+
 
 def test_change_log_for_cost_fields(client, world, items, session):
     login_as(client)

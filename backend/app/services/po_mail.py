@@ -90,6 +90,13 @@ def party_rows(doc: dict) -> tuple[list, list]:
     )
 
 
+def total_html(doc: dict) -> str:
+    """합계금액 문장 (HTML). 원화는 기존 문장 그대로, 외화는 한글 금액 없이 통화 코드와 "(부가세 제외)"."""
+    if doc["currency"] != "KRW":
+        return f"합계금액 : {po_document.money_text(doc, doc['total'], True)} (부가세 제외)"
+    return f"합계금액 : 일금 {doc['total_korean']} 원정 (₩{doc['total']:,}, 부가세 포함)"
+
+
 def fixed_html(doc: dict, link: str | None = None) -> str:
     """앞머리 아래 고정 부분(품목표·합계·납기·납품장소·지불조건). 미리보기와 실제 메일이 이 글자를 똑같이 쓴다.
 
@@ -100,19 +107,21 @@ def fixed_html(doc: dict, link: str | None = None) -> str:
         f"<tr><td style='{cell};text-align:center'>{line['no']}</td>"
         f"<td style='{cell}'>{escape(line['product_name'])} ({escape(line['product_sku'])})</td>"
         f"<td style='{cell};text-align:center'>{escape(line['unit'])}</td>"
-        f"<td style='{num}'>{line['quantity']:,}</td><td style='{num}'>{line['unit_price']:,}</td>"
-        f"<td style='{num}'>{line['amount']:,}</td><td style='{cell}'>{escape(line['note'])}</td></tr>"
+        f"<td style='{num}'>{line['quantity']:,}</td><td style='{num}'>{po_document.money_text(doc, line['unit_price'])}</td>"
+        f"<td style='{num}'>{po_document.money_text(doc, line['amount'])}</td><td style='{cell}'>{escape(line['note'])}</td></tr>"
         for line in doc["lines"]
     )
+    fx = doc["currency"] != "KRW"  # 외화: 부가세 줄·한글 금액 없이 "(부가세 제외)" 합계 한 줄
     totals = "".join(
-        f"<tr><th colspan='5' style='{cell};background:#eef5e4'>{label}</th><td colspan='2' style='{num}'>{value:,}</td></tr>"
-        for label, value in (("공급가액 합계", doc["supply_total"]), ("부가세 (10%)", doc["vat"]), ("합계", doc["total"]))
+        f"<tr><th colspan='5' style='{cell};background:#eef5e4'>{label}</th><td colspan='2' style='{num}'>{po_document.money_text(doc, value, fx)}</td></tr>"
+        for label, value in ((("합계 (부가세 제외)", doc["total"]),) if fx else
+                             (("공급가액 합계", doc["supply_total"]), ("부가세 (10%)", doc["vat"]), ("합계", doc["total"])))
     )
-    head = "".join(f"<th style='{cell};background:#eef5e4'>{h}</th>" for h in ("No.", "품목명 (SKU)", "단위", "수량", "단가", "공급가액", "비고"))
+    cur = f" ({doc['currency']})" if fx else ""
+    head = "".join(f"<th style='{cell};background:#eef5e4'>{h}</th>" for h in ("No.", "품목명 (SKU)", "단위", "수량", f"단가{cur}", f"공급가액{cur}", "비고"))
     conditions = "".join(
         f"<li>{label} : {escape(value or '')}</li>"
-        for label, value in (("납기일자", doc["due_date"]), ("납품장소", doc["delivery_address"]),
-                             ("지불조건", doc["payment_terms"]), ("기타", doc["memo"]))
+        for label, value in po_document.condition_rows(doc)
     )
     box = f"vertical-align:top;width:50%;{cell}"  # 머리 표 한 칸 (table·인라인 style 만: 메일 프로그램 호환)
     parties = "".join(
@@ -127,7 +136,7 @@ def fixed_html(doc: dict, link: str | None = None) -> str:
     return (
         f"<table style='border-collapse:collapse;font-size:14px;width:100%'><tr>{parties}</tr></table>"
         f"<p><b>발주번호 {escape(doc['po_number'])}</b> · 발주일자 {doc['order_date']}<br>"
-        f"합계금액 : 일금 {doc['total_korean']} 원정 (₩{doc['total']:,}, 부가세 포함)</p>"
+        f"{total_html(doc)}</p>"
         f"<table style='border-collapse:collapse;font-size:14px'><tr>{head}</tr>{rows}{totals}</table>"
         f"<p><b>발주 조건</b></p><ul>{conditions}</ul>"
         f"<p>위와 같이 발주합니다.</p><p>{stamp}</p>"
@@ -139,11 +148,18 @@ def fixed_html(doc: dict, link: str | None = None) -> str:
 
 def fixed_text(doc: dict, link: str | None = None) -> str:
     """HTML 을 못 보는 메일 프로그램용 글자 본문 (같은 값). link 가 None 이면 #265 이전과 같다."""
+    fx = doc["currency"] != "KRW"
+    won = lambda v: po_document.money_text(doc, v, True) if fx else f"{v:,}"  # 외화는 "USD 10.00", 원화는 숫자 뒤에 "원"
+    unit_mark = "" if fx else "원"
     lines = "\n".join(
         f"{line['no']}. {line['product_name']} ({line['product_sku']}) {line['quantity']:,}{line['unit']} × "
-        f"{line['unit_price']:,} = {line['amount']:,}원 {line['note']}".rstrip()
+        f"{won(line['unit_price'])} = {won(line['amount'])}{unit_mark} {line['note']}".rstrip()
         for line in doc["lines"]
     )
+    sums = (f"합계 {won(doc['total'])} (부가세 제외)" if fx
+            else f"공급가액 합계 {doc['supply_total']:,}원 / 부가세 {doc['vat']:,}원 / 합계 {doc['total']:,}원 (일금 {doc['total_korean']} 원정)")
+    base = ("납기일자", "납품장소", "지불조건", "기타")  # 기존 네 줄은 줄바꿈 접기 없이 (원화 출력 유지), 새 줄만 접는다
+    conditions = "".join(f"{label}: {(value or '') if label in base else flat(value)}\n" for label, value in po_document.condition_rows(doc))
     ap = doc["approval"]
     changed = f"\n(승인 시점 상호 : {flat(ap['company_name'])})" if ap["company_name"] != doc["buyer"]["name"] else ""
     parties = "\n\n".join(
@@ -153,9 +169,7 @@ def fixed_text(doc: dict, link: str | None = None) -> str:
     return (
         f"{parties}\n\n"
         f"발주번호 {doc['po_number']} · 발주일자 {doc['order_date']}\n\n{lines}\n\n"
-        f"공급가액 합계 {doc['supply_total']:,}원 / 부가세 {doc['vat']:,}원 / 합계 {doc['total']:,}원 (일금 {doc['total_korean']} 원정)\n\n"
-        f"납기일자: {doc['due_date'] or ''}\n납품장소: {doc['delivery_address'] or ''}\n"
-        f"지불조건: {doc['payment_terms'] or ''}\n기타: {doc['memo'] or ''}\n\n"
+        f"{sums}\n\n{conditions}\n"
         f"위와 같이 발주합니다.\n발주처: {flat(ap['company_name'])} (인)\n"
         f"승인: {flat(ap['approver_name'])} · {flat(ap['approved_at'])} (전자 승인 표시){changed}\n\n"
         f"{link_text(link) if link else ''}"

@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     smtp_from: str = ""  # SMTP_FROM: 보내는 주소 하나 (시스템 주소). 답장은 Reply-To 로 담당자에게 간다
     app_base_url: str = ""  # APP_BASE_URL: 재설정 메일 링크의 앞부분 (예: https://scm.example.com). 비면 재설정 요청은 503 (#170)
     supplier_link_enabled: bool = False  # SUPPLIER_LINK_ENABLED: 발주 메일에 공급업체 확인 링크를 넣고 공개 확인 API 를 연다(#265). false 면 링크 없음 + 공개 API 404
+    fx_enabled: bool = False  # FX_ENABLED: 외화 발주서의 문서·엑셀·PDF·메일을 연다(#267). false 면 외화 발주서의 문서·메일은 409 FX_DOCUMENT_NOT_READY (국내 먼저 배포)
     # 납기 지연 독촉 메일(#269). 담당자가 미리보기를 보고 누를 때만 나간다(자동 발송 없음). 한도 값은 모두 임시값
     po_reminder_enabled: bool = False  # PO_REMINDER_ENABLED: 전체 스위치(kill switch). false 면 버튼 없음 + API 503
     po_reminder_interval_hours: int = Field(48, ge=1)  # PO_REMINDER_INTERVAL_HOURS: 같은 발주의 마지막 독촉 뒤 최소 간격(시간)
