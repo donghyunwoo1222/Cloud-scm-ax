@@ -188,3 +188,6 @@ export function poPayload(v: PoFormValues, fxEnabled: boolean) {
     })),
   };
 }
+
+// 운송비 표시: NULL = 미입력, 0 = 무료, 그 밖은 원 금액. 예) (3000) → "3,000원", (0) → "무료(0원)", (null) → "미입력"
+export const freightLabel = (won: number | null): string => (won === null ? "미입력" : won === 0 ? "무료(0원)" : `${formatWon(won)}원`);
