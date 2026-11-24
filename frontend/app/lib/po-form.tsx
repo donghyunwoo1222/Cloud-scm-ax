@@ -13,7 +13,7 @@ import {
   costEstimate, costReducer, freightLabel, CURRENCIES, CURRENCY_CODES, Currency, EXTRA_COST_SUGGESTIONS, extraCostProblem, formatScaled, formatWon, FREIGHT_TERMS,
   fxInputText, fxPriceInput, fxPriceProblem, fxTotalScaled, isCurrency, krwEstimate, MAX_EXTRA_COSTS, MAX_SPECIAL_TERMS, poPayload, rateInput, rateProblem, rateUnitLabel, toScaled, wonInput,
 } from "./po-fx"; // 외화·원가 계산과 입력 검사 (#267)
-import { keepAlerts, pickAlert, PriceAnswer, priceCheckBody } from "./po-price-alert"; // 단가 변동 경고 (#283)
+import { keepAlerts, PriceAnswer, priceCheckBody, visibleAlert } from "./po-price-alert"; // 단가 변동 경고 (#283)
 import { ProductOption, ProductPicker } from "./product-picker"; // 발주 줄에서 품목을 검색해 바로 선택한다
 import { FX_ENABLED } from "./config"; // 외화 화면 스위치 (기본 꺼짐)
 import { S } from "./styles"; // 화면 공통 스타일
@@ -35,16 +35,16 @@ function usePriceAlerts(supplierId: string, lines: Line[], enabled: boolean) {
   const body = enabled ? priceCheckBody(supplierId, lines) : null;
   const sig = body ? JSON.stringify(body) : ""; // 입력이 그대로면 효과를 다시 돌리지 않는다
   useEffect(() => {
+    const id = ++reqId.current; // 대상 줄이 없어져도 올려서, 이미 보낸 요청의 늦은 응답을 버린다
     if (!sig) return;
-    const id = ++reqId.current;
     const timer = setTimeout(() => {
-      api<PriceAnswer[]>("/purchase-orders/price-check", { method: "POST", body: JSON.parse(sig) })
+      api<PriceAnswer[]>("/purchase-orders/price-check", { method: "POST", body: JSON.parse(sig), redirectOn401: false }) // 세션이 끝나도 이동하지 않고 조용히 실패
         .then((rows) => { if (id === reqId.current) setAlerts(keepAlerts(supplierId, rows)); })
         .catch(() => { if (id === reqId.current) setAlerts({}); });
     }, 500);
     return () => clearTimeout(timer);
   }, [sig, supplierId]);
-  return (line: Line) => pickAlert(alerts, supplierId, line);
+  return (line: Line) => visibleAlert(alerts, supplierId, line, enabled);
 }
 
 // 발주서 작성·수정 폼 하나. order 가 있으면 수정(DRAFT 의 items 전체 교체), 없으면 새 작성

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { keepAlerts, pickAlert, priceCheckBody } from "./po-price-alert.ts";
+import { keepAlerts, pickAlert, priceCheckBody, visibleAlert } from "./po-price-alert.ts";
 import type { PriceLine } from "./po-price-alert.ts";
 
 const line = (product_id: string, unit_price: string, box = false): PriceLine => ({ product_id, unit_price, box });
@@ -75,4 +75,10 @@ test("같은 품목 id 가 두 줄이어도 줄마다 따로 판단한다", () =
   const alerts = keepAlerts("3", [answer(5, 1250), { product_id: 5, unit_price: 900, alert: null }]);
   assert.equal(pickAlert(alerts, "3", line("5", "1250")), MSG);
   assert.equal(pickAlert(alerts, "3", line("5", "900")), null);
+});
+
+test("원화로 받은 경고는 enabled=false(외화)로 바뀌면 같은 키가 입력돼도 안 보인다", () => {
+  const alerts = keepAlerts("3", [answer(5, 1250)]);
+  assert.equal(visibleAlert(alerts, "3", line("5", "1250"), true), MSG);
+  assert.equal(visibleAlert(alerts, "3", line("5", "1250"), false), null);
 });

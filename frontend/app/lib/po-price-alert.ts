@@ -29,3 +29,7 @@ export function keepAlerts(supplierId: string, answers: PriceAnswer[]): Record<s
 export function pickAlert(alerts: Record<string, string>, supplierId: string, line: PriceLine): string | null {
   return target(line) ? alerts[priceKey(supplierId, line.product_id, line.unit_price)] ?? null : null;
 }
+
+// 화면에 보일 문장: 요청을 보내지 않는 상태(enabled=false, 외화 발주)에서는 이미 받아 둔 경고도 숨긴다
+export const visibleAlert = (alerts: Record<string, string>, supplierId: string, line: PriceLine, enabled: boolean) =>
+  enabled ? pickAlert(alerts, supplierId, line) : null;
