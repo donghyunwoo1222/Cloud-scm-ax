@@ -27,6 +27,7 @@ from app.schemas.purchase_orders import (  # 요청 모양
     OrderCloseRemaining,
     OrderEmailSend,
     PoStatus,
+    PriceCheck,
     PurchaseOrderCreate,
     PurchaseOrderUpdate,
     ReceiptCreate,
@@ -41,6 +42,7 @@ from app.services import (
     po_document,  # 발주서 문서·엑셀 (#157)
     po_mail,  # 발주서 메일 발송 (#158)
     po_reminder,  # 납기 지연 독촉 메일 (#269)
+    price_alert,  # 단가 변동 경고 (#283)
     supplier_reply,  # 직원이 받은 공급업체 회신 기록 (#265 PR4)
 )
 from app.services import purchase_orders as po_service  # 업무 규칙
@@ -86,6 +88,11 @@ def create_order(data: PurchaseOrderCreate, user: CurrentUser, db: DB) -> dict:
     order = po_service.create_order(user.company_id, db, user.id, data)  # 404·409·422
     db.commit()  # 요청 끝에 한 번만 확정 (잠금도 여기서 풀린다)
     return one(user, db, order)
+
+
+@router.post("/price-check")  # 단가 변동 경고 (#283). 읽기만 한다(줄이 여러 개라 본문으로 받는 POST). /{order_id} 경로와 겹치지 않는다
+def price_check(data: PriceCheck, user: CurrentUser, db: ReadDB) -> dict:
+    return {"data": price_alert.check(user.company_id, db, data)}
 
 
 @router.get("/{order_id}")  # 상세

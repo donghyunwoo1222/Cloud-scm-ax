@@ -270,3 +270,19 @@ class ReminderSend(BaseModel):
     model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422 (받는 주소·품목을 본문으로 바꿔치기할 수 없다)
 
     intro: Annotated[str, Field(min_length=1, max_length=2000)]  # 앞머리 한 문단 (빈 글자는 422, 발주서 메일과 같은 길이)
+
+
+class PriceCheckItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422
+
+    product_id: Id  # 확인할 품목
+    unit_price: Won | None = None  # 입력 중인 재고 단위 단가(원). 비었으면 비교하지 않는다 (빈 값을 0으로 보지 않는다)
+
+
+class PriceCheck(BaseModel):
+    """POST /purchase-orders/price-check 요청 (#283). 회사는 본문이 아니라 로그인 토큰에서만 정한다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    supplier_id: Id  # 이 공급업체의 직전 발주와 비교한다
+    items: Annotated[list[PriceCheckItem], Field(min_length=1, max_length=MAX_ORDER_LINES)]  # 발주서 줄 수 상한과 같다

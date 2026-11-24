@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     po_reminder_interval_hours: int = Field(48, ge=1)  # PO_REMINDER_INTERVAL_HOURS: 같은 발주의 마지막 독촉 뒤 최소 간격(시간)
     po_reminder_max_per_order: int = Field(3, ge=1)  # PO_REMINDER_MAX_PER_ORDER: 발주 하나에 보낼 수 있는 독촉 횟수
     po_reminder_daily_per_company: int = Field(20, ge=1)  # PO_REMINDER_DAILY_PER_COMPANY: 회사 하루(서울 날짜) 독촉 상한 (느슨한 상한)
+    price_alert_percent: int = Field(10, ge=1)  # PRICE_ALERT_PERCENT: 직전 발주 단가와 이만큼(%) 이상 달라지면 작성 화면에서 알린다(#283). 오르내림 공통, 막지는 않는다
     # 안내 챗봇(#199). LLM_ENABLED 등 LLM 공통 설정도 켜져 있어야 답한다. 한도 값은 모두 임시값
     chat_guide_enabled: bool = False  # CHAT_GUIDE_ENABLED: 챗봇 스위치(kill switch). false 면 POST /chat/guide 503 (목차는 응답)
     chat_guide_per_minute: int = Field(5, ge=1)  # CHAT_GUIDE_PER_MINUTE: 사용자 한 명의 1분(60초) 질문 수
