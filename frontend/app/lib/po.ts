@@ -1,4 +1,6 @@
 // 발주서 화면들이 같이 쓰는 모양·이름 (서버 응답: backend/app/schemas/purchase_orders.py)
+import { formatFxText } from "./po-fx.ts"; // 외화 줄 표시 (#267)
+import type { Currency } from "./po-fx.ts"; // 통화 이름
 
 // 발주 줄 하나 (응답 items 의 한 칸)
 export type PoItem = {
@@ -9,7 +11,10 @@ export type PoItem = {
   color?: string | null; size?: string | null; spec?: string | null; // 품목 옵션 (품목 마스터의 현재 값)
   unit: string; // 입고 현황에 붙일 품목 단위 (예: 개, 박스)
   quantity: number; // 발주 수량
-  unit_price: number; // 발주 단가(원)
+  unit_price: number | null; // 발주 단가(원). 외화 줄은 null (#267)
+  fx_unit_price?: string | null; // 외화 줄의 재고 단위 단가 (서버가 글자로 준다, 예: "0.50")
+  fx_box_unit_price?: string | null; // 외화 박스 줄의 발주단위 단가
+  fx_line_total?: string | null; // 외화 줄 금액 (정확한 값, 줄에 원화는 두지 않는다)
   box_unit_price?: number | null; // 박스 단가(원), 박스 발주 줄에서만 값이 있다
   units_per_box?: number | null; // 발주 줄에 저장한 당시 입수
   box_quantity?: number | null; // 발주 당시 박스 수
@@ -43,7 +48,28 @@ export type PurchaseOrder = {
   cancelled_at: string | null; // 취소 시각
   emailed_at: string | null; // 마지막 메일 발송 시각 (#158)
   emailed_to: string | null; // 마지막 메일 수신 주소 (#158)
+  currency: Currency; // 통화 (#267)
+  rate_unit: number; // 환율 기준 단위 (엔·동 100)
+  exchange_rate: string | null; // 기준 단위당 원 (원화는 null)
+  krw_goods_total: number | null; // 승인 때 고정한 품목 원화 합계 (승인 전 null)
+  freight_terms: string | null; // 운송비 조건 코드
+  freight_amount: number | null; // 운송비 (원, 내부 전용). null = 미입력, 0 = 무료
+  extra_costs: { name: string; amount: number }[]; // 부대비용 줄 (원, 내부 전용)
+  special_terms: string | null; // 특약
+  cost: PoCost; // 원가 합산 (서버 계산, 내부 전용)
   items: PoItem[]; // 품목 줄
+};
+
+// 원가 묶음 (응답 cost, 내부 전용): 원가 = 품목 원화 합계 + 운송비 + 부대비용 (부가세 제외)
+export type PoCost = {
+  goods_fx_total: string | null; // 외화 발주의 품목 외화 합계 (원화 발주는 null)
+  goods_krw: number | null; // 품목 원화 합계 (승인 전 예상, 승인 뒤 고정값. 외화인데 환율이 없으면 null)
+  freight: number | null; // 운송비 (null = 미입력)
+  extras_total: number; // 부대비용 합계
+  total: number | null; // 원가 (goods_krw 가 없으면 null)
+  missing: string[]; // 미입력 항목: exchange_rate, freight
+  received_goods_krw: number | null; // 입고 기준 품목 원화 합계 (발주함·입고 완료만)
+  received_total: number | null; // 입고 기준 원가
 };
 
 export type PoStatus = "DRAFT" | "APPROVED" | "ORDERED" | "RECEIVED" | "CANCELLED"; // 서버가 쓰는 상태 5개
@@ -64,6 +90,7 @@ export const STATUS_LABEL: Record<PoStatus, string> = {
 export const PO_LABELS = {
   supplier_id: "공급업체", due_date: "약속 납기", supplier_due_date: "회신 납기", supplier_confirmed_at: "공급업체 확인", memo: "메모", delivery_address: "납품장소", payment_terms: "지불조건", items: "품목 줄", product_id: "품목", quantity: "수량", unit_price: "단가", movement_date: "입고일",
   box_quantity: "발주단위 수", reason: "사유",
+  currency: "통화", exchange_rate: "환율", krw_goods_total: "품목 원화 합계", freight_terms: "운송비 조건", freight_amount: "운송비", extra_costs: "부대비용", special_terms: "특약", fx_unit_price: "외화 단가", fx_box_unit_price: "외화 박스 단가", fx_price: "외화 단가",
 };
 
 // 변경 이력 한 행 (GET /purchase-orders/{id}/change-log, #181). 서버 ChangeLogOut 과 칸 이름이 같다
@@ -94,16 +121,36 @@ export function boxLimit(unitsPerBox: number, stockLimit = MAX_ORDER_QUANTITY) {
   return Math.floor(Math.min(stockLimit, MAX_ORDER_QUANTITY) / unitsPerBox); // 남은 13개가 10개입이면 최대 1박스
 }
 
-export function formatOrderUnitPrice(item: PoItem) {
-  if (item.box_unit_price == null) return item.unit_price.toLocaleString("ko-KR");
+// 단가 글자. 외화 줄은 외화 단가만 ("0.50 USD", 박스는 "10.00 USD / BOX"), 원화 줄은 원 단위 숫자
+export function formatOrderUnitPrice(item: PoItem, currency: Currency = "KRW") {
+  const fx = item.fx_box_unit_price ?? item.fx_unit_price; // 박스 줄이면 발주단위 단가
+  if (fx != null) return `${formatFxText(fx, currency)} ${currency}${item.fx_box_unit_price != null ? ` / ${item.order_unit ?? "박스"}` : ""}`;
+  if (item.box_unit_price == null) return (item.unit_price ?? 0).toLocaleString("ko-KR");
   return `${item.box_unit_price.toLocaleString("ko-KR")} / ${item.order_unit ?? "박스"}`; // 이전 응답에는 이름이 없을 수 있다
 }
 
-export function lineAmount(item: PoItem) {
-  if (item.box_unit_price != null && item.line_total !== undefined) return BigInt(item.line_total); // 박스 금액은 서버의 정확한 원 단위 값
+// 줄 금액(원). 외화 줄은 원화를 만들지 않으므로 null (줄 금액 글자는 formatLineAmount 가 외화로 보여 준다)
+export function lineAmount(item: PoItem): bigint | null {
+  if (item.unit_price == null) return null; // 외화 줄: 원화는 총액 한 곳에만 (#282)
+  if (item.box_unit_price != null && item.line_total != null) return BigInt(item.line_total); // 박스 금액은 서버의 정확한 원 단위 값
   return BigInt(item.quantity) * BigInt(item.unit_price); // 재고 단위 줄은 곱셈부터 원 단위 정밀도를 유지한다
 }
-export const totalAmount = (order: PurchaseOrder) => order.items.reduce((sum, item) => sum + lineAmount(item), BigInt(0)); // 모든 품목 금액을 큰 정수로 더한다
+// 줄 금액 글자: 원화 줄은 쉼표 숫자, 외화 줄은 "1.50 USD"
+export function formatLineAmount(item: PoItem, currency: Currency): string {
+  const won = lineAmount(item);
+  if (won !== null) return won.toLocaleString("ko-KR");
+  return item.fx_line_total != null ? `${formatFxText(item.fx_line_total, currency)} ${currency}` : "-";
+}
+// 원화 발주서의 합계(원). 외화 발주서는 null (총액은 외화 합계 + 원화 환산을 cost 에서 보여 준다)
+export const totalAmount = (order: Pick<PurchaseOrder, "items" | "currency">): bigint | null =>
+  order.currency !== "KRW" ? null : order.items.reduce((sum, item) => sum + (lineAmount(item) ?? BigInt(0)), BigInt(0)); // 모든 품목 금액을 큰 정수로 더한다
+// 합계 글자: 원화 "1,234원", 외화 "1,234.50 USD" (외화 합계는 서버 cost.goods_fx_total)
+export function formatTotal(order: Pick<PurchaseOrder, "items" | "currency" | "cost">): string {
+  const won = totalAmount(order);
+  if (won !== null) return `${won.toLocaleString("ko-KR")}원`;
+  return order.cost.goods_fx_total != null ? `${formatFxText(order.cost.goods_fx_total, order.currency)} ${order.currency}` : "-";
+}
+export const currencyColumn = (currency: Currency) => (currency === "KRW" ? "원" : currency); // 표 머리글 "단가(원)" / "단가(USD)"
 
 export type PoItemSort = "registered" | "name-asc" | "name-desc"; // 등록 순서와 품목명 정렬의 두 방향
 

@@ -5,17 +5,18 @@ import { useCallback, useEffect, useRef, useState } from "react"; // 상태, 요
 import { apiList, Meta } from "../../../lib/api"; // 목록 호출 (data + meta)
 import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { ChangeLog, fmtTime, PO_LABELS, PoStatus, STATUS_LABEL } from "../../../lib/po"; // 이력 모양, 시각, 기존 상태·칸 이름 표
+import { FREIGHT_TERMS } from "../../../lib/po-fx"; // 운송비 조건 이름 (#267)
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 
 const PREVIEW_LINES = 6; // 한 묶음이 이보다 길면 앞 5줄만 보여 준다
 const ITEM_FIELD_LABELS: Record<string, string> = {
-  quantity: "수량", closed_quantity: "마감 수량", unit_price: "단가", min_order_units: "최소 주문 수량", units_per_box: "박스 입수", box_unit_price: "박스 단가", order_unit: "발주단위",
+  quantity: "수량", closed_quantity: "마감 수량", unit_price: "단가", min_order_units: "최소 주문 수량", units_per_box: "박스 입수", box_unit_price: "박스 단가", order_unit: "발주단위", fx_unit_price: "외화 단가", fx_box_unit_price: "외화 박스 단가",
 }; // 줄 안의 칸 이름 (모르는 칸은 서버 이름 그대로)
 
 // 값 → 화면 글자. 비었으면 "없음", 상태 코드는 기존 상태 이름 표로, 공급업체 확인 시각은 서울 시각으로 (예: "ORDERED" → "발주함")
 const show = (field: string, value: string | null) =>
   value === null || value === "" ? "없음" : field === "status" ? STATUS_LABEL[value as PoStatus] ?? value
-    : field === "supplier_confirmed_at" ? fmtTime(value) : value;
+    : field === "supplier_confirmed_at" ? fmtTime(value) : field === "freight_terms" ? FREIGHT_TERMS[value] ?? value : value; // 운송비 조건 코드는 화면 이름으로
 
 // 이력 한 행을 한 줄 문장으로. 모르는 field 는 원래 이름을 그대로 쓴다
 // 예) items[A-1].unit_price 1000→1200 → "품목 A-1 단가: 1000 → 1200", due_date 없음 → "약속 납기: 없음 → 2026-11-20"
