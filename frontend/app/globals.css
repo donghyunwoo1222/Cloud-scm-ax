@@ -384,9 +384,16 @@ button.primary-action:hover:not(:disabled) {
 
 .reason-chips {
   display: flex;
+  flex: 1 1 100%; /* 폼 입력 줄 아래 전체 너비 한 줄 (div 로 쓰면 "입력칸 옆 버튼" 규칙이 먹어 폭이 줄어든다) */
+  margin: -8px 0 0; /* 폼 줄 간격(18px)을 10px 로 줄여 입력 줄에 붙인다 */
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-xs);
-  margin-top: var(--space-xs);
+}
+
+.reason-chips > span {
+  color: var(--color-muted-foreground);
+  font-size: var(--text-xs);
 }
 
 .reason-chips button {
@@ -1513,4 +1520,20 @@ details.reason > p {
   .chat-open-desktop { display: none; }
   .chat-open-mobile { display: inline-flex; align-items: center; margin-left: auto; } /* 글자가 위로 치우치지 않게 세로 가운데 */
   .chat-panel { inset: 0; z-index: 60; width: 100%; border-left: 0; box-shadow: none; } /* 메뉴 드로어(z 50) 위 */
+}
+
+/* 발주 변경 이력: 한 번의 변경 = 카드 하나. 줄은 [항목 이름 | 이전 → 이후] 두 열 */
+.cl-card { margin-top: var(--space-sm); padding: var(--card-pad); background: var(--color-card); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
+.cl-head { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; }
+.cl-time { color: var(--color-muted-foreground); font-size: var(--text-sm); }
+.cl-badge { margin-left: auto; padding: 0 var(--space-sm); border: 1px solid var(--color-border-strong); border-radius: var(--radius-full); color: var(--color-muted-foreground); font-size: var(--text-xs); line-height: 20px; }
+.cl-rows { list-style: none; margin: var(--space-sm) 0 0; padding: 0; }
+.cl-row { display: grid; grid-template-columns: 10em minmax(0, 1fr); column-gap: var(--space-md); row-gap: 2px; padding: var(--space-xs) 0; border-top: 1px solid var(--color-border); overflow-wrap: anywhere; }
+.cl-label, .cl-before, .cl-none, .cl-arrow { color: var(--color-muted-foreground); }
+.cl-none { font-style: italic; }
+.cl-arrow { margin: 0 var(--space-xs); }
+.cl-reason { grid-column: 2; color: var(--color-muted-foreground); font-size: var(--text-sm); }
+@media (max-width: 480px) {
+  .cl-row { grid-template-columns: minmax(0, 1fr); } /* 좁은 화면: 라벨 위, 값 아래 */
+  .cl-reason { grid-column: 1; }
 }

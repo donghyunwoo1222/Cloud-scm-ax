@@ -146,15 +146,17 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
         {/* 오늘 이후는 고를 수 없다 (서버도 막는다) */}
       </Field>
       {type === "ADJUSTMENT" && (
-        <Field label="사유*"><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예: 실사 차이" />
-          <span className="reason-chips">
-            {REASON_CHIPS.map((c) => <button key={c} type="button" disabled={busy} onClick={() => setReason(c)}>{c}</button>)}
-            {/* 누르면 입력칸을 이 문장으로 바꾼다(직접 고쳐 쓸 수 있다) */}
-          </span>
-        </Field>
+        <Field label="사유*"><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예: 실사 차이" /></Field>
       )}
       <Field label="메모" className="field-grow"><input value={memo} onChange={(e) => setMemo(e.target.value)} /></Field>
       <button type="submit" disabled={busy}>{busy ? "등록 중…" : "등록"}</button>
+      {type === "ADJUSTMENT" && (
+        <p className="reason-chips">
+          <span>자주 쓰는 사유</span>
+          {REASON_CHIPS.map((c) => <button key={c} type="button" disabled={busy} onClick={() => setReason(c)}>{c}</button>)}
+          {/* 입력 줄 아래 전체 너비 한 줄. 누르면 사유 칸을 이 문장으로 바꾼다(직접 고쳐 쓸 수 있다) */}
+        </p>
+      )}
       <div style={S.fullRow}>
         <ErrorText error={error} labels={labels} />
       </div>
