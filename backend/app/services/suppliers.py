@@ -7,6 +7,7 @@ from app.errors import AppError  # 공통 오류
 from app.models import Supplier  # 공급업체 표
 from app.pagination import PageParams, paginate  # 목록 쪽 나누기
 from app.schemas.suppliers import SupplierCreate, SupplierUpdate  # 요청 모양
+from app.services.purchase_orders import guard_fx_input  # 외화 입력 거절 (FX_ENABLED)
 from app.services.tenant import get_owned, scoped  # 회사 분리 도우미 (#23)
 
 
@@ -29,6 +30,7 @@ def get_supplier(company_id: int, db: Session, supplier_id: int) -> Supplier:
 
 def create_supplier(company_id: int, db: Session, data: SupplierCreate) -> Supplier:
     """공급업체 등록. 회사는 토큰에서 온 값."""
+    guard_fx_input(data.default_currency, None, None)  # 스위치가 꺼지면 외화 기본 통화 등록은 422
     supplier = Supplier(company_id=company_id, **data.model_dump())  # 요청 칸 + 회사
     db.add(supplier)  # 세션에 올림
     commit_supplier(db)  # 확정, 같은 이름이면 409
@@ -37,6 +39,7 @@ def create_supplier(company_id: int, db: Session, data: SupplierCreate) -> Suppl
 
 def update_supplier(company_id: int, db: Session, supplier_id: int, data: SupplierUpdate) -> Supplier:
     """수정·비활성·다시 활성. 보낸 칸만 바꾼다."""
+    guard_fx_input(data.default_currency, None, None)  # 키를 안 보내면 None 이라 통과, 외화 값만 거절
     supplier = get_owned(company_id, db, Supplier, supplier_id)  # 다른 회사·없는 id 는 404
     for field, value in data.model_dump(exclude_unset=True).items():  # 요청에 들어 있던 칸만
         setattr(supplier, field, value)  # 값을 바꾼다

@@ -144,6 +144,18 @@ def money_invalid(field: str, message: str) -> AppError:
     return AppError(422, "VALIDATION_ERROR", message, [{"field": field, "reason": "invalid"}])  # 금액 규칙 위반은 422
 
 
+def fx_disabled() -> AppError:
+    return AppError(422, "FX_DISABLED", "해외 거래 기능은 아직 사용할 수 없습니다. 통화는 원화(KRW)만 선택할 수 있습니다.")  # 공급업체 API 도 같은 오류를 쓴다
+
+
+def guard_fx_input(currency: str | None, rate: Decimal | None, items: Sequence[ItemIn] | None) -> None:
+    """FX_ENABLED 가 꺼져 있으면 새로 들어오는 외화 값(KRW 아닌 통화·환율·fx 단가)을 422 FX_DISABLED 로 거절한다. 읽기·승인은 막지 않는다."""
+    if settings.fx_enabled:
+        return
+    if (currency not in (None, "KRW")) or rate is not None or any(i.fx_price is not None for i in items or ()):
+        raise fx_disabled()
+
+
 def checked_rate(currency: str, rate: Decimal | None) -> Decimal | None:
     """환율 검사: 원화에 환율을 주면 422, 외화는 비워도 된다(승인 때 필수). 저장은 소수 둘째 자리로."""
     if rate is None:
@@ -254,6 +266,7 @@ def next_po_number(company_id: int, db: Session) -> str:
 
 def create_order(company_id: int, db: Session, user_id: int, data: PurchaseOrderCreate) -> PurchaseOrder:
     """POST /purchase-orders: DRAFT 한 장 만들기. 공급업체당 DRAFT 는 하나(409 DUPLICATE_DRAFT)."""
+    guard_fx_input(data.currency, data.exchange_rate, data.items)  # 외화 입력은 스위치가 켜질 때만
     supplier = check_ref(company_id, db, Supplier, data.supplier_id, "supplier_id")  # 다른 회사·없는 id 는 404
     if not supplier.is_active:  # 비활성 업체는 새 발주에 못 쓴다
         raise inactive("supplier_id", "비활성 공급업체에는 새 발주서를 만들 수 없습니다.")
@@ -294,6 +307,7 @@ def update_order(company_id: int, db: Session, user_id: int, order_id: int, data
 
     바뀐 칸은 변경 이력(po_change_log)에 같은 트랜잭션으로 남긴다(#181). 변경 전 값은 값을 바꾸기 전에 읽어 둔다.
     """
+    guard_fx_input(data.currency, data.exchange_rate, data.items)  # 외화 칸을 그대로 다시 보내도 거절 (잠금 전에)
     order = get_owned(company_id, db, PurchaseOrder, order_id, lock=True)  # 발주서 잠금(잠금 순서: 발주서 → 품목). 다른 회사 404
     if order.status not in ACTION_STATES["edit"]:  # DRAFT 만. 승인 이후에는 수정 불가 (R5)
         raise AppError(409, "INVALID_STATUS", f"작성 중인 발주서만 수정할 수 있습니다. 지금은 {STATUS_NAMES[order.status]}입니다.",
