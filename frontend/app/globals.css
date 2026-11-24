@@ -17,6 +17,7 @@
   --color-link: #1d4ed8; /* 링크 글자 */
   --color-destructive: #b91c1c; /* 오류·부족 글자 (위험색 글자는 이 값, 대비 4.5:1 이상) */
   --color-destructive-bg: #fef2f2;
+  --color-warning: #b45309; /* 부족 숫자 글자 (흰 바탕 대비 약 5:1) */
   --color-ok: #15803d; /* 성공·정상 글자 */
   --color-ok-bg: #f0fdf4;
   --color-unknown: #475569; /* 판단 불가 글자 */
@@ -371,6 +372,31 @@ button.primary-action:hover:not(:disabled) {
   color: var(--color-foreground);
   font-size: var(--text-sm);
 }
+
+.movement-preview {
+  display: block;
+  margin-top: var(--space-xs);
+  color: var(--color-muted-foreground);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.reason-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.reason-chips button {
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+}
+
+.stock-soldout { color: var(--color-destructive); font-weight: 700; } /* 품절: 빨강 굵게 */
+.stock-shortage { color: var(--color-warning); font-weight: 700; } /* 부족: 주황 굵게 (옆 배지에 글자도 있다) */
 
 .product-picker-chevron {
   position: absolute;

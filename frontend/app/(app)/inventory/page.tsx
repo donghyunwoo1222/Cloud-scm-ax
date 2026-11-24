@@ -13,7 +13,8 @@ import { CHANNEL_LABEL, TYPE_LABEL } from "../../lib/movement-form"; // 유형 �
 import { STOCK_BADGE, StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { useToast } from "../../lib/toast"; // 성공 알림 토스트
 import { InfoTip, Tip } from "../../lib/tip"; // 상태 이유·보조 설명 말풍선
-import { quantityLabel } from "../../lib/po"; // 입출고 이력에도 실제 단위를 붙인다.
+import { quantityLabel } from "../../lib/po";
+import { shortageText, stockTone } from "../../lib/stock-text"; // 부족 안내 문장, 현재고 색 종류 // 입출고 이력에도 실제 단위를 붙인다.
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 import { StockTrend } from "./stock-trend"; // 선택한 품목의 30일 마감 재고
 import { movementOptions, Options, optionSummary, skuWithOptions } from "../../lib/options"; // 품목 옵션 요약
@@ -238,7 +239,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
                   aria-label={`${s.name} 추이·이력 ${selected ? "닫기" : "보기"}`} onClick={() => toggleHistory(s)}>{s.name}</button>{!s.is_active && " (비활성)"}
               </td>
               <td style={S.nowrap}>{s.sku}{optionSummary(s) && <span style={S.sub}>{optionSummary(s)}</span>}</td>
-              <td style={S.num}>{s.current_stock} {s.unit}</td>
+              <td style={S.num}><span className={`stock-${stockTone(s.status, s.current_stock)}`}>{s.current_stock} {s.unit}</span></td>
               <td style={S.num}>{quantityLabel(s.in_transit, s.unit)}</td>
               <td style={S.num}>{quantityLabel(s.safety_stock, s.unit)}</td>
               <td>
@@ -248,6 +249,8 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
                   : s.status_reason?.message}>
                   <StatusBadge kind={STOCK_BADGE[s.status].kind}>{STOCK_BADGE[s.status].label}</StatusBadge>
                 </Tip> : "-"}
+                {s.status === "SHORTAGE" && s.reorder_point != null && <span style={S.sub}>{shortageText(s.status, s.current_stock + s.in_transit, s.reorder_point, s.unit)}</span>}
+                {/* 말풍선 아래 한 줄: 재주문점에서 가용재고를 뺀 모자란 수량 */}
               </td>
             </tr>
             );

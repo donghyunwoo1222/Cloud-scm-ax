@@ -12,6 +12,7 @@ import { ShipmentTypeBadge, StatusBadge } from "./status-badge"; // 출고 유�
 import { useToast } from "./toast"; // 성공 알림 토스트
 import { ProductOption, ProductPicker } from "./product-picker"; // 전체 품목에서 검색해 바로 선택한다
 import { quantityLabel } from "./po"; // 품목 단위로 재고·수량을 표시한다.
+import { previewStock, REASON_CHIPS } from "./stock-text"; // 변동 미리보기 문장, 사유 빠른 칩
 import { S } from "./styles"; // 화면 공통 스타일
 
 export type MovementType = "RECEIPT" | "SALE" | "DISPOSAL" | "OTHER_OUT" | "ADJUSTMENT"; // 서버가 받는 유형 5개
@@ -46,6 +47,8 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
   const [error, setError] = useState<unknown>(null); // 등록 오류
   const [busy, setBusy] = useState(false); // 등록 중이면 버튼을 잠그고 글자를 바꾼다
   const post = useConfirmedPost(); // 같은 내용 재전송은 같은 키, 409 확인 필요면 확인창
+  const moveDirection: "IN" | "OUT" = type === "RECEIPT" ? "IN" : type === "ADJUSTMENT" && direction === "IN" ? "IN" : "OUT"; // 입고·증가 조정은 더하고 나머지는 뺀다
+  const preview = product && typeof stock === "number" ? previewStock(moveDirection, stock, quantity === "" ? NaN : Number(quantity), product.unit) : null; // 품목·현재고·수량이 모두 유효할 때만
   const sending = useRef(false); // 상태값은 다음 화면 갱신 뒤에야 바뀌어 더블클릭을 못 막으므로, 즉시 바뀌는 ref 로 한 번 더 막는다
   const [savedCount, setSavedCount] = useState(0); // 등록에 성공한 횟수 (바뀌면 아래 최근 이력을 다시 불러온다)
 
@@ -134,12 +137,22 @@ export function MovementForm({ types, initialType = types[0] }: { types: Movemen
             <option value="IN">증가 (실제가 더 많음)</option>
           </select></Field>
       )}
-      <Field label={`수량${product ? ` (재고 단위 ${product.unit})` : ""}*`} className="field-half"><input type="number" inputMode="numeric" min={1} step={1} value={quantity} aria-describedby={product ? stockStatusId : undefined} onChange={(e) => setQuantity(e.target.value)} /></Field>
+      <Field label={`수량${product ? ` (재고 단위 ${product.unit})` : ""}*`} className="field-half"><input type="number" inputMode="numeric" min={1} step={1} value={quantity} aria-describedby={product ? stockStatusId : undefined} onChange={(e) => setQuantity(e.target.value)} />
+        {preview && <span className="movement-preview" role="status">{preview}</span>}
+        {/* 기록 전에 결과를 미리 보인다. 저장은 막지 않는다(서버가 판단) */}
+      </Field>
       <Field label={dateLabel} className="field-half">
         <input type="date" max={today || undefined} value={date} onChange={(e) => setDate(e.target.value)} />
         {/* 오늘 이후는 고를 수 없다 (서버도 막는다) */}
       </Field>
-      {type === "ADJUSTMENT" && <Field label="사유*"><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예: 실사 차이" /></Field>}
+      {type === "ADJUSTMENT" && (
+        <Field label="사유*"><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예: 실사 차이" />
+          <span className="reason-chips">
+            {REASON_CHIPS.map((c) => <button key={c} type="button" disabled={busy} onClick={() => setReason(c)}>{c}</button>)}
+            {/* 누르면 입력칸을 이 문장으로 바꾼다(직접 고쳐 쓸 수 있다) */}
+          </span>
+        </Field>
+      )}
       <Field label="메모" className="field-grow"><input value={memo} onChange={(e) => setMemo(e.target.value)} /></Field>
       <button type="submit" disabled={busy}>{busy ? "등록 중…" : "등록"}</button>
       <div style={S.fullRow}>
