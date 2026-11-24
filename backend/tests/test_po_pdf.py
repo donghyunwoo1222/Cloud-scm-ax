@@ -199,3 +199,16 @@ def test_foreign_closing_block_never_splits(calls, count):
     _, mine = render(fx_doc(count), calls)
     pages = {pages_of(mine, key).pop() for key in ("1) 납기일자", "6) 특약", "위와 같이 발주합니다.", "승인 :")}
     assert len(pages) == 1, (count, pages)
+
+
+LONG = {"delivery_address": "가" * 200, "payment_terms": "나" * 200, "memo": "다 " * 500, "special_terms": "라 " * 500,
+        "freight_terms": "FOB"}  # 메모·특약 1000자, 납품장소·지불조건 200자 (스키마 상한)
+
+
+@pytest.mark.parametrize("fields", [LONG, LONG | {"memo": "다" * 1000, "special_terms": "라" * 1000}])
+def test_long_conditions_render_without_error_and_keep_closing_together(calls, fields):
+    """메모·특약이 모두 최대 길이여도 PDF 가 만들어지고(쪽 높이를 넘는 한 칸이 없다), 승인 줄까지 그려진다."""
+    pdf, mine = render(make_doc(3) | fields, calls)
+    texts = "\n".join(c[4] for c in mine)
+    assert "6) 특약" in texts and "위와 같이 발주합니다." in texts and "승인 :" in texts
+    assert pdf.pages_count >= 2

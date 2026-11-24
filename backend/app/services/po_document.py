@@ -34,6 +34,7 @@ STAMP_RADIUS = 37  # 글자 묶음 모서리가 들어갈 반지름 (도장 지�
 PDF_STAMP_D = 19  # PDF 도장 지름 (mm). 화면 도장 72px(약 19mm)과 같은 크기
 PDF_STAMP_RED = (198, 40, 40)  # 도장 색 #c62828 (화면과 같음)
 PDF_TABLE_RIGHT = 195  # 표 오른쪽 끝 (mm): 왼쪽 여백 15 + 본문 폭 180
+PDF_COND_MAX = 170  # 발주 조건 표가 이보다 높으면(메모·특약이 아주 길 때) 한 묶음으로 못 그리므로 쪽을 넘겨 나눈다 (mm, 쪽 본문 높이 약 267 에서 승인 줄 몫을 뺀 값)
 PDF_MIN_ROWS = 5  # 품목 표 최소 줄 수 (화면 MIN_ROWS 와 같게)
 FREIGHT_LABELS = {  # 운송비 조건 코드 → 공급업체 문서에 쓰는 글자 (금액은 내부 전용이라 조건만 나간다)
     "INCLUDED": "단가에 포함", "BILLED": "운임 청구", "COLLECT": "착불", "EXW": "EXW", "FOB": "FOB", "CIF": "CIF", "DDP": "DDP",
@@ -130,7 +131,7 @@ def build_document(company_id: int, db: Session, order_id: int) -> dict:
     order = po_service.get_order(company_id, db, order_id)  # 다른 회사 404
     if order.status not in ACTION_STATES["document"]:  # 승인 이후만 (DRAFT·CANCELLED 는 409)
         raise AppError(409, "INVALID_STATUS", "승인된 발주서만 문서로 볼 수 있습니다.", {"status": order.status})
-    if order.currency != "KRW" and not settings.fx_enabled:  # 외화 문서는 FX_ENABLED 가 켜질 때만 (국내 먼저 배포, #267)
+    if (order.currency != "KRW") and (not settings.fx_enabled):  # 외화 문서는 FX_ENABLED 가 켜질 때만 (국내 먼저 배포, #267)
         raise AppError(409, "FX_DOCUMENT_NOT_READY", "외화 발주서의 문서·메일은 아직 준비 중입니다.", {"currency": order.currency})
     out = po_service.build_out(company_id, db, [order])[0]  # 줄 금액은 발주서 응답과 같은 계산을 쓴다
     company = db.get_one(Company, company_id)
@@ -366,14 +367,22 @@ def render_pdf(doc: dict) -> FPDF:
 
     pdf.ln(3)
     # 3) 발주 조건 ~ 승인 줄: 쪽 경계에서 갈리지 않게 한 묶음으로 그린다
+    conditions = condition_rows(doc)  # 운송조건·특약은 값이 있을 때만 줄이 늘어난다
+    texts = [f"{index + 1}) {label} : {blank(value)}" for index, (label, value) in enumerate(conditions)]
+    tall = sum(7 * max(1, math.ceil(pdf.get_string_width(part) / 150)) for text in texts for part in text.split(chr(10))) > PDF_COND_MAX  # 글자 폭으로 줄 수를 어림한다(칸 폭 162 보다 여유 있게 150). fpdf 의 dry_run 은 쪽 끝에서 쪽을 넘겨 버려 쓰지 않는다. 메모·특약이 최대 길이면 한 쪽을 넘는다
+    if tall:  # 줄마다 쪽을 넘겨 나눌 수 있는 표로 그린다 (rowspan 칸 없음). 승인 줄 묶음은 그 뒤에 따로
+        with pdf.table(col_widths=(180,), line_height=7, text_align="LEFT", first_row_as_headings=False) as t:
+            t.row().cell("발주 조건", style=head, align="C")
+            for text in texts:
+                t.row().cell(text)
     with pdf.unbreakable() as block:  # 반드시 block 으로 그려야 쪽이 넘어갈 때 다시 그려진다 (pdf 로 직접 그리면 사라짐)
-        with block.table(col_widths=(18, 162), line_height=7, text_align="LEFT", first_row_as_headings=False) as t:
-            conditions = condition_rows(doc)  # 운송조건·특약은 값이 있을 때만 줄이 늘어난다
-            for index, (label, value) in enumerate(conditions):
-                row = t.row()
-                if index == 0:
-                    row.cell("발주\n조건", rowspan=len(conditions), style=head, align="C")
-                row.cell(f"{index + 1}) {label} : {blank(value)}")
+        if not tall:
+            with block.table(col_widths=(18, 162), line_height=7, text_align="LEFT", first_row_as_headings=False) as t:
+                for index, text in enumerate(texts):
+                    row = t.row()
+                    if index == 0:
+                        row.cell("발주\n조건", rowspan=len(conditions), style=head, align="C")
+                    row.cell(text)
 
         block.ln(6)
         block.cell(0, 8, "위와 같이 발주합니다.", align="C", new_x="LMARGIN", new_y="NEXT")

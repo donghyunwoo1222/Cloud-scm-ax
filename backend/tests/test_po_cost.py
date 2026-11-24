@@ -5,6 +5,7 @@
 
 import importlib.util  # 마이그레이션의 채워 넣기 SQL 을 불러온다
 import json  # 문서 dict 를 글자로
+import re  # 메일 합계 문장 뽑기
 from io import BytesIO  # 엑셀 바이트 읽기
 from pathlib import Path  # 마이그레이션 파일 위치
 
@@ -13,6 +14,7 @@ from openpyxl import load_workbook  # 엑셀 읽기
 from sqlalchemy import select, text  # 조회, SQL 문장
 from sqlalchemy.exc import IntegrityError  # DB CHECK 위반
 
+from app.config import Settings  # 기본값 검사 (.env 를 읽지 않고)
 from app.models import PoChangeLog, Product, PurchaseOrder  # 표
 from app.services import po_document, po_mail  # 외화 문서·메일 본문
 from app.services.po_money import CURRENCIES  # 통화 → (기준 단위, 소수 자리)
@@ -238,9 +240,10 @@ def test_recommendation_draft_rejects_existing_foreign_draft(client, world, item
 
 # ----- 외화 문서·엑셀·PDF·메일 (#267 PR 3) -----
 
-def test_foreign_document_is_blocked_when_fx_disabled(client, world, items):
+def test_foreign_document_is_blocked_when_fx_disabled(client, world, items, monkeypatch):
     """FX_ENABLED 가 꺼져 있으면(기본) 외화 발주서의 문서·엑셀·이메일 미리보기·메일 발송(PDF 첨부)이 모두 409."""
-    assert po_document.settings.fx_enabled is False
+    assert Settings(_env_file=None, database_url="postgresql+psycopg://x/x", secret_key="x" * 32).fx_enabled is False  # 기본값은 꺼짐 (.env 를 읽지 않고 검사)
+    monkeypatch.setattr(po_document.settings, "fx_enabled", False)  # 개발자 .env 에 켜져 있어도 이 시험은 꺼진 상태
     login_as(client)
     d = create(client, world, fx(items["P1"], 1, "1"), currency="USD", exchange_rate="1350")
     login_as(client, "admin@a.test")
@@ -293,6 +296,49 @@ def test_krw_document_has_no_new_lines_without_values(client, world, items):
 
 
 # ----- 변경 이력·내보내기 -----
+
+def test_foreign_mail_total_sentence_never_says_byeoldo(client, world, items, monkeypatch):
+    """외화 메일의 합계 문장(HTML·글자 본문)은 "(부가세 제외)" 이고 "별도" 라는 말이 없다 (결정 15번). 표 줄의 단어와는 구분해 합계 문장만 본다."""
+    monkeypatch.setattr(po_document.settings, "fx_enabled", True)
+    login_as(client)
+    d = create(client, world, fx(items["P1"], 2, "12.5"), currency="USD", exchange_rate="1350")
+    login_as(client, "admin@a.test")
+    client.post(f"{URL}/{d['id']}/approve")
+    html = client.get(f"{URL}/{d['id']}/email").json()["data"]["fixed_html"]
+    sentence = re.search(r"합계금액 :[^<]*", html).group(0)  # <p> 안의 합계금액 문장
+    doc = client.get(f"{URL}/{d['id']}/document").json()["data"]
+    text_total = next(line for line in po_mail.fixed_text(doc).splitlines() if line.startswith("합계 "))
+    for sentence_text in (sentence, text_total):
+        assert "(부가세 제외)" in sentence_text and "별도" not in sentence_text, sentence_text
+
+
+@pytest.fixture
+def outbox(monkeypatch):
+    """가짜 메일 서버: 실제로 보내지 않고 보낸 메일을 목록에 담는다 (test_po_mail.py 와 같은 방식)."""
+    sent = []
+    monkeypatch.setattr(po_document.settings, "smtp_host", "smtp.test")
+    monkeypatch.setattr(po_document.settings, "smtp_from", "noreply@scm.test")
+    monkeypatch.setattr(po_mail, "deliver", sent.append)
+    return sent
+
+
+@pytest.mark.parametrize("currency", ["KRW", "USD"])
+def test_mail_send_succeeds_with_longest_conditions(client, world, items, session, outbox, monkeypatch, currency):
+    """메모·특약 1000자, 납품장소·지불조건 200자(스키마 상한)여도 PDF 가 만들어지고 메일 발송이 성공한다 (원화·외화)."""
+    monkeypatch.setattr(po_document.settings, "fx_enabled", True)
+    world["a_supplier"].email = "sales@a-supplier.test"
+    session.commit()
+    login_as(client)
+    line, extra = (krw(items["P1"], 3, 1000), {}) if currency == "KRW" else (fx(items["P1"], 3, "10"), {"currency": "USD", "exchange_rate": "1350"})
+    d = create(client, world, line, memo="다 " * 500, special_terms="라" * 1000, freight_terms="FOB",
+               delivery_address="가" * 200, payment_terms="나" * 200, **extra)
+    login_as(client, "admin@a.test")
+    client.post(f"{URL}/{d['id']}/approve")
+    r = client.post(f"{URL}/{d['id']}/email", json={"intro": "안녕하세요"})
+    assert r.status_code == 200, r.json()
+    [msg] = outbox
+    assert next(msg.iter_attachments()).get_content().startswith(b"%PDF")
+
 
 def test_change_log_for_cost_fields(client, world, items, session):
     login_as(client)
