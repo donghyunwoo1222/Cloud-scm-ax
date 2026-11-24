@@ -32,6 +32,16 @@ export function describeChange(row: Pick<ChangeLog, "field" | "old_value" | "new
   return `${label}: ${show(field, before)} → ${show(field, after)}`;
 }
 
+// 카드 배치용: 한 행을 항목 이름 / 이전 / 이후로 따로 돌려준다 (값 글자는 describeChange 와 같은 show). 예) due_date 없음→2026-11-20 → {label:"약속 납기", before:null, after:"2026-11-20"}
+// before·after 가 null 이면 "(없음)" 으로 흐리게 그린다
+export function describeChangeParts(row: Pick<ChangeLog, "field" | "old_value" | "new_value">): { label: string; before: string | null; after: string | null } {
+  const { field, old_value: before, new_value: after } = row;
+  const match = /^items\[(.+?)\](?:\.(\w+))?$/.exec(field);
+  const label = match ? (match[2] ? `품목 ${match[1]} ${ITEM_FIELD_LABELS[match[2]] ?? match[2]}` : `품목 ${match[1]} 줄`) : field === "status" ? "상태" : (PO_LABELS as Record<string, string>)[field] ?? field;
+  const text = (v: string | null) => (v === null || v === "" ? null : show(field, v));
+  return { label, before: text(before), after: text(after) };
+}
+
 // 같은 시각(created_at 글자 그대로)·같은 사람(이름)의 연속된 행을 한 묶음으로 만든다. 한 번의 저장은 시각이 같다
 function groupRows(rows: ChangeLog[]): ChangeLog[][] {
   const groups: ChangeLog[][] = [];
@@ -52,16 +62,28 @@ function Group({ rows }: { rows: ChangeLog[] }) {
   // shortcut: 20건 쪽 경계에서 묶음이 갈리면 "(잔량 마감)" 표시가 빠질 수 있다, 이력 데이터에 마감 표시가 생기면 그걸 쓴다
   const isClose = rows.some((r) => /\.closed_quantity$/.test(r.field));
   return (
-    <li style={{ ...S.sectionCard, marginTop: "var(--space-sm)" }}>
-      <strong>{rows[0].changed_by_name || "알 수 없음"}</strong>{" "}
-      <span style={S.hint}>{fmtTime(rows[0].created_at)} · {title}</span>
-      <ul style={{ margin: "var(--space-xs) 0 0", paddingLeft: "1.2em" }}>
-        {shown.map((r) => (
-          <li key={r.id}>
-            {describeChange(r)}{isClose && r.field === "status" && r.new_value === "RECEIVED" && " (잔량 마감)"}
-            {r.reason && !r.field.endsWith(".closed_quantity") && <div style={S.hint}>사유: {r.reason}</div>}
-          </li>
-        ))}
+    <li className="cl-card">
+      <div className="cl-head">
+        <strong>{rows[0].changed_by_name || "알 수 없음"}</strong>
+        <span className="cl-time">{fmtTime(rows[0].created_at)}</span>
+        <span className="cl-badge">{title}</span>
+      </div>
+      <ul className="cl-rows" role="list">
+        {shown.map((r) => {
+          const p = describeChangeParts(r);
+          return (
+            <li key={r.id} className="cl-row">
+              <span className="cl-label">{p.label}</span>
+              <span className="cl-values">
+                {p.before === null ? <span className="cl-none">(없음)</span> : <span className="cl-before">{p.before}</span>}
+                <span className="cl-arrow" aria-label="에서">→</span>
+                {p.after === null ? <span className="cl-none">(없음)</span> : <strong className="cl-after">{p.after}</strong>}
+                {isClose && r.field === "status" && r.new_value === "RECEIVED" && <span className="cl-before"> (잔량 마감)</span>}
+              </span>
+              {r.reason && !r.field.endsWith(".closed_quantity") && <span className="cl-reason">사유: {r.reason}</span>}
+            </li>
+          );
+        })}
       </ul>
       {long && <button type="button" onClick={() => setOpen(!open)}>{open ? "접기" : `${rows.length - shown.length}줄 더 보기`}</button>}
     </li>
