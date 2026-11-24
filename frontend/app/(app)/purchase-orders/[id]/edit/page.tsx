@@ -7,6 +7,7 @@ import { Suspense, useEffect, useState } from "react"; // 처음 한 번 실행,
 import { api } from "../../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText } from "../../../../lib/list"; // 서버 오류 표시
 import { can, PurchaseOrder } from "../../../../lib/po"; // 발주서 모양, 서버 허용 동작 확인
+import { FX_ENABLED } from "../../../../lib/config"; // 외화 화면 스위치
 import { PoForm } from "../../../../lib/po-form"; // 발주서 작성·수정 폼
 
 // 발주서 수정 화면 (주소 /purchase-orders/번호/edit): 작성 중(DRAFT)일 때만 연다
@@ -27,7 +28,8 @@ function Detail() {
         <p>작성 중인 발주서만 수정할 수 있습니다. <Link href={`/purchase-orders/${order.id}`}>상세로 돌아가기</Link></p>
       )}
       {/* 서버가 edit 을 허용할 때만 폼을 연다 (서버도 409 INVALID_STATUS 로 막는다) */}
-      {order && can(order, "edit") && <PoForm order={order} />}
+      {order && can(order, "edit") && order.currency !== "KRW" && !FX_ENABLED && <p>외화 발주서는 지금 이 화면에서 수정할 수 없습니다.</p>}
+      {order && can(order, "edit") && (order.currency === "KRW" || FX_ENABLED) && <PoForm order={order} />}
     </section>
   );
 }

@@ -11,9 +11,10 @@ import { optionSummary } from "./options"; // 고른 품목의 옵션 요약
 import { boxLimit, MAX_ORDER_QUANTITY, PO_LABELS, PurchaseOrder, unitConversion } from "./po"; // 발주서와 발주단위 환산 표시
 import {
   costEstimate, costReducer, CURRENCIES, CURRENCY_CODES, Currency, EXTRA_COST_SUGGESTIONS, extraCostProblem, formatScaled, formatWon, FREIGHT_TERMS,
-  fxInputText, fxPriceInput, fxPriceProblem, fxTotalScaled, isCurrency, krwEstimate, MAX_EXTRA_COSTS, MAX_SPECIAL_TERMS, rateInput, rateProblem, rateUnitLabel, toScaled, wonInput,
+  fxInputText, fxPriceInput, fxPriceProblem, fxTotalScaled, isCurrency, krwEstimate, MAX_EXTRA_COSTS, MAX_SPECIAL_TERMS, poPayload, rateInput, rateProblem, rateUnitLabel, toScaled, wonInput,
 } from "./po-fx"; // 외화·원가 계산과 입력 검사 (#267)
 import { ProductOption, ProductPicker } from "./product-picker"; // 발주 줄에서 품목을 검색해 바로 선택한다
+import { FX_ENABLED } from "./config"; // 외화 화면 스위치 (기본 꺼짐)
 import { S } from "./styles"; // 화면 공통 스타일
 import { useToast } from "./toast"; // 성공 알림 토스트
 
@@ -39,7 +40,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   const nextLineKey = useRef(order?.items.length ?? 1); // 앞 줄을 지워도 다른 줄의 검색 상태가 섞이지 않는다
   // 통화·환율·운송비 조건·특약·품목 줄을 reducer 하나가 같이 정한다: 통화가 바뀌면 환율과 줄 단가가 한 번에 비워진다 (po-fx.ts 상태 전이 표)
   const [cost, dispatch] = useReducer(costReducer<Line>, undefined, (): CostState => {
-    const currency: Currency = order && isCurrency(order.currency) ? order.currency : "KRW";
+    const currency: Currency = FX_ENABLED && order && isCurrency(order.currency) ? order.currency : "KRW"; // 꺼져 있으면 항상 원화
     return {
       currency, rate: order?.exchange_rate ?? "", freightTerms: order?.freight_terms ?? "", specialTerms: order?.special_terms ?? "", cleared: false,
       lines: order ? order.items.map((i, key) => ({
@@ -157,16 +158,9 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
     event.preventDefault(); // 새로고침 막기
     if (sending.current) return; // 이미 저장 중이면 두 번째 제출은 버린다
     if (blockEmptyQuantity()) return;
-    const items = lines.map((l) => ({
-      product_id: num(l.product_id),
-      ...(l.box ? { box_quantity: num(l.quantity) } : { quantity: num(l.quantity) }),
-      ...(fx ? { fx_price: l.unit_price } : l.box ? {} : { unit_price: num(l.unit_price) }), // 외화는 글자 그대로(정확한 소수), 원화 박스 줄은 단가를 서버가 품목 설정에서 읽는다
-    })); // 서버는 보낸 단위에 맞춰 발주량과 당시 값을 저장한다
-    const costBody = {
-      currency, exchange_rate: fx ? cost.rate.trim() || null : null, freight_terms: cost.freightTerms || null,
-      freight_amount: freightAmount.trim() === "" ? null : Number(freightAmount), // 비움 = 미입력(null), 0 = 무료
-      extra_costs: extras.map((e) => ({ name: e.name.trim(), amount: Number(e.amount) })), special_terms: cost.specialTerms.trim() || null,
-    }; // 원가 칸 (내부 전용). 화면의 환산·합계는 예상이고 저장값은 서버가 계산한다
+    const { items, ...costBody } = poPayload({
+      currency, rate: cost.rate, freightTerms: cost.freightTerms, freightAmount, specialTerms: cost.specialTerms, extras, lines,
+    }, FX_ENABLED); // 줄과 원가 칸 본문 (꺼져 있으면 통화 "KRW", 외화 칸 없음). 화면의 환산·합계는 예상이고 저장값은 서버가 계산한다
     const belowMoq = lines.flatMap((l) => {
       const { product, moq, orderUnit } = packingFor(l.product_id);
       const count = Number(l.quantity);
@@ -214,7 +208,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
             <select value={supplierId} style={S.block} onChange={(e) => {
               setSupplierId(e.target.value);
               const picked = suppliers.find((s) => String(s.id) === e.target.value);
-              if (picked) dispatch({ type: "supplier", currency: isCurrency(picked.default_currency) ? picked.default_currency : "KRW", freightTerms: picked.default_freight_terms, specialTerms: picked.default_special_terms }); // 기본 통화·운송비 조건·특약을 미리 채운다 (고치면 고친 값을 저장)
+              if (picked) dispatch({ type: "supplier", currency: FX_ENABLED && isCurrency(picked.default_currency) ? picked.default_currency : "KRW", freightTerms: picked.default_freight_terms, specialTerms: picked.default_special_terms }); // 기본 통화·운송비 조건·특약을 미리 채운다 (고치면 고친 값을 저장)
             }}>
               <option value="">선택</option>
               {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -224,11 +218,11 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         <Field label="약속 납기" className="field-half"><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
         <Field label="납품장소" className="field-half"><input value={deliveryAddress} maxLength={200} placeholder="비우면 회사 주소" onChange={(e) => setDeliveryAddress(e.target.value)} /></Field>
         <Field label="지불조건" className="field-half"><input value={paymentTerms} maxLength={200} placeholder={order ? "" : "비우면 공급업체 기본값"} onChange={(e) => setPaymentTerms(e.target.value)} /></Field>
-        <Field label="통화*" short="통화" className="field-half">
+        {FX_ENABLED && <Field label="통화*" short="통화" className="field-half">
           <select value={currency} onChange={(e) => isCurrency(e.target.value) && dispatch({ type: "currency", currency: e.target.value })} style={S.block}>
             {CURRENCY_CODES.map((c) => <option key={c} value={c}>{CURRENCIES[c].label}</option>)}
           </select>
-        </Field>
+        </Field>}
         {fx && (
           <Field label={`환율 (${rateUnitLabel(currency)})`} short="환율" className="field-half">
             <input inputMode="decimal" value={cost.rate} placeholder={`${rateUnitLabel(currency)} (예: ${currency === "JPY" ? "905.12" : "1350.25"})`} aria-label={`환율 ${rateUnitLabel(currency)}`}

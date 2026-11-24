@@ -1,4 +1,5 @@
 // 발주서 상세의 "원가" 카드 (#267, 내부 전용): 공급업체 문서·메일에는 나가지 않는다. 값은 모두 서버 cost 묶음을 그대로 보여 준다.
+import { FX_ENABLED } from "../../../lib/config"; // 외화 화면 스위치
 import { PurchaseOrder } from "../../../lib/po"; // 발주서 모양
 import { CURRENCIES, formatFxText, formatWon, FREIGHT_TERMS, rateUnitLabel } from "../../../lib/po-fx"; // 통화 이름·표시
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
@@ -22,7 +23,7 @@ export function CostCard({ order }: { order: PurchaseOrder }) {
     <section aria-labelledby="cost-heading" style={S.sectionCard}>
       <h2 id="cost-heading" style={{ marginTop: 0 }}>원가 <span style={S.hint}>(내부용, 공급업체 문서·메일에는 나가지 않습니다)</span></h2>
       <dl className="info-strip">
-        <div><dt>통화</dt><dd>{CURRENCIES[currency].label}</dd></div>
+        {FX_ENABLED && <div><dt>통화</dt><dd>{CURRENCIES[currency].label}</dd></div>}
         {fx && <div><dt>환율 ({rateUnitLabel(currency)})</dt><dd>{order.exchange_rate ?? "미입력"}{order.exchange_rate && (fixed ? " (승인 때 고정)" : " (승인 전, 바뀔 수 있음)")}</dd></div>}
         {fx && <div><dt>품목 외화 합계</dt><dd>{cost.goods_fx_total != null ? `${formatFxText(cost.goods_fx_total, currency)} ${currency}` : "-"}</dd></div>}
         <div><dt>품목 원화 합계</dt><dd>{won(cost.goods_krw, "환율 미입력")}{fx && cost.goods_krw !== null && (fixed ? " (고정)" : " (예상)")}</dd></div>

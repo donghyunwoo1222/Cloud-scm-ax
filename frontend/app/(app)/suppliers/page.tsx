@@ -10,6 +10,7 @@ import { StatusBadge } from "../../lib/status-badge"; // 색 + 글자 + 아이�
 import { useToast } from "../../lib/toast"; // 성공 알림 토스트
 import { useSubmitLock } from "../../lib/submit-lock"; // 중복 클릭 잠금
 import { InfoTip } from "../../lib/tip"; // 보조 설명 말풍선
+import { FX_ENABLED } from "../../lib/config"; // 외화 화면 스위치 (기본 꺼짐)
 import { CURRENCIES, CURRENCY_CODES, FREIGHT_TERMS, isCurrency, MAX_SPECIAL_TERMS } from "../../lib/po-fx"; // 기본 통화·운송비 조건 목록 (#267)
 import { S, bodyRow } from "../../lib/styles"; // 화면 공통 스타일
 
@@ -46,7 +47,7 @@ function toBody(form: Form) {
     email: form.email || null,
     payment_terms: form.payment_terms || null,
     memo: form.memo || null,
-    default_currency: form.default_currency, // 통화는 비울 수 없다(서버 기본 KRW)
+    default_currency: FX_ENABLED ? form.default_currency : "KRW", // 통화는 비울 수 없다. 꺼져 있으면 KRW 로 보낸다
     default_freight_terms: form.default_freight_terms || null, // 선택 안 함 → 미설정(null)
     default_special_terms: form.default_special_terms.trim() || null,
   };
@@ -123,11 +124,11 @@ export default function SuppliersPage() {
         <Field label="이메일"><input value={form.email} onChange={(e) => set("email", e.target.value)} /></Field>
         <Field label={<>지불조건 <InfoTip label="지불조건 설명" detail="발주서 문서에 기본으로 들어갈 결제 조건 (예: 월말 마감 익월 10일 현금)" /></>} short="지불조건"><input value={form.payment_terms} onChange={(e) => set("payment_terms", e.target.value)} /></Field>
         <Field label="메모"><input value={form.memo} onChange={(e) => set("memo", e.target.value)} /></Field>
-        <Field label={<>기본 통화 <InfoTip label="기본 통화 설명" detail="새 발주서를 쓸 때 미리 채워 주는 통화. 바꿔도 이미 만든 발주서는 그대로입니다" /></>} short="기본 통화" className="field-half">
+        {FX_ENABLED && <Field label={<>기본 통화 <InfoTip label="기본 통화 설명" detail="새 발주서를 쓸 때 미리 채워 주는 통화. 바꿔도 이미 만든 발주서는 그대로입니다" /></>} short="기본 통화" className="field-half">
           <select value={form.default_currency} onChange={(e) => set("default_currency", e.target.value)}>
             {CURRENCY_CODES.map((c) => <option key={c} value={c}>{CURRENCIES[c].label}</option>)}
           </select>
-        </Field>
+        </Field>}
         <Field label="기본 운송비 조건" short="운송비 조건" className="field-half">
           <select value={form.default_freight_terms} onChange={(e) => set("default_freight_terms", e.target.value)}>
             <option value="">선택 안 함</option>

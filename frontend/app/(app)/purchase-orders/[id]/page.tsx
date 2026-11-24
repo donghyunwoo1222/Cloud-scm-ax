@@ -562,7 +562,7 @@ function Detail() {
           })}
         </ul>
         <p className="compact-total"><span>발주 금액 합계</span><strong>{formatTotal(order)}</strong></p>
-        <p className="compact-total"><KrwConversion order={order} /></p>
+        {order.currency !== "KRW" && <p className="compact-total"><KrwConversion order={order} /></p>}
         {/* 합계는 표처럼 모든 품목 기준 */}
       </div>
       <CostCard order={order} />{/* 원가는 내부 전용: 발주 상세에만 보인다 */}

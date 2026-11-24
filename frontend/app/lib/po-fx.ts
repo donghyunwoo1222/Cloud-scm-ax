@@ -162,3 +162,29 @@ export function costReducer<L extends { unit_price: string }>(s: CostState<L>, a
     case "lines": return { ...s, lines: a.update(s.lines), cleared: false };
   }
 }
+
+// ── 서버로 보낼 본문 (순수 함수: 폼과 시험이 같은 함수를 쓴다) ──
+const num = (v: string) => (v === "" ? null : Number(v)); // "10" → 10, 비우면 null (범위 검사는 서버가 한다)
+export type PoFormValues = {
+  currency: Currency; rate: string; freightTerms: string; freightAmount: string; specialTerms: string;
+  extras: { name: string; amount: string }[];
+  lines: { product_id: string; quantity: string; unit_price: string; box: boolean }[];
+};
+// fxEnabled 가 꺼져 있으면 통화는 항상 "KRW" 이고 환율(exchange_rate)·외화 단가(fx_price) 키는 본문에 아예 없다.
+// 켜져 있으면 외화 통화에서만 환율·외화 단가를 넣는다 (원화 박스 줄은 단가를 서버가 품목 설정에서 읽는다).
+export function poPayload(v: PoFormValues, fxEnabled: boolean) {
+  const fx = fxEnabled && v.currency !== "KRW";
+  return {
+    currency: fxEnabled ? v.currency : ("KRW" as Currency),
+    ...(fx ? { exchange_rate: v.rate.trim() || null } : {}),
+    freight_terms: v.freightTerms || null,
+    freight_amount: v.freightAmount.trim() === "" ? null : Number(v.freightAmount), // 비움 = 미입력(null), 0 = 무료
+    extra_costs: v.extras.map((e) => ({ name: e.name.trim(), amount: Number(e.amount) })),
+    special_terms: v.specialTerms.trim() || null,
+    items: v.lines.map((l) => ({
+      product_id: num(l.product_id),
+      ...(l.box ? { box_quantity: num(l.quantity) } : { quantity: num(l.quantity) }),
+      ...(fx ? { fx_price: l.unit_price } : l.box ? {} : { unit_price: num(l.unit_price) }),
+    })),
+  };
+}

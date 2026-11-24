@@ -10,6 +10,7 @@ import { api } from "../../../lib/api"; // 공통 API 호출 함수
 import { ErrorText, Pager, useList } from "../../../lib/list"; // 목록 공통 부품
 import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
 import { fmtDate, formatOrderUnitPrice, isClosedWithRemainder, PurchaseOrder, STATUS_LABEL } from "../../../lib/po"; // 발주서 모양·상태 이름·날짜·단가 표시
+import { FX_ENABLED } from "../../../lib/config"; // 외화 화면 스위치
 import { CURRENCIES, FREIGHT_TERMS, isCurrency } from "../../../lib/po-fx"; // 기본 통화·운송비 조건 이름 (#267)
 import { StatusBadge } from "../../../lib/status-badge"; // 색 + 글자 + 아이콘 상태 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
@@ -61,7 +62,7 @@ function Detail() {
           <div><dt>연락처</dt><dd>{supplier.phone ?? "-"}</dd></div>
           <div><dt>이메일</dt><dd>{supplier.email ?? "-"}</dd></div>
           <div><dt>지불조건</dt><dd>{supplier.payment_terms ?? "-"}</dd></div>
-          <div><dt>기본 통화</dt><dd>{isCurrency(supplier.default_currency) ? CURRENCIES[supplier.default_currency].label : supplier.default_currency}</dd></div>
+          {FX_ENABLED && <div><dt>기본 통화</dt><dd>{isCurrency(supplier.default_currency) ? CURRENCIES[supplier.default_currency].label : supplier.default_currency}</dd></div>}
           <div><dt>기본 운송비 조건</dt><dd>{supplier.default_freight_terms ? FREIGHT_TERMS[supplier.default_freight_terms] ?? supplier.default_freight_terms : "-"}</dd></div>
           <div><dt>기본 특약</dt><dd>{supplier.default_special_terms ?? "-"}</dd></div>
           <div><dt>상태</dt><dd>{supplier.is_active ? <StatusBadge kind="ok">활성</StatusBadge> : <StatusBadge kind="unknown">비활성</StatusBadge>}</dd></div>
@@ -73,7 +74,7 @@ function Detail() {
       <div className="table-box">
       <table style={S.table}>
         <thead>
-          <tr style={S.headRow}><th>발주번호</th><th>상태</th><th>품목</th><th style={S.num}>발주 수량</th><th style={S.num}>단가</th><th>약속 납기</th><th>입고 완료일</th></tr>
+          <tr style={S.headRow}><th>발주번호</th><th>상태</th><th>품목</th><th style={S.num}>발주 수량</th><th style={S.num}>단가{FX_ENABLED ? "" : "(원)"}</th><th>약속 납기</th><th>입고 완료일</th></tr>
         </thead>
         <tbody>
           {list.rows.flatMap((o) =>
