@@ -16,7 +16,7 @@ import { boxLimit, can, fmtDate, fmtTime, formatLineAmount, formatOrderUnitPrice
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 import { dateRange } from "../../../lib/supplier-reply"; // 회신 납기 선택 범위 (서버와 같은 오늘 ~ 1년 뒤)
-import { CostCard, KrwConversion } from "./cost-card"; // 원가 카드 (#267, 내부 전용)
+import { CostCard, KrwConversion, TermsSection } from "./cost-card"; // 원가 카드 (#267, 내부 전용)
 import { ChangeLogSection } from "./change-log"; // 변경 이력 섹션 (#181)
 import { EmailLogSection } from "./email-log"; // 메일 발송 이력 섹션 (#182)
 import { reminderPanelOpen } from "../../../lib/reminder"; // 패널을 열어 둘지 정하는 규칙 (#269)
@@ -565,7 +565,7 @@ function Detail() {
         {order.currency !== "KRW" && <p className="compact-total"><KrwConversion order={order} /></p>}
         {/* 합계는 표처럼 모든 품목 기준 */}
       </div>
-      <CostCard order={order} />{/* 원가는 내부 전용: 발주 상세에만 보인다 */}
+      <CostCard order={order} /><TermsSection order={order} />{/* 원가는 내부 전용: 발주 상세에만 보인다 */}
       </>
       )}
 
