@@ -37,9 +37,12 @@ class PurchaseOrder(CompanyMixin, Base):
         ),
         # 원가 칸 (#267). 통화 목록은 po_money.CURRENCIES 와 같다
         CheckConstraint("currency IN ('KRW', 'USD', 'EUR', 'JPY', 'CNY', 'VND')", name="ck_purchase_orders_currency"),
-        CheckConstraint("rate_unit IN (1, 100)", name="ck_purchase_orders_rate_unit"),  # 기준 단위 (엔·동 100)
+        CheckConstraint("rate_unit IN (1, 100) AND (currency IN ('JPY', 'VND')) = (rate_unit = 100)",
+                        name="ck_purchase_orders_rate_unit"),  # 기준 단위: 엔·동 100, 그 밖 1 (po_money.CURRENCIES 와 같다)
         CheckConstraint("NOT (currency = 'KRW' AND exchange_rate IS NOT NULL) AND exchange_rate > 0",
                         name="ck_purchase_orders_exchange_rate"),  # 원화는 환율 없음, 외화는 작성 중 비어도 되지만 있으면 0 초과
+        CheckConstraint("approved_at IS NULL OR currency = 'KRW' OR exchange_rate IS NOT NULL",
+                        name="ck_purchase_orders_fx_rate_approved"),  # 승인한 외화 발주서는 환율이 있다
         CheckConstraint("approved_at IS NULL OR krw_goods_total IS NOT NULL",
                         name="ck_purchase_orders_krw_goods_total"),  # 승인한 발주서(승인 뒤 취소 포함)는 원화 스냅샷이 있다
         CheckConstraint("krw_goods_total >= 0 AND freight_amount >= 0", name="ck_purchase_orders_cost_amounts"),

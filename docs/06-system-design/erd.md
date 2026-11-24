@@ -173,8 +173,8 @@ erDiagram
 | supplier\_reply\_count | 정수 | 필수 | 공급업체 회신 횟수(#265, 기본 0) |
 | cancelled\_at | 시각 | 선택 | CANCELLED로 바뀐 시각 |
 | currency | 선택지 | 필수 | 통화(#267, 기본 KRW). 만들 때 공급업체 `default_currency` 를 복사. 바꾸면 품목 줄을 새 통화의 단가로 다시 보내야 한다(자동 환산 없음) |
-| rate\_unit | 정수 | 필수 | 환율 기준 단위 스냅샷(JPY·VND 100, 그 밖 1) |
-| exchange\_rate | 소수(12,2) | 선택 | 기준 단위당 원(예: 100엔 = 905.12). 원화는 NULL. 외화는 작성 중 비워도 되지만 승인 때 필수 |
+| rate\_unit | 정수 | 필수 | 환율 기준 단위 스냅샷(JPY·VND 100, 그 밖 1). 통화와 어긋나면 DB CHECK 가 거절한다(`po_money.CURRENCIES` 와 같은 값, 테스트로 고정) |
+| exchange\_rate | 소수(12,2) | 선택 | 기준 단위당 원(예: 100엔 = 905.12). 원화는 NULL. 외화는 작성 중 비워도 되지만 승인 때 필수. 승인한 적 있는 외화 발주서는 DB CHECK 로도 NULL 이 될 수 없다 |
 | krw\_goods\_total | 큰 정수 | 선택 | 품목 원화 합계 스냅샷. 승인할 때 계산해 고정한다(총액에서 한 번 원 미만 버림, `money-rules.md`). 승인한 적 있는 발주서(승인 뒤 취소 포함)는 항상 값이 있다(CHECK). 기존 승인 건은 마이그레이션 `e3c7a9f1b5d2` 가 줄 금액 합계로 채웠다 |
 | freight\_terms | 선택지 | 선택 | 운송비 조건(공급업체 기본값 복사) |
 | freight\_amount | 큰 정수 | 선택 | 운송비(원, 내부 전용). NULL = 미입력, 0 = 무료 |
