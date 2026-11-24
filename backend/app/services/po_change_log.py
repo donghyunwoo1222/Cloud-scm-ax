@@ -25,10 +25,23 @@ def text_of(value: object) -> str | None:
 
 def describe_line(values: dict) -> str:
     """줄 하나를 한 줄 문장으로. 예) '수량 120 · 단가 1,000원', 박스 줄은 '수량 120 · 단가 1,000원 · 박스 10개입 · 박스단가 10,000원'."""
-    text = f"수량 {values['quantity']:,} · 단가 {values['unit_price']:,}원"
+    text = f"수량 {values['quantity']:,}"
+    if values.get("unit_price") is not None:  # 원화 줄
+        text += f" · 단가 {values['unit_price']:,}원"
+    if values.get("fx_unit_price") is not None:  # 외화 줄 (#267). 통화는 발주서 currency 에 있다
+        text += f" · 외화 단가 {values['fx_unit_price']:,}"
     if values.get("units_per_box") is not None:  # 박스 줄이면 당시 입수·박스 단가도
-        text += f" · 박스 {values['units_per_box']:,}개입 · 박스단가 {values['box_unit_price']:,}원"
+        text += f" · 박스 {values['units_per_box']:,}개입"
+        if values.get("box_unit_price") is not None:
+            text += f" · 박스단가 {values['box_unit_price']:,}원"
+        if values.get("fx_box_unit_price") is not None:
+            text += f" · 외화 박스단가 {values['fx_box_unit_price']:,}"
     return text
+
+
+def describe_extras(extras: list[dict]) -> str | None:
+    """부대비용 목록을 한 줄로 (#267). 예) '통관 수수료 30,000원; 보험료 5,000원', 비었으면 None."""
+    return "; ".join(f"{c['name']} {c['amount']:,}원" for c in extras) or None
 
 
 def log_change(db: Session, company_id: int, order_id: int, user_id: int | None, changes: Iterable[Change],

@@ -1,14 +1,18 @@
 from datetime import date, datetime  # 날짜·시각 칸의 파이썬 타입
+from decimal import Decimal  # 외화 단가·환율 (float 금지, #267)
 
 from sqlalchemy import (  # 제약·인덱스 도구
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB  # 부대비용 줄 목록 (#267)
 from sqlalchemy.orm import Mapped, mapped_column  # 칸 정의 도구
 
 from app.models.base import Base, CompanyMixin  # 공통 부모와 회사 칸
@@ -31,6 +35,16 @@ class PurchaseOrder(CompanyMixin, Base):
             unique=True,
             postgresql_where=text("status = 'DRAFT'"),  # DRAFT인 행끼리만 유일 검사 → 공급업체당 DRAFT 1장
         ),
+        # 원가 칸 (#267). 통화 목록은 po_money.CURRENCIES 와 같다
+        CheckConstraint("currency IN ('KRW', 'USD', 'EUR', 'JPY', 'CNY', 'VND')", name="ck_purchase_orders_currency"),
+        CheckConstraint("rate_unit IN (1, 100)", name="ck_purchase_orders_rate_unit"),  # 기준 단위 (엔·동 100)
+        CheckConstraint("NOT (currency = 'KRW' AND exchange_rate IS NOT NULL) AND exchange_rate > 0",
+                        name="ck_purchase_orders_exchange_rate"),  # 원화는 환율 없음, 외화는 작성 중 비어도 되지만 있으면 0 초과
+        CheckConstraint("approved_at IS NULL OR krw_goods_total IS NOT NULL",
+                        name="ck_purchase_orders_krw_goods_total"),  # 승인한 발주서(승인 뒤 취소 포함)는 원화 스냅샷이 있다
+        CheckConstraint("krw_goods_total >= 0 AND freight_amount >= 0", name="ck_purchase_orders_cost_amounts"),
+        CheckConstraint("freight_terms IN ('INCLUDED', 'BILLED', 'COLLECT', 'EXW', 'FOB', 'CIF', 'DDP')",
+                        name="ck_purchase_orders_freight_terms"),
     )
 
     supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))  # 발주 대상 공급업체
@@ -57,6 +71,15 @@ class PurchaseOrder(CompanyMixin, Base):
     supplier_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 공급업체가 확인한 시각
     supplier_due_date: Mapped[date | None]  # 공급업체가 회신한 납기 (계산은 회신이 있으면 이 날짜를 쓴다)
     supplier_reply_count: Mapped[int] = mapped_column(Integer, server_default="0", default=0)  # 회신 횟수
+    # 원가 (#267): 작성 중(DRAFT)에만 고칠 수 있고 승인하면 그대로 고정된다. NULL = 미입력, 0 = 0원
+    currency: Mapped[str] = mapped_column(server_default="KRW")  # 통화 (만들 때 공급업체 기본 통화를 복사)
+    rate_unit: Mapped[int] = mapped_column(Integer, server_default="1")  # 환율 기준 단위 스냅샷 (엔·동 100, 그 밖 1)
+    exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # 기준 단위당 원 (예: 100엔 = 905.12). 원화는 NULL
+    krw_goods_total: Mapped[int | None] = mapped_column(BigInteger)  # 품목 원화 합계 스냅샷 (승인 때 계산·저장)
+    freight_terms: Mapped[str | None]  # 운송비 조건 코드 (공급업체 기본값 복사)
+    freight_amount: Mapped[int | None] = mapped_column(BigInteger)  # 운송비 (원, 내부 전용)
+    extra_costs: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"), default=list)  # 부대비용 [{name, amount}] (원, 내부 전용)
+    special_terms: Mapped[str | None]  # 특약 (공급업체 기본값 복사, 공급업체와 합의하는 글)
 
 
 class PurchaseOrderItem(CompanyMixin, Base):
@@ -69,22 +92,31 @@ class PurchaseOrderItem(CompanyMixin, Base):
         CheckConstraint("unit_price >= 0", name="ck_po_items_unit_price"),  # 단가는 0 이상
         CheckConstraint("recommended_quantity >= 0", name="ck_po_items_recommended_quantity"),  # 추천 수량은 0 이상 (비어 있으면 통과)
         CheckConstraint(
-            "(units_per_box IS NULL AND box_unit_price IS NULL) OR "
-            "(units_per_box IS NOT NULL AND box_unit_price IS NOT NULL "
-            "AND units_per_box BETWEEN 1 AND 1000000 AND box_unit_price BETWEEN 0 AND 100000000 "
+            "(units_per_box IS NULL AND box_unit_price IS NULL AND fx_box_unit_price IS NULL) OR "
+            "(units_per_box IS NOT NULL AND (box_unit_price IS NOT NULL OR fx_box_unit_price IS NOT NULL) "
+            "AND units_per_box BETWEEN 1 AND 1000000 AND (box_unit_price IS NULL OR box_unit_price BETWEEN 0 AND 100000000) "
             "AND quantity % NULLIF(units_per_box, 0) = 0 AND quantity <= 1000000)",
             name="ck_po_items_box_snapshot",
         ),
+        CheckConstraint(  # 원화 줄은 unit_price, 외화 줄은 fx 단가 하나만 (#267). 0 과 미입력을 섞지 않으려고 외화 줄의 원화 칸은 NULL
+            "(unit_price IS NOT NULL AND fx_unit_price IS NULL AND fx_box_unit_price IS NULL) OR "
+            "(unit_price IS NULL AND box_unit_price IS NULL AND (fx_unit_price IS NULL) <> (fx_box_unit_price IS NULL) "
+            "AND (fx_box_unit_price IS NULL) = (units_per_box IS NULL))",
+            name="ck_po_items_price_kind",
+        ),
+        CheckConstraint("fx_unit_price >= 0 AND fx_box_unit_price >= 0", name="ck_po_items_fx_price"),
         CheckConstraint("(units_per_box IS NULL) = (order_unit IS NULL)", name="ck_po_items_order_unit"),  # 발주단위 스냅샷은 박스 줄에만 (#185)
     )
 
     purchase_order_id: Mapped[int] = mapped_column(ForeignKey("purchase_orders.id"), index=True)  # 속한 발주서
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))  # 발주할 품목
     quantity: Mapped[int]  # 재고 기준 단위로 환산한 발주 수량
-    unit_price: Mapped[int]  # 발주 당시 재고 단위 단가 (원)
+    unit_price: Mapped[int | None]  # 발주 당시 재고 단위 단가 (원). 외화 줄은 NULL (#267)
     units_per_box: Mapped[int | None]  # 발주 줄 작성 당시 박스 입수
     box_unit_price: Mapped[int | None]  # 발주 줄 작성 당시 박스당 단가
     order_unit: Mapped[str | None]  # 발주 줄 작성 당시 발주단위 이름 (마스터를 바꿔도 이 줄은 그대로, #185)
     min_order_units: Mapped[int | None]  # 발주 줄 작성 당시 최소 주문량(발주단위 수) 스냅샷 (#194)
     recommended_quantity: Mapped[int | None]  # 추천으로 만든 줄이면 당시 추천 수량
     recommendation_reason: Mapped[str | None]  # 당시 화면에 보인 이유 문장
+    fx_unit_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))  # 외화 줄의 재고 단위 단가 (발주서 통화, #267)
+    fx_box_unit_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))  # 외화 박스 줄의 발주단위 단가

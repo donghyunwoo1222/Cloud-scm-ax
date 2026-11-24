@@ -1,6 +1,11 @@
 """여러 요청 모양이 함께 쓰는 칸 타입과 PATCH 규칙."""
 
-from typing import Annotated, ClassVar  # 타입에 검사를 덧붙이는 도구, 클래스 공통 값
+from decimal import Decimal  # 외화 단가·환율 (float 금지, #267)
+from typing import (  # 타입에 검사를 덧붙이는 도구, 클래스 공통 값, 정해진 값 중 하나
+    Annotated,
+    ClassVar,
+    Literal,
+)
 
 from fastapi import Header, Path, Query  # 헤더·경로·쿼리 칸 검사
 from pydantic import BaseModel, Field, StringConstraints, model_validator  # 모양 정의·검사 도구
@@ -22,6 +27,13 @@ MAX_ORDER_LINES = 2000  # 발주서 한 장의 품목 줄 수 상한 (서버 보
 MAX_DRAFT_ITEMS = 1000  # 추천으로 초안 만들기 1회 품목 상한 (서버 보호용, #184)
 
 Memo = Annotated[str, StringConstraints(max_length=1000)] | None  # 메모: 1000자까지
+
+# 원가 칸 (#267). 상한은 docs/06-system-design/money-rules.md 의 상한 테스트 범위와 같다(그 안에서는 계산이 정확하다)
+Currency = Literal["KRW", "USD", "EUR", "JPY", "CNY", "VND"]  # po_money.CURRENCIES 와 같은 목록
+FreightTerms = Literal["INCLUDED", "BILLED", "COLLECT", "EXW", "FOB", "CIF", "DDP"]  # 단가 포함·별도 청구·착불·인코텀즈 4개
+FxPrice = Annotated[Decimal, Field(ge=0, le=Decimal("99999999.99"), max_digits=10, decimal_places=2)]  # 외화 단가 (통화별 자릿수는 서비스가 본다)
+ExchangeRate = Annotated[Decimal, Field(gt=0, le=Decimal("9999.99"), max_digits=6, decimal_places=2)]  # 기준 단위당 원, 소수 둘째 자리까지
+BigWon = Annotated[int, Field(strict=True, ge=0, le=1_000_000_000_000)]  # 운송비·부대비용(원): 0~1조 원
 
 
 class PatchModel(BaseModel):

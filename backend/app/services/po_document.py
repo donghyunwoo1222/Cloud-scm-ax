@@ -105,6 +105,8 @@ def build_document(company_id: int, db: Session, order_id: int) -> dict:
     order = po_service.get_order(company_id, db, order_id)  # 다른 회사 404
     if order.status not in ACTION_STATES["document"]:  # 승인 이후만 (DRAFT·CANCELLED 는 409)
         raise AppError(409, "INVALID_STATUS", "승인된 발주서만 문서로 볼 수 있습니다.", {"status": order.status})
+    if order.currency != "KRW":  # shortcut: 외화 발주서 문서·엑셀·PDF·메일은 #267 PR 3 에서 연다(외화 표시·부가세 제외 표기). 그때 이 두 줄을 지운다
+        raise AppError(409, "FX_DOCUMENT_NOT_READY", "외화 발주서의 문서·메일은 아직 준비 중입니다.", {"currency": order.currency})
     out = po_service.build_out(company_id, db, [order])[0]  # 줄 금액은 발주서 응답과 같은 계산을 쓴다
     company = db.get_one(Company, company_id)
     supplier = get_owned(company_id, db, Supplier, order.supplier_id)

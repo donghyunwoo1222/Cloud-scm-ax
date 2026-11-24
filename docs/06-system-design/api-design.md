@@ -217,6 +217,15 @@
 - 화면: ANSWER 답에만 버튼. 한 번 누르면 두 버튼이 꺼지고 취소·변경 없음. 실패 문장은 그 답 칸에만 보이고 패널 오류 줄을 건드리지 않는다.
 - 한계: 누가 어느 답에 눌렀는지 저장하지 않아 같은 답에 여러 번 누르는 것(화면을 거치지 않은 직접 호출)은 막지 못한다. 그날 답한 수 안에서만 부풀릴 수 있다.
 
+### 발주서 원가 (#267 PR 1)
+
+- 작성·수정 본문에 `currency`(KRW·USD·EUR·JPY·CNY·VND), `exchange_rate`(기준 단위당 원, 0 초과 9,999.99 이하, 소수 둘째 자리까지), `freight_terms`(INCLUDED·BILLED·COLLECT·EXW·FOB·CIF·DDP), `freight_amount`(원, 0~1조, null = 미입력), `extra_costs`(`[{name(1~50자), amount(원)}]`, 최대 20줄), `special_terms`(1000자)가 생겼다. 작성에서 `currency`·`freight_terms`·`special_terms` 를 안 보내면 공급업체 기본값을 복사한다(보낸 null 은 비움). 수정에서 `currency` 는 null 불가, 통화를 바꾸면 `items` 도 함께 보내야 한다(422).
+- 품목 줄: 원화 발주서는 지금처럼 `unit_price`(원), 외화 발주서는 `fx_price`(재고 단위 줄은 재고 단위당, 박스 줄은 발주단위당)만 받는다. 섞으면 422. 외화 단가는 통화 최소 단위까지(USD 0.035·JPY 0.5 는 422, 센트 미만 미지원), 0 이상 99,999,999.99 이하. 원화에 환율을 주면 422. 금액 칸은 JSON 숫자 또는 숫자 글자를 받고, 응답의 외화 금액·환율은 글자(`"1350.25"`)다.
+- 응답: 발주서에 `currency`·`rate_unit`·`exchange_rate`·`krw_goods_total`(승인 때 고정)·`freight_terms`·`freight_amount`·`extra_costs`·`special_terms`, 그리고 서버가 계산한 `cost` 묶음 `{goods_fx_total, goods_krw, freight, extras_total, total, missing, received_goods_krw, received_total}`. `missing` 은 `exchange_rate`(외화인데 환율 없음)·`freight`(운송비 미입력). `received_*` 는 발주함·입고 완료에서 누적 입고 수량 기준(잔량 마감 수량 제외, 운송비·부대비용은 전액). 줄에는 `fx_unit_price`·`fx_box_unit_price`·`fx_line_total` 이 생겼고, 외화 줄은 `unit_price`·`line_total` 이 null 이다(줄에는 원화를 두지 않는다).
+- 원가 칸은 내부 전용이다. 공급업체용 문서(`/document`·`document.xlsx`·PDF·메일)는 바뀌지 않았고, 외화 발주서의 문서·메일은 PR 3 전까지 409 `FX_DOCUMENT_NOT_READY`.
+- 공급업체 등록·수정·응답에 `default_currency`(기본 KRW, 수정에서 null 불가)·`default_freight_terms`·`default_special_terms`.
+- 발주서 내보내기(`/purchase-orders/export`)에 통화·환율·운송비 조건·운송비·부대비용 합계·특약·품목 원화 합계·원가, 줄별 외화 단가·외화 발주단위 단가·외화 금액 열이 생겼다.
+
 ### 회사 정보 (#156)
 
 - `GET /company`: `id`·`name`·`business_number`·`representative`·`address`·`phone`(비어 있으면 null). `PATCH /company`: 보낸 칸만 바꾸고, `null`·빈 글자는 비운다(관리자만, 담당자 403). 회사명·`id`·`company_id`는 받지 않는다(무시).
@@ -306,7 +315,7 @@
 
 | 경로 | 출발 상태 | 도착 상태 | 역할 | 추가 검사 | 남기는 칸 |
 | --- | --- | --- | --- | --- | --- |
-| approve | DRAFT | APPROVED | 관리자 | 비활성 업체·품목이 들면 409 `INACTIVE_REFERENCE` | approved\_by, approved\_at |
+| approve | DRAFT | APPROVED | 관리자 | 비활성 업체·품목이 들면 409 `INACTIVE_REFERENCE`, 외화인데 환율이 없으면 422 `VALIDATION_ERROR`(#267) | approved\_by, approved\_at, krw\_goods\_total |
 | order | APPROVED | ORDERED | 둘 다 | 없음 | ordered\_at |
 | cancel | DRAFT, APPROVED, ORDERED | CANCELLED | 둘 다 | 연결된 RECEIPT 행이 있으면 409 `CANNOT_CANCEL_RECEIVED` | cancelled\_at |
 
@@ -356,7 +365,7 @@
 
 서버는 받은 품목의 추천을 다시 계산해 `recommended_quantity`와 `recommendation_reason`을 저장하고(화면이 보낸 값을 믿지 않는다), `quantity`는 사용자가 고친 값 그대로 둔다. 그래야 나중에 "추천 대비 수정 비율"을 잴 수 있다. 품목을 공급업체별로 묶어 공급업체당 DRAFT 발주서 1장에 담는다(S9). 그 공급업체의 DRAFT가 이미 있으면 새로 만들지 않고 품목만 추가한다(S10). 응답은 품목이 들어간 발주서 목록이고, 각 발주서에 `created: true`(새로 만든 것) 또는 `false`(기존 초안에 추가한 것)를 붙인다. 이미 그 초안에 같은 품목이 있으면 409 `DUPLICATE_ITEM`으로 막는다(임시 확정). 비활성 품목이나 기본 공급업체가 비활성인 품목은 초안을 만들 수 없다(409 `INACTIVE_REFERENCE`).
 
-#40 구현에서 정한 것(2026-11-04): 한 요청의 `items`는 1~1,000개(넘으면 422, #184에서 100에서 올림), `quantity`는 1~100만, 추천 수량 칸을 보내면 422(서버만 정한다). 다시 계산했을 때 추천 대상이 아닌 품목(재고 충분·데이터 부족·30일 판매 없음)이 하나라도 있으면 409 `NOT_RECOMMENDED`로 전체를 거절한다(details에 품목별 `reason`: `ENOUGH_STOCK`·`INSUFFICIENT_DATA`·`NO_SALES_30D`). 같은 요청을 두 번 보내면 두 번째는 409 `DUPLICATE_ITEM`(details에 기존 초안 id·발주번호)이고 아무것도 바뀌지 않는다. 하나라도 막히면 앞 업체의 초안도 저장되지 않는다. 단가는 품목 단가, 납기는 오늘 + 리드타임, 응답은 201과 `data: [발주서 + created]`. 동시 요청은 회사 행을 잠가 한 줄로 세운다(부분 고유 인덱스는 마지막 방어).
+#40 구현에서 정한 것(2026-11-04): 한 요청의 `items`는 1~1,000개(넘으면 422, #184에서 100에서 올림), `quantity`는 1~100만, 추천 수량 칸을 보내면 422(서버만 정한다). 다시 계산했을 때 추천 대상이 아닌 품목(재고 충분·데이터 부족·30일 판매 없음)이 하나라도 있으면 409 `NOT_RECOMMENDED`로 전체를 거절한다(details에 품목별 `reason`: `ENOUGH_STOCK`·`INSUFFICIENT_DATA`·`NO_SALES_30D`). 같은 요청을 두 번 보내면 두 번째는 409 `DUPLICATE_ITEM`(details에 기존 초안 id·발주번호)이고 아무것도 바뀌지 않는다. 하나라도 막히면 앞 업체의 초안도 저장되지 않는다. 기본 통화가 외화인 공급업체, 또는 외화로 작성 중인 초안이 있는 공급업체의 품목이 하나라도 있으면 409 `FOREIGN_CURRENCY_SUPPLIER`로 전체를 거절한다(#267, 메시지에 업체 이름과 "작성 화면에서 직접 만드세요", details 에 `supplier_id`·`supplier_name`). 슬랙 초안도 같은 메시지를 보여 준다. 단가는 품목 단가(원), 납기는 오늘 + 리드타임, 운송비 조건·특약은 공급업체 기본값, 응답은 201과 `data: [발주서 + created]`. 동시 요청은 회사 행을 잠가 한 줄로 세운다(부분 고유 인덱스는 마지막 방어).
 
 박스 설정 품목의 초안 요청은 `product_id`만 보내면 서버가 다시 계산한 추천량을 박스 수로 올림한다(#110). 박스 수를 직접 정하려면 `box_quantity`를 보낸다. `quantity`를 보내면 기존처럼 재고 단위로 발주한다. 두 수량 칸에 명시적으로 `null`을 보내면 422다. 박스 설정이 없는 품목에는 `quantity`가 필요하다. 박스 환산 후 수량 상한과 박스 설정 검사는 수동 발주와 같다.
 
@@ -398,6 +407,8 @@
 | DUPLICATE\_ITEM | 409 | 같은 발주서(초안)에 같은 품목을 두 줄 넣거나 다시 넣음 | S10 |
 | NOT\_RECOMMENDED | 409 | 추천으로 초안 만들기에서 다시 계산해 보니 추천 대상이 아닌 품목이 있음(details에 품목·사유, #40) | F8 |
 | DUPLICATE\_DRAFT | 409 | 이미 DRAFT가 있는 공급업체에 새 발주서를 만듦. details에 기존 발주서 id·발주번호(#33) | S10 |
+| FOREIGN\_CURRENCY\_SUPPLIER | 409 | 추천·슬랙 초안에 외화 공급업체(기본 통화 외화이거나 외화로 작성 중인 초안이 있는 업체)의 품목이 들어 있음. 전체 거절, 메시지에 업체 이름(#267) | 원가(#267) |
+| FX\_DOCUMENT\_NOT\_READY | 409 | 외화 발주서의 문서·엑셀·메일(#267 PR 3 전 임시) | 원가(#267) |
 | INACTIVE\_REFERENCE | 409 | 비활성 공급업체를 품목의 기본 공급업체로 고르거나(등록·수정, #26), 비활성 공급업체·품목을 새 발주서 작성·품목 추가·추천 초안 생성에 쓰거나, 비활성이 든 DRAFT를 승인. 출고·조정·정정, 이미 ORDERED인 발주의 입고, 발주 없는 직접 입고에는 내지 않는다 | 비활성 범위(A3) |
 | EMAIL\_TAKEN | 409 | 이미 쓰는 이메일로 계정 생성 | F1 |
 | LAST\_ADMIN | 409 | 회사의 마지막 활성 관리자를 담당자로 바꾸거나 비활성으로 바꿈(자기 자신 포함). 직원 변경은 회사 행을 잠근 뒤 대상 직원을 읽어 검사한다(#71) | F1 |

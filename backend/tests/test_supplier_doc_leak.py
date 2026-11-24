@@ -76,6 +76,7 @@ def doc(monkeypatch):
         supplier_id=supplier_id, created_by=user_id, approved_by=user_id, approved_at=now, approved_company_name=None,
         due_date=None, delivery_address=None, payment_terms="월말", memo=MEMO,
         emailed_at=now, emailed_to=EMAILED, emailed_by=user_id,
+        currency="KRW",  # 원화 발주서 (#267 PR 1: 외화 문서는 PR 3 전까지 409)
     )
     company = SimpleNamespace(id=company_id, name="한빛생활", business_number="1234567890", representative="홍길동",
                               phone="02-1", address="서울시 1")

@@ -253,8 +253,11 @@ def movements(
 
 
 ORDER_HEADERS = ["발주번호", "상태", "공급업체", "납기", "메모", "납품장소", "지불조건", "작성자", "작성 시각", "승인자", "승인 시각",
-                 "발주 시각", "입고 완료 시각", "취소 시각", "SKU", "품목명", "발주단위 수량", "발주단위 이름", "환산계수",
-                 "기본단위 수량", "기본단위 이름", "단가", "발주단위 단가", "금액", "누적 입고량", "회신 납기"]
+                 "발주 시각", "입고 완료 시각", "취소 시각",
+                 "통화", "환율", "운송비 조건", "운송비", "부대비용 합계", "특약", "품목 원화 합계", "원가",  # 원가 칸 (#267, 내부 전용 내보내기)
+                 "SKU", "품목명", "발주단위 수량", "발주단위 이름", "환산계수",
+                 "기본단위 수량", "기본단위 이름", "단가", "발주단위 단가", "금액", "외화 단가", "외화 발주단위 단가", "외화 금액",
+                 "누적 입고량", "회신 납기"]
 
 
 def orders(
@@ -301,6 +304,9 @@ def orders(
             head = [o.po_number, o.status, suppliers[o.supplier_id].name, day(o.due_date), o.memo, o.delivery_address, o.payment_terms,
                     names.get(o.created_by), seoul_time(o.created_at), names.get(o.approved_by), seoul_time(o.approved_at),
                     seoul_time(o.ordered_at), seoul_time(o.received_at), seoul_time(o.cancelled_at)]
+            cost = po_service.cost_of(o, by_order.get(o.id, []), received)  # 화면 원가 카드와 같은 계산 (#267)
+            head += [o.currency, o.exchange_rate, o.freight_terms, o.freight_amount, cost.extras_total, o.special_terms,
+                     cost.goods_krw, cost.total]
             for i in by_order.get(o.id) or [None]:  # 줄이 없으면 빈 품목 칸 한 줄
                 if i is None:
                     rows.append(head + [None] * (len(ORDER_HEADERS) - len(head) - 1) + [day(o.supplier_due_date)])
@@ -308,7 +314,8 @@ def orders(
                 p = products[i.product_id]
                 boxed = i.units_per_box is not None  # 발주단위 줄인가
                 rows.append(head + [p.sku, p.name, i.quantity // i.units_per_box if boxed else None, i.order_unit, i.units_per_box,
-                                    i.quantity, p.unit, i.unit_price, i.box_unit_price, po_service.line_total(i), received.get(i.id, 0), day(o.supplier_due_date)])
+                                    i.quantity, p.unit, i.unit_price, i.box_unit_price, po_service.line_total(i),
+                                    i.fx_unit_price, i.fx_box_unit_price, po_service.fx_line_total(i), received.get(i.id, 0), day(o.supplier_due_date)])
         return rows
 
     return export(user, "purchase-orders", fmt, ORDER_HEADERS, fetch, to_rows, count_rows)

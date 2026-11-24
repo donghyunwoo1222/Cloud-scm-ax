@@ -6,6 +6,7 @@
 from collections import defaultdict  # 없는 키는 빈 목록으로 시작하는 딕셔너리
 from collections.abc import Sequence  # 발주 줄과 추천 초안 줄을 공통으로 검사한다
 from datetime import date, datetime, time, timedelta  # 납기 비교와 입고 시각
+from decimal import Decimal  # 외화 단가·환율 (#267)
 
 from sqlalchemy import case, delete, func, select  # 삭제, 조건 합계, 합계, SELECT 문
 from sqlalchemy.orm import Session  # DB 세션 타입
@@ -24,6 +25,7 @@ from app.models import (  # 표들
 from app.pagination import PageParams, paginate  # 목록 쪽 나누기
 from app.schemas.common import MAX_QUANTITY  # 환산 후에도 기존 재고 단위 상한 적용
 from app.schemas.purchase_orders import (  # 요청·응답 모양
+    CostOut,
     ItemIn,
     ItemOut,
     PurchaseOrderCreate,
@@ -33,8 +35,10 @@ from app.schemas.purchase_orders import (  # 요청·응답 모양
     ReceiptDue,
 )
 from app.schemas.recommendations import DraftItemIn  # 추천 초안의 요청 줄
+from app.services import po_money  # 금액 규칙 순수 함수 (#267 PR 0)
 from app.services.po_change_log import (  # 변경 이력 (#181)
     Change,
+    describe_extras,
     describe_line,
     log_change,
     text_of,
@@ -129,6 +133,117 @@ def order_item_values(
     }
 
 
+CENT = Decimal("0.01")  # 외화 단가·환율은 소수 둘째 자리로 맞춰 저장한다("0.5"·"0.50"이 다른 값으로 이력에 남지 않게)
+FOREIGN_SUPPLIER = "FOREIGN_CURRENCY_SUPPLIER"  # 추천·슬랙 초안이 외화 공급업체를 만났을 때의 오류 코드 (#267)
+# 줄 칸 전체: 수정할 때 이 칸들을 모두 다시 쓴다(통화가 바뀌면 원화 칸과 외화 칸이 서로 바뀌므로 빠진 칸은 비운다)
+LINE_FIELDS = ("quantity", "unit_price", "units_per_box", "box_unit_price", "order_unit",
+               "fx_unit_price", "fx_box_unit_price", "min_order_units")
+
+
+def money_invalid(field: str, message: str) -> AppError:
+    return AppError(422, "VALIDATION_ERROR", message, [{"field": field, "reason": "invalid"}])  # 금액 규칙 위반은 422
+
+
+def checked_rate(currency: str, rate: Decimal | None) -> Decimal | None:
+    """환율 검사: 원화에 환율을 주면 422, 외화는 비워도 된다(승인 때 필수). 저장은 소수 둘째 자리로."""
+    if rate is None:
+        return None
+    if currency == "KRW":
+        raise money_invalid("exchange_rate", "원화(KRW) 발주서에는 환율을 적지 않습니다.")
+    try:
+        return po_money.parse_rate(rate, currency).quantize(CENT)
+    except po_money.MoneyError as exc:
+        raise money_invalid("exchange_rate", str(exc)) from None
+
+
+def fx_item_values(product: Product, currency: str, quantity: int | None, box_quantity: int | None,
+                   fx_price: Decimal | None, existing: PurchaseOrderItem | None = None) -> dict:
+    """외화 발주 줄 (#267): 단가는 화면이 보낸 외화 값(품목 마스터의 원화 단가는 쓰지 않는다). 박스 입수·발주단위는 원화 줄과 같은 스냅샷."""
+    if fx_price is None:
+        raise money_invalid("items", "외화 발주서의 품목 줄에는 외화 단가(fx_price)를 보내세요.")
+    try:
+        price = po_money.check_fx_price(fx_price, currency).quantize(CENT)  # USD 0.035·JPY 0.5 는 422
+    except po_money.MoneyError as exc:
+        raise money_invalid("items", str(exc)) from None
+    moq = existing.min_order_units if existing is not None else product.min_order_units  # 기존 줄은 당시 값 유지
+    if existing is not None and existing.units_per_box is not None:  # 기존 박스 줄은 당시 입수·이름 유지
+        units, order_unit = existing.units_per_box, existing.order_unit
+        if box_quantity is None:
+            if quantity % units:
+                raise AppError(422, "VALIDATION_ERROR", "박스 발주 줄은 box_quantity로 박스 수를 변경하세요.")
+            box_quantity = quantity // units
+    elif box_quantity is not None:
+        units, order_unit = product.units_per_box, product.order_unit  # 새 박스 줄의 조건
+    else:
+        return {"quantity": quantity, "fx_unit_price": price, "min_order_units": moq}
+    return {"quantity": stock_quantity(box_quantity, units), "units_per_box": units, "order_unit": order_unit,
+            "fx_box_unit_price": price, "min_order_units": moq}
+
+
+def item_values(product: Product, currency: str, item: ItemIn, existing: PurchaseOrderItem | None = None) -> dict:
+    """요청 줄 → 저장할 칸. 원화 발주는 unit_price(원), 외화 발주는 fx_price 만 받는다. 빠진 칸은 None 으로 채워 LINE_FIELDS 전체를 돌려준다."""
+    if currency == "KRW":
+        if item.fx_price is not None:
+            raise money_invalid("items", "원화(KRW) 발주서의 품목 줄에는 fx_price를 보내지 않습니다. unit_price(원)를 보내세요.")
+        values = order_item_values(product, item.quantity, item.unit_price, item.box_quantity, existing)
+    else:
+        if item.unit_price is not None:
+            raise money_invalid("items", "외화 발주서의 품목 줄에는 unit_price(원) 대신 fx_price(외화 단가)를 보내세요.")
+        values = fx_item_values(product, currency, item.quantity, item.box_quantity, item.fx_price, existing)
+    return {field: values.get(field) for field in LINE_FIELDS}
+
+
+def fx_line_total(i: PurchaseOrderItem) -> Decimal | None:
+    """외화 줄 금액 (정확한 값): 박스 줄은 박스 수 × 외화 박스 단가, 아니면 수량 × 외화 단가. 원화 줄은 None."""
+    if i.fx_box_unit_price is not None:
+        return po_money.fx_line_amount(i.quantity // i.units_per_box, i.fx_box_unit_price)
+    if i.fx_unit_price is not None:
+        return po_money.fx_line_amount(i.quantity, i.fx_unit_price)
+    return None
+
+
+def goods_krw_of(currency: str, rate: Decimal | None, items: Sequence[PurchaseOrderItem]) -> int | None:
+    """품목 원화 합계 (#282 규칙: 총액에서 한 번 버림). 외화인데 환율이 없으면 None. 승인 때 이 값을 krw_goods_total 로 고정한다."""
+    if currency == "KRW":
+        return po_money.goods_krw_total([line_total(i) for i in items], "KRW")
+    if rate is None:
+        return None
+    return po_money.goods_krw_total([fx_line_total(i) for i in items], currency, rate)
+
+
+def price_of(i: PurchaseOrderItem):
+    """줄에 저장된 가격 하나 (원화 단가·박스 단가·외화 단가·외화 박스 단가 중). 박스 줄이면 박스 하나 값."""
+    if i.units_per_box is not None:
+        return i.box_unit_price if i.box_unit_price is not None else i.fx_box_unit_price
+    return i.unit_price if i.unit_price is not None else i.fx_unit_price
+
+
+def cost_of(o: PurchaseOrder, items: Sequence[PurchaseOrderItem], received: dict[int, int]) -> CostOut:
+    """원가 합산 (#267, 저장하지 않는다). 승인 뒤에는 고정된 스냅샷을 쓴다. 입고 기준은 발주함·입고 완료에서 누적 입고 수량으로(마감 수량 제외).
+
+    예) 품목 1,380,000 + 운송비 120,000 + 부대비용 30,000 = 원가 1,530,000 (부가세 미포함)
+    """
+    goods = o.krw_goods_total if o.krw_goods_total is not None else goods_krw_of(o.currency, o.exchange_rate, items)
+    extras = [c["amount"] for c in o.extra_costs]
+    missing = [] if goods is not None else ["exchange_rate"]  # 외화인데 환율이 없다
+    total, received_goods, received_total = None, None, None
+    if goods is not None:
+        total, more = po_money.cost_total(goods, o.freight_amount, extras)
+        missing += more  # 운송비 미입력이면 "freight"
+    elif o.freight_amount is None:
+        missing.append("freight")
+    if o.status in ("ORDERED", "RECEIVED") and goods is not None:  # 승인 뒤라 외화도 환율이 있다
+        rate = None if o.currency == "KRW" else o.exchange_rate
+        received_goods = po_money.received_goods_krw([  # (입고 재고 단위 수, 가격, 그 가격이 몇 재고 단위당인지)
+            (received.get(i.id, 0), price_of(i), i.units_per_box or 1) for i in items], o.currency, rate)
+        received_total = po_money.cost_total(received_goods, o.freight_amount, extras)[0]  # 운송비·부대비용은 전액
+    fx_total = None
+    if o.currency != "KRW":  # 표시용 합계. 상한 안에서는 28자리로 정확하다(원화 환산은 goods_krw_total 이 한다)
+        fx_total = sum((fx_line_total(i) for i in items), Decimal(0))
+    return CostOut(goods_fx_total=fx_total, goods_krw=goods, freight=o.freight_amount, extras_total=sum(extras),
+                   total=total, missing=missing, received_goods_krw=received_goods, received_total=received_total)
+
+
 def next_po_number(company_id: int, db: Session) -> str:
     """발주번호 = PO-서울 오늘 날짜-그날 회사의 발주 순번 (예: PO-20261104-003). 호출한 쪽이 회사 행을 잠근 상태여야 순번이 안 겹친다."""
     prefix = f"PO-{seoul_today():%Y%m%d}-"  # 예) PO-20261104-
@@ -143,8 +258,10 @@ def create_order(company_id: int, db: Session, user_id: int, data: PurchaseOrder
     if not supplier.is_active:  # 비활성 업체는 새 발주에 못 쓴다
         raise inactive("supplier_id", "비활성 공급업체에는 새 발주서를 만들 수 없습니다.")
     products = check_items(company_id, db, data.items, keep=set())  # 같은 회사의 품목으로 환산한다
-    lines = {i.product_id: order_item_values(products[i.product_id], i.quantity, i.unit_price, i.box_quantity)
-             for i in data.items}
+    sent = data.model_fields_set  # 보낸 칸 (안 보낸 원가 조건은 공급업체 기본값을 복사한다, #267)
+    currency = data.currency or supplier.default_currency
+    rate = checked_rate(currency, data.exchange_rate)
+    lines = {i.product_id: item_values(products[i.product_id], currency, i) for i in data.items}
     db.execute(select(Company.id).where(Company.id == company_id).with_for_update())  # 회사 행 잠금: 같은 회사의 동시 작성이 한 줄로 서서 발주번호·DRAFT 검사가 안 겹친다
     draft = db.scalar(scoped(company_id, PurchaseOrder).where(
         PurchaseOrder.supplier_id == supplier.id, PurchaseOrder.status == "DRAFT"))  # 이 업체의 기존 DRAFT
@@ -159,6 +276,10 @@ def create_order(company_id: int, db: Session, user_id: int, data: PurchaseOrder
         due_date=data.due_date, memo=data.memo, created_by=user_id,  # 상태는 DB 기본값 DRAFT
         delivery_address=data.delivery_address or None,  # 빈 글자는 비움
         payment_terms=data.payment_terms or supplier.payment_terms,  # 안 보내면 공급업체 기본값을 복사 (#157)
+        currency=currency, rate_unit=po_money.CURRENCIES[currency][0], exchange_rate=rate,  # 원가 칸 (#267)
+        freight_terms=data.freight_terms if "freight_terms" in sent else supplier.default_freight_terms,
+        special_terms=(data.special_terms if "special_terms" in sent else supplier.default_special_terms) or None,
+        freight_amount=data.freight_amount, extra_costs=[c.model_dump() for c in data.extra_costs or []],
     )
     db.add(order)
     db.flush()  # 발주서 id 받기 (확정은 아직)
@@ -178,21 +299,29 @@ def update_order(company_id: int, db: Session, user_id: int, order_id: int, data
         raise AppError(409, "INVALID_STATUS", f"작성 중인 발주서만 수정할 수 있습니다. 지금은 {STATUS_NAMES[order.status]}입니다.",
                        {"status": order.status})
     changes: list[Change] = []  # 이력에 남길 (항목, 전, 후)
+    fields = data.model_dump(exclude_unset=True, exclude={"items"})  # 납기·메모·납품장소·지불조건·원가 칸 중 보낸 칸
+    currency = fields.get("currency", order.currency)
+    currency_changed = currency != order.currency
+    if currency_changed:
+        if data.items is None:  # 원화 단가와 외화 단가는 서로 바꿔 쓸 수 없다 (자동 환산 없음, 결정 12)
+            raise money_invalid("items", "통화를 바꾸면 품목 줄(items)을 새 통화의 단가로 함께 보내 주세요.")
+        fields.setdefault("exchange_rate", None)  # 다른 통화의 환율은 버린다 (보낸 값이 있으면 그 값)
+        fields["rate_unit"] = po_money.CURRENCIES[currency][0]
+    if "exchange_rate" in fields:
+        fields["exchange_rate"] = checked_rate(currency, fields["exchange_rate"])
     if data.items is not None:  # 품목 줄을 보냈으면
         existing = {i.product_id: i for i in db.scalars(scoped(company_id, PurchaseOrderItem).where(
             PurchaseOrderItem.purchase_order_id == order.id))}  # 지금 줄들 (품목 id → 줄)
         products = check_items(company_id, db, data.items, keep=set(existing))  # 새로 넣는 줄만 활성 필요
-        lines = {i.product_id: order_item_values(
-            products[i.product_id], i.quantity, i.unit_price, i.box_quantity, existing.get(i.product_id),
+        lines = {i.product_id: item_values(  # 통화가 바뀌면 기존 줄의 당시 박스 조건 대신 지금 품목 설정으로 다시 만든다
+            products[i.product_id], currency, i, None if currency_changed else existing.get(i.product_id),
         ) for i in data.items}
         gone = [pid for pid in existing if pid not in lines]  # 목록에서 빠진 줄의 품목 id
         skus = {pid: p.sku for pid, p in products.items()}  # 품목 id → SKU (이력에서 줄을 SKU 로 가리킨다)
         skus.update(db.execute(select(Product.id, Product.sku).where(Product.id.in_(gone))).all() if gone else {})  # 빠진 줄 품목의 SKU 는 한 번에
         for pid in gone:  # 삭제 직전 값을 한 줄 문장으로 남긴다 (삭제 뒤에는 읽을 수 없다)
             item = existing[pid]
-            changes.append((f"items[{skus[pid]}]", describe_line({
-                "quantity": item.quantity, "unit_price": item.unit_price,
-                "units_per_box": item.units_per_box, "box_unit_price": item.box_unit_price}), None))
+            changes.append((f"items[{skus[pid]}]", describe_line({field: getattr(item, field) for field in LINE_FIELDS}), None))
         if gone:
             db.execute(delete(PurchaseOrderItem).where(PurchaseOrderItem.id.in_([existing[pid].id for pid in gone])))  # 삭제 (DRAFT 줄은 입고 이력이 없다)
         for pid, values in lines.items():
@@ -204,10 +333,14 @@ def update_order(company_id: int, db: Session, user_id: int, order_id: int, data
             else:  # 새 줄
                 db.add(PurchaseOrderItem(company_id=company_id, purchase_order_id=order.id, product_id=pid, **values))
                 changes.append((f"items[{skus[pid]}]", None, describe_line(values)))
-    for field, value in data.model_dump(exclude_unset=True, exclude={"items"}).items():  # 납기·메모·납품장소·지불조건 중 보낸 칸 (줄 검사를 모두 통과한 뒤에 바꾼다)
-        if field in ("delivery_address", "payment_terms"):
+    for field, value in fields.items():  # 보낸 칸 (줄 검사를 모두 통과한 뒤에 바꾼다)
+        if field in ("delivery_address", "payment_terms", "special_terms"):
             value = value or None  # 빈 글자는 비움
-        changes.append((field, text_of(getattr(order, field)), text_of(value)))  # 바꾸기 전 값
+        if field == "extra_costs":
+            value = value or []  # null 은 빈 목록
+            changes.append((field, describe_extras(order.extra_costs), describe_extras(value)))
+        elif field != "rate_unit":  # 기준 단위는 통화에서 정해지는 값이라 이력은 currency 한 줄로 충분하다
+            changes.append((field, text_of(getattr(order, field)), text_of(value)))  # 바꾸기 전 값
         setattr(order, field, value)
     log_change(db, company_id, order.id, user_id, changes)  # 같은 트랜잭션, 한 번의 INSERT. 같은 값인 칸은 행이 안 생긴다
     db.flush()
@@ -243,6 +376,13 @@ def change_status(company_id: int, db: Session, user_id: int, order_id: int, act
         raise AppError(409, "INVALID_STATUS", f"{STATUS_NAMES[order.status]} 상태의 발주서는 이 작업을 할 수 없습니다.", {"status": order.status})
     if action == "approve":
         check_active_for_approval(company_id, db, order)  # 비활성 업체·품목이 들어 있으면 409
+        items = list(db.scalars(scoped(company_id, PurchaseOrderItem).where(PurchaseOrderItem.purchase_order_id == order.id)))
+        goods = goods_krw_of(order.currency, order.exchange_rate, items)  # 승인 때 원화 금액을 고정한다 (#267, #282)
+        if goods is None:
+            raise money_invalid("exchange_rate", "외화 발주서는 환율을 입력해야 승인할 수 있습니다. 작성 화면에서 환율을 적어 주세요.")
+        order.krw_goods_total = goods
+        if order.currency != "KRW":  # 외화는 고정된 원화 금액을 이력에 남긴다 (원화는 줄 금액 합계와 같아 남기지 않는다)
+            log_change(db, company_id, order.id, user_id, [("krw_goods_total", None, str(goods))])
         order.approved_by, order.approved_at = user_id, func.now()  # 승인자·승인 시각 (상태 이력 표 대신 칸에 남긴다)
         order.approved_company_name = db.get_one(Company, company_id).name  # 도장에 쓸 승인 시점 회사명 (#263)
     elif action == "order":
@@ -440,8 +580,10 @@ def close_remaining(company_id: int, db: Session, user_id: int, order_id: int, r
     return order
 
 
-def line_total(i: PurchaseOrderItem) -> int:
-    """발주 줄 금액: 발주단위 줄은 발주단위 수량 × 발주단위 단가, 아니면 수량 × 단가 (화면과 내보내기가 함께 쓴다)."""
+def line_total(i: PurchaseOrderItem) -> int | None:
+    """발주 줄 금액(원): 발주단위 줄은 발주단위 수량 × 발주단위 단가, 아니면 수량 × 단가 (화면과 내보내기가 함께 쓴다). 외화 줄은 None."""
+    if i.unit_price is None:  # 외화 줄: 줄에는 원화를 두지 않는다 (#282)
+        return None
     if i.units_per_box is None:
         return i.quantity * i.unit_price
     return (i.quantity // i.units_per_box) * i.box_unit_price
@@ -465,13 +607,16 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder], role: s
     received = received_quantities(company_id, db, [i.id for i in items])  # 줄 id → 누적 입고량
     statuses = {o.id: o.status for o in orders}  # 발주서 id → 상태 (마감 수량은 RECEIVED 에서만)
     by_order = defaultdict(list)  # 발주서 id → 줄 응답들
+    rows_by_order = defaultdict(list)  # 발주서 id → 줄 행들 (원가 계산용)
     for i in items:
+        rows_by_order[i.purchase_order_id].append(i)
         p = products[i.product_id]
         done = int(received.get(i.id, 0))
         box_quantity = i.quantity // i.units_per_box if i.units_per_box is not None else None
         by_order[i.purchase_order_id].append(ItemOut(
             id=i.id, product_id=i.product_id, product_sku=p.sku, product_name=p.name, color=p.color, size=p.size, spec=p.spec, group_code=p.group_code, unit=p.unit, quantity=i.quantity,
             unit_price=i.unit_price, recommended_quantity=i.recommended_quantity,
+            fx_unit_price=i.fx_unit_price, fx_box_unit_price=i.fx_box_unit_price, fx_line_total=fx_line_total(i),
             units_per_box=i.units_per_box, box_unit_price=i.box_unit_price, box_quantity=box_quantity,
             order_unit=i.order_unit or p.unit, unit_factor=i.units_per_box or 1,  # 발주 당시 스냅샷. 박스 줄이 아니면 재고 단위·1
             min_order_units=i.min_order_units,  # 발주 당시 최소 주문량 (#194)
@@ -482,7 +627,8 @@ def build_out(company_id: int, db: Session, orders: list[PurchaseOrder], role: s
     return [
         PurchaseOrderOut(
             **{c: getattr(o, c) for c in PurchaseOrderOut.model_fields
-               if c not in ("supplier_name", "items", "has_receipts", "allowed_actions")},
+               if c not in ("supplier_name", "items", "has_receipts", "allowed_actions", "cost")},
+            cost=cost_of(o, rows_by_order[o.id], received),
             supplier_name=suppliers[o.supplier_id].name, items=by_order[o.id], has_receipts=o.id in has_receipts,
             allowed_actions=allowed_actions(o.status, role, o.id in has_receipts, o.id in overdue),  # 이미 읽은 값만 쓴다 (추가 조회 없음)
         ).model_dump(mode="json")
