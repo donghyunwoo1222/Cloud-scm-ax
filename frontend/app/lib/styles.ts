@@ -63,7 +63,7 @@ export const S = {
   kpiMore: { marginTop: "auto", paddingTop: "var(--space-xs)", fontSize: "var(--text-sm)", color: "var(--color-link)" }, // "… 보기" (카드 맨 아래로 밀어 높이가 달라도 줄을 맞춘다)
   hint: { color: "var(--color-muted-foreground)" }, // 화면 설명·보조 글자
   empty: { padding: "var(--space-lg)", textAlign: "center", color: "var(--color-muted-foreground)" }, // 목록이 비었을 때 안내
-  priceAlert: { display: "block", marginTop: "var(--space-xs)", padding: "var(--space-xs) var(--space-sm)", fontSize: "var(--text-xs)", textAlign: "left", color: "#713f12", background: "#fef9c3", border: "1px solid #facc15", borderRadius: "var(--radius-sm)", overflowWrap: "anywhere" }, // 단가 변동 경고 (노란 바탕·진갈색 글자, 좁은 화면에서 줄바꿈) (#283)
+  priceAlert: { display: "block", marginTop: "var(--space-xs)", padding: "var(--space-xs) var(--space-sm)", fontSize: "var(--text-xs)", textAlign: "left", color: "#713f12", background: "#fef9c3", border: "1px solid #facc15", borderRadius: "var(--radius-sm)", overflowWrap: "anywhere", whiteSpace: "normal" }, // 단가 변동 경고 (whiteSpace: 감싸는 td 의 nowrap 을 이어받으면 줄이 안 꺾여 표 안에서 잘린다) (노란 바탕·진갈색 글자, 좁은 화면에서 줄바꿈) (#283)
   error: { color: "var(--color-destructive)" }, // 오류 문장
   ok: { color: "var(--color-ok)" }, // 성공 문장
 
