@@ -17,7 +17,8 @@ export function previewStock(direction: "IN" | "OUT", current: number, qty: numb
 export function shortageText(status: string | null, available: number, reorderPoint: number | null, unit = "개"): string | null {
   if (status !== "SHORTAGE" || reorderPoint == null || !Number.isFinite(reorderPoint)) return null;
   const gap = Math.ceil(reorderPoint - available); // 모자란 수량
-  return gap >= 1 ? `재주문점보다 ${count(gap, unit)} 모자라요` : null; // 같거나 넘으면(소수 오차) 문장 없음
+  if (gap >= 1) return `재주문점보다 ${count(gap, unit)} 모자라요`;
+  return reorderPoint === available ? "재주문점과 같아서 부족으로 보여요" : null; // 정확히 같으면 이유 문장, 더 크면 문장 없음
 }
 
 // 현재고 숫자 색 종류: 품절(0)은 soldout, 부족은 shortage, 그 밖은 normal

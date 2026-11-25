@@ -1,6 +1,7 @@
 "use client"; // 목록·폼을 다루는 화면이라 브라우저에서 실행
 
 import Link from "next/link"; // 재고 화면에서 실사 조정으로 이동한다.
+import { ADJUSTMENT_HREF } from "../../lib/adjust-link"; // 실사 조정 주소(공통)
 import { useSearchParams } from "next/navigation"; // 주소의 ?status= 읽기 (대시보드 링크에서 걸러진 채로 열기)
 import { FormEvent, Suspense, useCallback, useEffect, useRef, useState } from "react"; // 폼 제출, 배지 타입, 주소 읽는 부품 감싸기, 함수 기억, 처음·변경 시 실행, 말풍선 연결 번호, 즉시 확인용 ref, 상태
 
@@ -212,7 +213,7 @@ function InventoryBody({ initialStatus, historyId, initialFrom, initialTo }: {
 
   return (
     <section>
-      <div style={S.detailHeader}><h1 ref={inventoryTitle} tabIndex={-1}>재고 현황</h1><div style={{ display: "flex", gap: "var(--space-sm)", flexWrap: "wrap" }}><Link href="/shipments?type=ADJUSTMENT" style={S.linkButtonGhost}>실사 조정</Link><ExportButton path="/stock/export" query={stock.exportQuery} summary={stock.meta ? `품목 ${stock.meta.total}건` : null} /></div></div>
+      <div style={S.detailHeader}><h1 ref={inventoryTitle} tabIndex={-1}>재고 현황</h1><div style={{ display: "flex", gap: "var(--space-sm)", flexWrap: "wrap" }}><Link href={ADJUSTMENT_HREF} style={S.linkButtonGhost}>실사 조정</Link><ExportButton path="/stock/export" query={stock.exportQuery} summary={stock.meta ? `품목 ${stock.meta.total}건` : null} /></div></div>
       {/* 기존 목록 검색창과 비활성 포함을 재고 API에 연결한다. */}
       <ListControls placeholder="품목명·SKU·옵션 검색" onSearch={searchStock} searchInput={{ value: searchText, onChange: setSearchText, maxLength: 100 }}
         includeInactive={stock.includeInactive} onToggleInactive={stock.toggleInactive}

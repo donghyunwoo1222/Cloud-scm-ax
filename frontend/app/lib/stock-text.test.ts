@@ -24,7 +24,9 @@ test("previewStock 단위", () => assert.equal(previewStock("IN", 2, 3, "BOX"), 
 test("shortageText 표", () => {
   const rows: [string, string | null, number, number | null, string | null][] = [
     ["부족", "SHORTAGE", 8, 20, "재주문점보다 12개 모자라요"],
-    ["경계(같음)", "SHORTAGE", 20, 20, null],
+    ["경계(같음)", "SHORTAGE", 20, 20, "재주문점과 같아서 부족으로 보여요"],
+    ["큼", "SHORTAGE", 21, 20, null],
+    ["큼(소수)", "SHORTAGE", 20, 19.5, null],
     ["소수 올림", "SHORTAGE", 8, 20.2, "재주문점보다 13개 모자라요"],
     ["정상", "NORMAL", 8, 20, null],
     ["판단 불가", "UNKNOWN", 8, null, null],
