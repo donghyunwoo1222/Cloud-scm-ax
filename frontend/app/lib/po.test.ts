@@ -121,3 +121,26 @@ test("합계: 원화는 원 합계, 외화는 null 이고 서버의 외화 합�
   assert.equal(formatTotal({ currency: "KRW", items: [krwItem], cost }), "3,015원");
   assert.equal(formatTotal({ currency: "USD", items: [fxItem], cost }), "1.50 USD");
 });
+
+import { partialReceipt, poProgress } from "./po.ts";
+
+const stepsOf = (o: Parameters<typeof poProgress>[0]) => poProgress(o).map((s) => `${s.label}:${s.date ?? "-"}`);
+
+test("진행 단계: 상태별로 날짜가 있는 단계만 날짜를 붙인다", () => {
+  const none = { approved_at: null, ordered_at: null, received_at: null };
+  assert.deepEqual(stepsOf({ ...none, status: "DRAFT" }), ["승인:-", "발주함:-", "입고 완료:-"]); // 작성 중
+  assert.deepEqual(stepsOf({ ...none, status: "APPROVED", approved_at: "2026-11-24T03:00:00Z" }), ["승인:2026-11-24", "발주함:-", "입고 완료:-"]);
+  assert.deepEqual(stepsOf({ ...none, status: "ORDERED", approved_at: "2026-11-24T03:00:00Z", ordered_at: "2026-11-25T03:00:00Z" }), ["승인:2026-11-24", "발주함:2026-11-25", "입고 완료:-"]); // 발주함·일부 입고
+  assert.deepEqual(stepsOf({ status: "RECEIVED", approved_at: "2026-11-24T03:00:00Z", ordered_at: "2026-11-24T04:00:00Z", received_at: "2026-11-26T03:00:00Z" }), ["승인:2026-11-24", "발주함:2026-11-24", "입고 완료:2026-11-26"]);
+  assert.deepEqual(stepsOf({ ...none, status: "CANCELLED", approved_at: "2026-11-24T03:00:00Z" }), ["승인:2026-11-24"]); // 취소: 안 일어난 단계는 뺀다
+  assert.deepEqual(stepsOf({ ...none, status: "CANCELLED" }), []); // 취소 + 날짜 없는 값
+});
+
+test("일부 입고: 발주함이고 입고된 줄이 있을 때만 줄 수를 낸다", () => {
+  const item = (received_quantity: number) => ({ received_quantity }) as PoItem;
+  const items = [item(5), item(0), item(10), item(0)];
+  assert.deepEqual(partialReceipt({ status: "ORDERED", items }), { received: 2, total: 4 });
+  assert.equal(partialReceipt({ status: "ORDERED", items: [item(0)] }), null); // 입고 없음
+  assert.equal(partialReceipt({ status: "RECEIVED", items }), null);
+  assert.equal(partialReceipt({ status: "CANCELLED", items }), null);
+});
