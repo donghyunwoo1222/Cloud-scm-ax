@@ -156,6 +156,10 @@ export type PoItemSort = "registered" | "name-asc" | "name-desc"; // 등록 순�
 
 export const remainingQuantity = (item: PoItem) => item.quantity - item.received_quantity; // 발주 수량에서 누적 입고량을 빼 남은 수량을 구한다
 
+// 입고 현황 열을 보일 상태 (발주함 이후만). 작성 중·승인됨은 입고가 있을 수 없어 열 자체를 숨긴다
+// 예) "ORDERED" → true, "APPROVED" → false
+export const showsReceiptColumn = (status: PoStatus): boolean => status === "ORDERED" || status === "RECEIVED" || status === "CANCELLED";
+
 // 줄의 입고 현황 글자 (#252). 잔량 마감된 줄은 "남음" 대신 "마감", 취소된 발주서는 "남음"을 보이지 않는다
 // 예) 95/100 입고 후 마감 → "95 / 100개 입고 · 마감 5개", 전량 정정 뒤 마감 → "입고 0 / 100개 · 마감 100개", 취소 → "취소됨"
 export function receiptText(i: PoItem, status: PoStatus): string {

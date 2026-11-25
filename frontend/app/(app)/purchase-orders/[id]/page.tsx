@@ -12,7 +12,7 @@ import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
 import { useMe } from "../../../lib/me"; // 내 역할 (회사 정보 입력 링크는 관리자에게만. 상태 버튼은 allowed_actions)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { boxLimit, can, formatLineAmount, formatOrderUnitPrice, formatTotal, isClosedWithRemainder, currencyColumn, MAX_ORDER_QUANTITY, partialReceipt, PO_LABELS, replyGapText, PoAction, PoItemSort, PurchaseOrder, quantityLabel, receiptText, remainingQuantity, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
+import { boxLimit, can, formatLineAmount, formatOrderUnitPrice, formatTotal, isClosedWithRemainder, currencyColumn, MAX_ORDER_QUANTITY, partialReceipt, PO_LABELS, replyGapText, PoAction, PoItemSort, PurchaseOrder, quantityLabel, receiptText, remainingQuantity, showsReceiptColumn, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
 import { PurchaseOrderStatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 import { dateRange } from "../../../lib/supplier-reply"; // 회신 납기 선택 범위 (서버와 같은 오늘 ~ 1년 뒤)
@@ -228,6 +228,7 @@ function Detail() {
   const partial = partialReceipt(order); // 일부 입고 글자 (발주함 + 입고된 줄이 있을 때)
   const orderedStatus = order.status === "ORDERED"; // 발주함 상태에서만 미입고 필터를 보여준다
   const isFiltered = orderedStatus && itemView.onlyOutstanding; // 미입고 필터는 발주함 상태에서만 적용한다
+  const showReceipt = showsReceiptColumn(order.status); // 작성 중·승인됨은 입고 현황 열을 숨긴다
   const shownItems = visiblePoItems(order.items, receiving || isFiltered, itemView.sort); // 입고 모드는 잔량이 있는 품목만 보여 준다
   const enteredCount = Object.values(qty).filter((entry) => entry.value !== "").length;
 
@@ -432,14 +433,14 @@ function Detail() {
         <thead>
           <tr style={S.headRow}>
             {/* 수량·단가·금액과 입고 현황을 품목별로 나란히 배치한다. */}
-            <th>SKU</th><th>품목</th><th style={S.num}>단가({currencyColumn(order.currency)})</th><th style={S.num}>발주 수량</th><th style={S.num}>금액({currencyColumn(order.currency)})</th><th style={S.num}>입고 현황</th>
+            <th>SKU</th><th>품목</th><th style={S.num}>단가({currencyColumn(order.currency)})</th><th style={S.num}>발주 수량</th><th style={S.num}>금액({currencyColumn(order.currency)})</th>{showReceipt && <th style={S.num}>입고 현황</th>}
           </tr>
         </thead>
         <tbody>
           {/* 필터 결과가 비어도 아래 합계는 전체 품목 기준으로 표시한다. */}
           {isFiltered && shownItems.length === 0 && (
             <tr>
-              <td colSpan={6} style={S.empty}>
+              <td colSpan={showReceipt ? 6 : 5} style={S.empty}>
                 <p>조건에 맞는 품목이 없습니다.</p>{/* 미입고 필터 결과가 없음을 알린다. */}
                 <button type="button" onClick={() => setItemView({ ...itemView, onlyOutstanding: false })}>필터 해제</button>
               </td>
@@ -458,10 +459,12 @@ function Detail() {
                   {/* 발주단위 줄은 "3BOX (300EA)" */}
                 </td>
                 <td style={S.num}>{formatLineAmount(i, order.currency)}</td>
-                <td style={S.num}>
-                  {/* 품목마다 실제 단위를 붙여 누적 입고와 남은 수량을 보여준다. */}
-                  {receiptText(i, order.status)}
-                </td>
+                {showReceipt && (
+                  <td style={S.num}>
+                    {/* 품목마다 실제 단위를 붙여 누적 입고와 남은 수량을 보여준다. */}
+                    {receiptText(i, order.status)}
+                  </td>
+                )}
               </tr>
             );
           })}
@@ -471,7 +474,7 @@ function Detail() {
           <tr>
             <th scope="row" colSpan={4} style={S.num}>발주 금액 합계</th>
             <td style={{ ...S.num, ...S.key }}>{formatTotal(order)}<KrwConversion order={order} /></td>
-            <td />
+            {showReceipt && <td />}
           </tr>
         </tfoot>
       </table>
@@ -495,7 +498,7 @@ function Detail() {
                 </div>
                 <div className="compact-sub">
                   <span>{skuWithOptions(i.product_sku, i)}</span>
-                  <span>{receiptText(i, order.status)}</span>
+                  {showReceipt && <span>{receiptText(i, order.status)}</span>}
                   <span>금액 {formatLineAmount(i, order.currency)}{order.currency === "KRW" ? "원" : ""}</span>
                   {/* 2줄: SKU · 입고 현황 · 금액 (단가는 표에서) */}
                 </div>
@@ -513,8 +516,13 @@ function Detail() {
       )}
 
       {!receiving && !cancelOpen && !closeOpen && <ErrorText error={error} labels={PO_LABELS} />}
-      {!receiving && <ChangeLogSection orderId={id} refreshKey={logKey} />}
-      {!receiving && <EmailLogSection orderId={id} refreshKey={logKey} />}
+      {!receiving && (
+        <section aria-labelledby="records-heading" className="rec-card">{/* 구역이 하나도 없으면 CSS 가 카드째 숨긴다 */}
+          <h2 id="records-heading">기록</h2>
+          <ChangeLogSection orderId={id} refreshKey={logKey} />
+          <EmailLogSection orderId={id} refreshKey={logKey} />
+        </section>
+      )}
     </section>
   );
 }

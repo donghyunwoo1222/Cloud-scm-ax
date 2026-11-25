@@ -21,8 +21,9 @@ export function CostCard({ order }: { order: PurchaseOrder }) {
   const won = (n: number | null, empty = "-") => (n === null ? empty : `${formatWon(n)}원`);
   return (
     <section aria-labelledby="cost-heading" style={S.sectionCard}>
-      <h2 id="cost-heading" style={{ marginTop: 0 }}>원가 <span style={S.hint}>(내부용, 공급업체 문서·메일에는 나가지 않습니다)</span></h2>
-      <dl className="info-strip">
+      <h2 id="cost-heading" style={{ marginTop: 0, marginBottom: "var(--space-xs)" }}>원가</h2>
+      <p style={{ ...S.hint, margin: 0 }}>(내부용, 공급업체 문서·메일에는 나가지 않습니다)</p>
+      <dl className="info-strip flat">
         {FX_ENABLED && <div><dt>통화</dt><dd>{CURRENCIES[currency].label}</dd></div>}
         {fx && <div><dt>환율 ({rateUnitLabel(currency)})</dt><dd>{order.exchange_rate ?? "미입력"}{order.exchange_rate && (fixed ? " (승인 때 고정)" : " (승인 전, 바뀔 수 있음)")}</dd></div>}
         {fx && <div><dt>품목 외화 합계</dt><dd>{cost.goods_fx_total != null ? `${formatFxText(cost.goods_fx_total, currency)} ${currency}` : "-"}</dd></div>}
@@ -55,7 +56,7 @@ export function TermsSection({ order }: { order: PurchaseOrder }) {
   return (
     <section aria-labelledby="terms-heading" style={S.sectionCard}>
       <h2 id="terms-heading" style={{ marginTop: 0 }}>운송조건·특약 <span style={S.hint}>(공급업체 문서에 표시됩니다)</span></h2>
-      <dl className="info-strip">
+      <dl className="info-strip flat">
         {t.freight && <div><dt>운송조건</dt><dd>{t.freight}</dd></div>}
         {t.special && <div><dt>특약</dt><dd style={{ whiteSpace: "pre-wrap" }}>{t.special}</dd></div>}
       </dl>

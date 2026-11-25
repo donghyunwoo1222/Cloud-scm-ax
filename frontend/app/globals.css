@@ -301,6 +301,10 @@ button.status-tip:hover:not(:disabled) {
   }
 }
 
+/* 카드 안에 이미 테두리가 있을 때: 바깥 테두리를 없애고 칸을 배경색으로만 나눈다 */
+.info-strip.flat { border: 0; border-radius: 0; background: transparent; gap: var(--space-sm); }
+.info-strip.flat > div { background: var(--color-muted); border-radius: var(--radius-sm); }
+
 .info-strip dt {
   font-size: var(--text-xs);
   color: var(--color-muted-foreground);
@@ -1528,7 +1532,13 @@ details.reason > p {
 }
 
 /* 발주 변경 이력: 한 번의 변경 = 카드 하나. 줄은 [항목 이름 | 이전 → 이후] 두 열 */
-.cl-card { margin-top: var(--space-sm); padding: var(--card-pad); background: var(--color-card); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
+/* "기록" 카드(#PR C): 변경 이력·메일 발송 이력 두 구역을 흰 카드 하나에 묶고, 묶음은 카드 대신 가는 구분선으로 나눈다 */
+.rec-card { margin-top: var(--space-lg); padding: var(--card-pad); background: var(--color-card); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
+.rec-card:not(:has(.rec-zone)) { display: none; } /* 구역이 하나도 없으면 빈 카드를 그리지 않는다 */
+.rec-card > h2 { margin-top: 0; }
+.rec-zone + .rec-zone { margin-top: var(--space-lg); }
+.rec-zone > h3 { margin: 0 0 var(--space-xs); font-size: var(--text-base); }
+.cl-card { padding: var(--space-md) 0; border-top: 1px solid var(--color-border); }
 .cl-head { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; }
 .cl-time { color: var(--color-muted-foreground); font-size: var(--text-sm); }
 .cl-badge { margin-left: auto; padding: 0 var(--space-sm); border: 1px solid var(--color-border-strong); border-radius: var(--radius-full); color: var(--color-muted-foreground); font-size: var(--text-xs); line-height: 20px; }

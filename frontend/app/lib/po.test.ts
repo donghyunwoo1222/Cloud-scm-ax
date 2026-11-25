@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { can, closedTotal, formatLineAmount, formatOrderUnitPrice, formatTotal, isClosedWithRemainder, lineAmount, overdueDays, receiptText, replyGapText, replyLateDays, totalAmount } from "./po.ts";
-import type { PoItem, PurchaseOrder } from "./po.ts";
+import { can, closedTotal, formatLineAmount, formatOrderUnitPrice, formatTotal, isClosedWithRemainder, lineAmount, overdueDays, receiptText, replyGapText, replyLateDays, showsReceiptColumn, totalAmount } from "./po.ts";
+import type { PoItem, PoStatus, PurchaseOrder } from "./po.ts";
 
 test("서버가 준 allowed_actions 에 있는 동작만 true", () => {
   const staffDraft: Parameters<typeof can>[0] = { allowed_actions: ["edit", "cancel"] };
@@ -143,4 +143,9 @@ test("일부 입고: 발주함이고 입고된 줄이 있을 때만 줄 수를 �
   assert.equal(partialReceipt({ status: "ORDERED", items: [item(0)] }), null); // 입고 없음
   assert.equal(partialReceipt({ status: "RECEIVED", items }), null);
   assert.equal(partialReceipt({ status: "CANCELLED", items }), null);
+});
+
+test("입고 현황 열은 발주함·입고 완료·취소됨에서만 보인다", () => {
+  const table: Array<[PoStatus, boolean]> = [["DRAFT", false], ["APPROVED", false], ["ORDERED", true], ["RECEIVED", true], ["CANCELLED", true]];
+  for (const [status, shown] of table) assert.equal(showsReceiptColumn(status), shown, status);
 });

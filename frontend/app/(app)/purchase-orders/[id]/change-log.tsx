@@ -4,44 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react"; // 상태, 요
 
 import { apiList, Meta } from "../../../lib/api"; // 목록 호출 (data + meta)
 import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
-import { ChangeLog, fmtTime, PO_LABELS, PoStatus, STATUS_LABEL } from "../../../lib/po"; // 이력 모양, 시각, 기존 상태·칸 이름 표
-import { FREIGHT_TERMS } from "../../../lib/po-fx"; // 운송비 조건 이름 (#267)
-import { S } from "../../../lib/styles"; // 화면 공통 스타일
+import { describeChangeParts } from "../../../lib/change-describe"; // 이력 한 행의 문장·항목/이전/이후 (시험하려고 lib 로 분리)
+import { ChangeLog, fmtTime } from "../../../lib/po"; // 이력 모양, 시각
 
+const SHOWN_GROUPS = 3; // 처음에는 최근 3묶음만 보인다
 const PREVIEW_LINES = 6; // 한 묶음이 이보다 길면 앞 5줄만 보여 준다
-const ITEM_FIELD_LABELS: Record<string, string> = {
-  quantity: "수량", closed_quantity: "마감 수량", unit_price: "단가", min_order_units: "최소 주문 수량", units_per_box: "박스 입수", box_unit_price: "박스 단가", order_unit: "발주단위", fx_unit_price: "외화 단가", fx_box_unit_price: "외화 박스 단가",
-}; // 줄 안의 칸 이름 (모르는 칸은 서버 이름 그대로)
-
-// 값 → 화면 글자. 비었으면 "없음", 상태 코드는 기존 상태 이름 표로, 공급업체 확인 시각은 서울 시각으로 (예: "ORDERED" → "발주함")
-const show = (field: string, value: string | null) =>
-  value === null || value === "" ? "없음" : field === "status" ? STATUS_LABEL[value as PoStatus] ?? value
-    : field === "supplier_confirmed_at" ? fmtTime(value) : field === "freight_terms" ? FREIGHT_TERMS[value] ?? value : field === "freight_amount" ? `${value}원` : value; // 운송비 조건 코드는 화면 이름으로
-
-// 이력 한 행을 한 줄 문장으로. 모르는 field 는 원래 이름을 그대로 쓴다
-// 예) items[A-1].unit_price 1000→1200 → "품목 A-1 단가: 1000 → 1200", due_date 없음 → "약속 납기: 없음 → 2026-11-20"
-export function describeChange(row: Pick<ChangeLog, "field" | "old_value" | "new_value">): string {
-  const { field, old_value: before, new_value: after } = row;
-  const match = /^items\[(.+?)\](?:\.(\w+))?$/.exec(field); // items[SKU] 또는 items[SKU].칸
-  if (match && !match[2]) {
-    if (before === null) return `품목 ${match[1]} 줄 추가: ${show(field, after)}`;
-    if (after === null) return `품목 ${match[1]} 줄 삭제 (${show(field, before)})`;
-    return `품목 ${match[1]} 줄: ${show(field, before)} → ${show(field, after)}`;
-  }
-  const label = match ? `품목 ${match[1]} ${ITEM_FIELD_LABELS[match[2]] ?? match[2]}` : field === "status" ? "상태" : (PO_LABELS as Record<string, string>)[field] ?? field;
-  return `${label}: ${show(field, before)} → ${show(field, after)}`;
-}
-
-// 카드 배치용: 한 행을 항목 이름 / 이전 / 이후로 따로 돌려준다 (값 글자는 describeChange 와 같은 show). 예) due_date 없음→2026-11-20 → {label:"약속 납기", before:null, after:"2026-11-20"}
-// before·after 가 null 이면 "(없음)" 으로 흐리게 그린다
-export function describeChangeParts(row: Pick<ChangeLog, "field" | "old_value" | "new_value">): { label: string; before: string | null; after: string | null } {
-  const { field, old_value: before, new_value: after } = row;
-  const match = /^items\[(.+?)\](?:\.(\w+))?$/.exec(field);
-  const label = match ? (match[2] ? `품목 ${match[1]} ${ITEM_FIELD_LABELS[match[2]] ?? match[2]}` : `품목 ${match[1]} 줄`) : field === "status" ? "상태" : (PO_LABELS as Record<string, string>)[field] ?? field;
-  const text = (v: string | null) => (v === null || v === "" ? null : show(field, v));
-  return { label, before: text(before), after: text(after) };
-}
-
 // 같은 시각(created_at 글자 그대로)·같은 사람(이름)의 연속된 행을 한 묶음으로 만든다. 한 번의 저장은 시각이 같다
 function groupRows(rows: ChangeLog[]): ChangeLog[][] {
   const groups: ChangeLog[][] = [];
@@ -90,12 +57,13 @@ function Group({ rows }: { rows: ChangeLog[] }) {
   );
 }
 
-// 발주서 변경 이력 섹션 (최신순, 20건씩 더 보기). refreshKey 가 바뀌면 처음부터 다시 불러온다
+// 발주서 변경 이력 구역 ("기록" 카드 안, 최신순, 20건씩 더 보기). refreshKey 가 바뀌면 처음부터 다시 불러온다
 export function ChangeLogSection({ orderId, refreshKey }: { orderId: string; refreshKey: number }) {
   const [rows, setRows] = useState<ChangeLog[] | null>(null); // 불러온 행 (null = 아직)
   const [meta, setMeta] = useState<Meta | null>(null); // 마지막으로 받은 쪽 정보
   const [error, setError] = useState<unknown>(null); // 이력 불러오기 오류 (발주서 화면은 그대로 둔다)
   const [busy, setBusy] = useState(false); // 더 보기 중
+  const [expanded, setExpanded] = useState(false); // 4묶음 이상일 때 전부 펼쳤는지
   const latest = useRef(0); // 늦게 도착한 이전 응답을 버리는 요청 번호
 
   const loadFirst = useCallback(async () => {
@@ -131,19 +99,20 @@ export function ChangeLogSection({ orderId, refreshKey }: { orderId: string; ref
   }
 
   const remaining = rows && meta ? Math.max(meta.total - rows.length, 0) : 0;
+  const groups = rows ? groupRows(rows) : [];
+  const collapsible = groups.length > SHOWN_GROUPS; // 4묶음 이상일 때만 더 보기/접기
+  if (!error && groups.length === 0) return null; // 항목이 없으면 빈 틀을 그리지 않는다
   return (
-    <section aria-labelledby="change-log-heading" style={{ marginTop: "var(--space-lg)" }}>
-      <h2 id="change-log-heading">변경 이력</h2>
+    <div className="rec-zone" aria-labelledby="change-log-heading">
+      <h3 id="change-log-heading">변경 이력</h3>
       <ErrorText error={error} />
-      {rows && rows.length === 0 && !error && (
-        <p style={S.hint}>이력이 없습니다. 이 기능 이전에 만든 발주서는 과거 변경이 기록되어 있지 않을 수 있습니다.</p>
-      )}
-      {rows && rows.length > 0 && (
+      {groups.length > 0 && (
         <ul role="list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
-          {groupRows(rows).map((g) => <Group key={g[0].id} rows={g} />)}
+          {(collapsible && !expanded ? groups.slice(0, SHOWN_GROUPS) : groups).map((g) => <Group key={g[0].id} rows={g} />)}
         </ul>
       )}
-      {remaining > 0 && <button type="button" disabled={busy} onClick={loadMore}>{busy ? "불러오는 중…" : `이전 이력 더 보기 (${remaining.toLocaleString("ko-KR")}건 남음)`}</button>}
-    </section>
+      {collapsible && <button type="button" onClick={() => setExpanded(!expanded)}>{expanded ? "접기" : `더 보기 (${groups.length - SHOWN_GROUPS}묶음)`}</button>}
+      {remaining > 0 && (!collapsible || expanded) && <button type="button" disabled={busy} onClick={loadMore}>{busy ? "불러오는 중…" : `이전 이력 더 보기 (${remaining.toLocaleString("ko-KR")}건 남음)`}</button>}
+    </div>
   );
 }
