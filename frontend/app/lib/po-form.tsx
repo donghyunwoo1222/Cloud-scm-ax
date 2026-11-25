@@ -222,9 +222,11 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
 
   return (
     <form onSubmit={submit}>
-      <div className="form-compact field-form" style={S.formGrid}>
+      <div className="form-compact field-form" style={{ ...S.formGrid, alignItems: "flex-end" }}>{/* 라벨이 두 줄로 꺾여도 입력 칸 아래선을 맞춘다 */}
         {order ? (
-          <p>공급업체: {order.supplier_name} (바꿀 수 없습니다. 다른 업체는 새 발주서로 작성하세요)</p>
+          <Field label="공급업체 (바꿀 수 없음)" short="공급업체" className="field-half">
+            <input value={order.supplier_name} disabled title="다른 업체는 새 발주서로 작성하세요" />
+          </Field>/* 다른 칸과 같은 입력 칸 모양으로, 잠긴 값임을 회색으로 보인다 */
         ) : (
           <Field label="공급업체*" className="field-half">
             <select value={supplierId} style={S.block} onChange={(e) => {
@@ -317,15 +319,17 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         </tbody>
       </table>
       </div>
-      <button type="button" onClick={() => {
-        const key = nextLineKey.current++;
-        setLines((rows) => [...rows, { ...EMPTY_LINE, key }]);
-      }}>줄 추가</button>
-      {targetSupplier && <button type="button" disabled={bulkBusy} onClick={addDefaultItems}>{bulkBusy ? "불러오는 중…" : "기본 품목 추가"}</button>}
-      {/* 이 공급업체가 기본 공급업체인 활성 품목을 한 번에 추가한다. 추천이 있으면 수량도 채운다 */}
-      {emptyRows.length > 0 && (
-        <button type="button" onClick={() => setLines((rows) => rows.filter((l) => Number(l.quantity) >= 1))}>수량 빈 줄 모두 삭제</button>
-      )}{/* 수량이 비었거나 0인 줄만 지운다. 저장할 때 자동으로 빼지는 않는다 */}
+      <div style={{ ...S.buttons, flexWrap: "wrap", marginTop: "var(--space-sm)" }}>{/* 버튼 사이 간격 */}
+        <button type="button" onClick={() => {
+          const key = nextLineKey.current++;
+          setLines((rows) => [...rows, { ...EMPTY_LINE, key }]);
+        }}>줄 추가</button>
+        {targetSupplier && <button type="button" disabled={bulkBusy} onClick={addDefaultItems}>{bulkBusy ? "불러오는 중…" : "기본 품목 추가"}</button>}
+        {/* 이 공급업체가 기본 공급업체인 활성 품목을 한 번에 추가한다. 추천이 있으면 수량도 채운다 */}
+        {emptyRows.length > 0 && (
+          <button type="button" onClick={() => setLines((rows) => rows.filter((l) => Number(l.quantity) >= 1))}>수량 빈 줄 모두 삭제</button>
+        )}{/* 수량이 비었거나 0인 줄만 지운다. 저장할 때 자동으로 빼지는 않는다 */}
+      </div>
       {notice && <p role="status" style={S.hint}>{notice}</p>}
       {quantityProblem && <p role="alert" style={S.error}>{quantityProblem}</p>}
       {shownProblem && <p role="alert" style={S.error}>{shownProblem}</p>}
@@ -359,19 +363,25 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
         <button type="button" disabled={extras.length >= MAX_EXTRA_COSTS} onClick={() => setExtras((rows) => [...rows, { key: nextExtraKey.current++, name: "", amount: "" }])}>
           부대비용 추가 ({extras.length}/{MAX_EXTRA_COSTS})
         </button>
-        <Field label="특약 (공급업체와 합의한 조건)" short="특약">
-          <textarea rows={3} maxLength={MAX_SPECIAL_TERMS} value={cost.specialTerms} onChange={(e) => dispatch({ type: "specialTerms", value: e.target.value })} />
+        <Field label="특약 (공급업체와 합의한 조건)" short="특약" className="field-wide">
+          <textarea rows={5} maxLength={MAX_SPECIAL_TERMS} value={cost.specialTerms} onChange={(e) => dispatch({ type: "specialTerms", value: e.target.value })} />
         </Field>
         <span style={S.sub}>{cost.specialTerms.length}/{MAX_SPECIAL_TERMS}자</span>
       </fieldset>
 
       <section aria-labelledby="cost-estimate" style={S.sectionCard}>
-        <h2 id="cost-estimate" style={{ marginTop: 0 }}>예상 원가 (예상, 저장하면 서버가 다시 계산합니다)</h2>
-        {fx
-          ? <p>품목 외화 합계 {formatScaled(fxTotal, decimals)} {currency} · 원화 환산(예상) {goodsKrw === null ? "환율을 입력하면 보입니다" : `${formatWon(goodsKrw)}원`}</p>
-          : <p>예상 합계 {estimatedAmount.toLocaleString("ko-KR")}원</p>}
-        <p>운송비 {estimate.missing.includes("freight") ? "운송비 미입력" : freightLabel(Number(freightAmount))} · 부대비용 {formatWon(estimate.extrasTotal)}원</p>
-        <p><strong>예상 원가 {estimate.total === null ? "-" : `${formatWon(estimate.total)}원`}</strong> <span style={S.hint}>(품목 원화 합계 + 운송비 + 부대비용, 부가세 제외)</span></p>
+        <h2 id="cost-estimate" style={{ marginTop: 0 }}>예상 원가 <span style={S.hint}>(저장하면 서버가 다시 계산합니다)</span></h2>
+        {/* 발주서 상세의 원가 카드(cost-card.tsx)와 같은 칸 모양 */}
+        <dl className="info-strip">
+          {fx && <div><dt>품목 외화 합계</dt><dd>{formatScaled(fxTotal, decimals)} {currency}</dd></div>}
+          {fx
+            ? <div><dt>품목 원화 환산 (예상)</dt><dd>{goodsKrw === null ? "환율을 입력하면 보입니다" : `${formatWon(goodsKrw)}원`}</dd></div>
+            : <div><dt>품목 합계</dt><dd>{estimatedAmount.toLocaleString("ko-KR")}원</dd></div>}
+          <div><dt>운송비</dt><dd>{estimate.missing.includes("freight") ? "미입력" : freightLabel(Number(freightAmount))}</dd></div>
+          <div><dt>부대비용 합계</dt><dd>{formatWon(estimate.extrasTotal)}원</dd></div>
+          <div><dt>예상 원가 (부가세 제외)</dt><dd><strong>{estimate.total === null ? "-" : `${formatWon(estimate.total)}원`}</strong></dd></div>
+        </dl>
+        <p style={{ ...S.hint, marginBottom: 0 }}>예상 원가 = 품목 원화 합계 + 운송비 + 부대비용</p>
       </section>
 
       <p style={{ ...S.buttons, marginTop: "var(--space-md)" }}>
