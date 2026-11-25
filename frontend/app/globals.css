@@ -341,6 +341,40 @@ button.primary-action:hover:not(:disabled) {
   margin-top: var(--space-md);
 }
 
+/* 이동 링크: 화면을 옮기는 동작은 버튼이 아니라 밑줄 링크 (#344) */
+.purchase-order-actions .action-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-min);
+  padding-inline: var(--space-xs);
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+/* 위험 동작: 줄 맨 끝, 위험색 글자와 테두리 (글자는 그대로라 색만으로 구분하지 않는다) */
+.purchase-order-actions button.danger-action {
+  margin-inline-start: auto;
+  border-color: var(--color-destructive);
+  color: var(--color-destructive);
+}
+
+/* 버튼 줄 아래 안내문: 한 칸 띄우고 흐린 보조 글자로 통일 */
+.po-note {
+  margin: var(--space-sm) 0 0;
+  color: var(--color-muted-foreground);
+}
+
+@media (max-width: 729px) {
+  /* 좁은 화면: 주 동작이 첫 줄 가로 전체, 나머지는 그 아래에서 줄바꿈 */
+  .purchase-order-actions button.primary-action {
+    flex: 1 1 100%;
+  }
+
+  .purchase-order-actions button.danger-action {
+    margin-inline-start: 0;
+  }
+}
+
 .product-picker {
   position: relative;
 }

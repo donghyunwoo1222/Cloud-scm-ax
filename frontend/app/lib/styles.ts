@@ -49,9 +49,9 @@ export const S = {
   detailHistoryCell: { padding: "var(--space-sm) var(--space-md)", borderRadius: "var(--radius-sm)", background: "var(--color-hover)" }, // 연한 배경으로 승인·발주·입고 기록을 구분한다
   detailHistoryValue: { margin: "var(--space-xs) 0 0", color: "var(--color-foreground)", fontWeight: 500 }, // 항목명 아래 날짜나 메모를 본문색으로 강조한다
   detailMemo: { margin: "var(--space-md) 0 0", paddingInline: "var(--space-md)" }, // 메모는 날짜 칸 아래에서 가로 폭 전체를 쓴다
-  detailFilterGroup: { display: "flex", flexWrap: "wrap", gap: "var(--space-xs)", padding: "var(--space-xs)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)" }, // 필터 두 버튼을 하나의 테두리 안에 묶는다
-  detailFilterButton: { display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", minHeight: "var(--chip-min)", paddingInline: "var(--space-sm)", border: 0, outlineOffset: -2 }, // 체크와 글자를 나란히 두고 키보드 테두리를 버튼 안쪽에 표시한다
-  detailFilterSelected: { background: "var(--color-selected)", color: "var(--color-link)", fontWeight: 700 }, // 현재 선택은 배경과 굵은 글자로 강조한다
+  detailFilterGroup: { display: "inline-flex", gap: 2, padding: 2, border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)", background: "var(--color-muted)" }, // 필터 두 버튼을 작은 세그먼트 하나로 묶는다 (동작 버튼 줄과 모양을 달리한다)
+  detailFilterButton: { display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", minHeight: "var(--chip-min)", paddingInline: "var(--space-sm)", border: 0, background: "transparent", fontSize: "var(--text-sm)", outlineOffset: -2 }, // 작은 칩: 테두리 없이 글자만, 키보드 테두리는 안쪽에 표시한다
+  detailFilterSelected: { background: "var(--color-card)", color: "var(--color-link)", fontWeight: 700, boxShadow: "var(--shadow-sm)" }, // 현재 선택은 흰 칩과 굵은 글자로 강조한다
   detailTableCount: { margin: 0, marginInlineStart: "auto", fontSize: "var(--text-sm)", color: "var(--color-muted-foreground)" }, // 표시 개수는 남는 공간의 오른쪽 끝에 둔다
 
   // 대시보드 숫자 카드 (#92)
