@@ -245,20 +245,23 @@ function Detail() {
       </header>
       <SummaryCard order={order} today={today} />
 
+      {/* 순서: 주 동작(채움) → 보조(테두리) → 이동 링크 → 위험(맨 끝). 조건과 문구는 그대로이고 순서·모양만 다르다 */}
       <div className="receipt-controls purchase-order-actions">
-        {can(order, "edit") && <Link href={`/purchase-orders/${order.id}/edit`} style={S.linkButtonGhost}>수정</Link>}
-        {can(order, "document") && <Link href={`/purchase-orders/${order.id}/document`} style={S.linkButtonGhost}>발주서 문서</Link>}
-        {/* 수정(작성 중)·문서(승인 이후)도 서버의 allowed_actions 를 따른다 */}
-        {buttons.map(([action, label]) => <button key={action} type="button" disabled={receiving || panelOpen || busy || actLock.busy}
-          className={action === "cancel" ? undefined : "primary-action"} onClick={() => (action === "cancel" ? setCancelling(true) : act(action))}>{label}</button>)}
-        {can(order, "close_remaining") && <button type="button" disabled={receiving || panelOpen || busy || actLock.busy}
-          onClick={() => { setError(null); setClosing(true); }}>잔량 마감</button>}
+        {buttons.filter(([action]) => action !== "cancel").map(([action, label]) => <button key={action} type="button" disabled={receiving || panelOpen || busy || actLock.busy}
+          className="primary-action" onClick={() => act(action)}>{label}</button>)}
+        {can(order, "receive") && !receiving && <button ref={receiptButton} className="primary-action" type="button" disabled={panelOpen}
+          onClick={() => { setError(null); setReceiving(true); }}>입고 등록</button>}
         {can(order, "supplier_reply") && <button type="button" disabled={receiving || panelOpen || busy || actLock.busy}
           onClick={() => { setError(null); setReplying(true); }}>회신 기록</button>}
         {can(order, "remind") && <button type="button" disabled={receiving || panelOpen || busy || actLock.busy}
           onClick={() => { setError(null); setRemindFor(id); }}>독촉 메일 보내기</button>}
-        {can(order, "receive") && !receiving && <button ref={receiptButton} className="primary-action" type="button" disabled={panelOpen}
-          onClick={() => { setError(null); setReceiving(true); }}>입고 등록</button>}
+        {/* 수정(작성 중)·문서(승인 이후)도 서버의 allowed_actions 를 따른다. 화면 이동이라 버튼이 아니라 링크 모양 */}
+        {can(order, "edit") && <Link href={`/purchase-orders/${order.id}/edit`} className="action-link">수정</Link>}
+        {can(order, "document") && <Link href={`/purchase-orders/${order.id}/document`} className="action-link">발주서 문서</Link>}
+        {can(order, "close_remaining") && <button type="button" className="danger-action" disabled={receiving || panelOpen || busy || actLock.busy}
+          onClick={() => { setError(null); setClosing(true); }}>잔량 마감</button>}
+        {buttons.filter(([action]) => action === "cancel").map(([action, label]) => <button key={action} type="button" className="danger-action" disabled={receiving || panelOpen || busy || actLock.busy}
+          onClick={() => setCancelling(true)}>{label}</button>)}
       </div>
       {remindOpen && <ReminderPanel key={id} id={id} onChanged={() => { load(); setLogKey((k) => k + 1); }} onSent={() => { setRemindFor(null); toast("독촉 메일을 보냈어요"); }} onClose={() => setRemindFor(null)} />}
       {cancelOpen && (
@@ -320,16 +323,16 @@ function Detail() {
         </form>
       )}
       {companyEmpty && (
-        <p role="status" style={S.hint}>
+        <p role="status" className="po-note">
           {COMPANY_WARNING}{" "}
           {me?.role === "ADMIN" ? <Link href="/company">회사 정보 입력하기</Link> : "관리자에게 회사 정보 입력을 요청하세요."}
         </p>
       )}
-      {approvalBlocked && <p>승인은 관리자만 할 수 있습니다. 관리자에게 승인을 요청하세요.</p>}
+      {approvalBlocked && <p className="po-note">승인은 관리자만 할 수 있습니다. 관리자에게 승인을 요청하세요.</p>}
       {/* 서버도 403 으로 막지만 화면에서도 안내한다 */}
 
-      {cancelBlocked && <p style={S.hint}>입고 기록이 있어 발주를 취소할 수 없습니다. 남은 수량은 &lsquo;잔량 마감&rsquo;으로 닫을 수 있습니다.</p>}
-      {can(order, "order") && <p style={S.hint}>공급업체에 주문한 뒤 완료 표시를 누르세요.</p>}
+      {cancelBlocked && <p className="po-note">입고 기록이 있어 발주를 취소할 수 없습니다. 남은 수량은 &lsquo;잔량 마감&rsquo;으로 닫을 수 있습니다.</p>}
+      {can(order, "order") && <p className="po-note">공급업체에 주문한 뒤 완료 표시를 누르세요.</p>}
       {receiving ? (
         <form style={{ ...S.sectionCard, padding: 0 }} onSubmit={receive} aria-labelledby="receipt-heading">
           <header className={styles.receiptHeader}>
