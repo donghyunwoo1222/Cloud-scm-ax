@@ -12,11 +12,12 @@ import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { skuWithOptions } from "../../../lib/options"; // 품목 옵션 요약
 import { useMe } from "../../../lib/me"; // 내 역할 (회사 정보 입력 링크는 관리자에게만. 상태 버튼은 allowed_actions)
 import { seoulToday } from "../../../lib/movement-form"; // 서울 기준 오늘
-import { boxLimit, can, fmtDate, fmtTime, formatLineAmount, formatOrderUnitPrice, formatTotal, isClosedWithRemainder, currencyColumn, MAX_ORDER_QUANTITY, overdueDays, PO_LABELS, replyGapText, replyLateDays, PoAction, PoItemSort, PurchaseOrder, quantityLabel, receiptText, remainingQuantity, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
-import { PurchaseOrderStatusBadge, StatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
+import { boxLimit, can, formatLineAmount, formatOrderUnitPrice, formatTotal, isClosedWithRemainder, currencyColumn, MAX_ORDER_QUANTITY, partialReceipt, PO_LABELS, replyGapText, PoAction, PoItemSort, PurchaseOrder, quantityLabel, receiptText, remainingQuantity, unitConversion, visiblePoItems } from "../../../lib/po"; // 발주서 모양·날짜·금액과 박스 환산
+import { PurchaseOrderStatusBadge } from "../../../lib/status-badge"; // 공통 발주 상태와 납기 지연 배지
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 import { dateRange } from "../../../lib/supplier-reply"; // 회신 납기 선택 범위 (서버와 같은 오늘 ~ 1년 뒤)
 import { CostCard, KrwConversion, TermsSection } from "./cost-card"; // 원가 카드 (#267, 내부 전용)
+import { ConditionsCard, SummaryCard } from "./summary-cards"; // 요약 카드와 조건 카드
 import { ChangeLogSection } from "./change-log"; // 변경 이력 섹션 (#181)
 import { EmailLogSection } from "./email-log"; // 메일 발송 이력 섹션 (#182)
 import { reminderPanelOpen } from "../../../lib/reminder"; // 패널을 열어 둘지 정하는 규칙 (#269)
@@ -224,7 +225,7 @@ function Detail() {
   const reasonRequired = order.status === "ORDERED"; // 발주함 취소만 사유 필수
   const approvalBlocked = order.status === "DRAFT" && !can(order, "approve"); // 작성 중인데 승인할 수 없다 = 담당자 (승인은 관리자만)
   const cancelBlocked = order.status === "ORDERED" && !can(order, "cancel"); // 발주함인데 취소할 수 없다 = 입고 기록이 있다
-  const delay = overdueDays(order, today); // 입고일에 쓰는 서울 오늘 날짜로 납기 지연도 판단한다
+  const partial = partialReceipt(order); // 일부 입고 글자 (발주함 + 입고된 줄이 있을 때)
   const orderedStatus = order.status === "ORDERED"; // 발주함 상태에서만 미입고 필터를 보여준다
   const isFiltered = orderedStatus && itemView.onlyOutstanding; // 미입고 필터는 발주함 상태에서만 적용한다
   const shownItems = visiblePoItems(order.items, receiving || isFiltered, itemView.sort); // 입고 모드는 잔량이 있는 품목만 보여 준다
@@ -237,71 +238,12 @@ function Detail() {
         <div style={S.detailTitle}>
           <h1 style={{ margin: 0 }}>발주서 {order.po_number}</h1>
           <PurchaseOrderStatusBadge status={order.status} />
+          {partial && <span style={S.hint}>일부 입고 {partial.received}/{partial.total}품목</span>}{/* 색 대신 글자로 알린다 */}
           {isClosedWithRemainder(order) && <span style={S.hint}>(잔량 마감)</span>}{/* 입고 완료 중에서도 못 받은 수량을 닫은 발주서 */}
         </div>
-        <Link href="/purchase-orders" style={S.linkButtonGhost}>발주 목록</Link>
+        <Link href="/purchase-orders" style={{ fontSize: "var(--text-sm)", whiteSpace: "nowrap" }}>발주 목록</Link>
       </header>
-      <div style={S.card}>
-        {/* 공급업체와 약속 납기를 항목 이름과 값으로 읽을 수 있게 묶는다. */}
-        <dl style={S.detailFacts}>
-          <div>
-            <dt style={S.detailLabel}>공급업체</dt>
-            <dd style={S.detailValue}><Link href={`/suppliers/${order.supplier_id}`}>{order.supplier_name}</Link></dd>
-          </div>
-          <div>
-            <dt style={S.detailLabel}>약속 납기</dt>
-            <dd style={{ ...S.detailValue, ...S.detailTitle }}>
-              {order.due_date ?? "납기 미정"}{/* 약속한 날짜가 없으면 미정으로 표시한다. */}
-              {order.supplier_due_date && <span> · 회신 {order.supplier_due_date}{replyLateDays(order) > 0 && ` (${replyLateDays(order)}일 늦음)`}</span>}{/* 회신 납기와 약속과의 차이 */}
-              {replyLateDays(order) > 0 && <StatusBadge kind="danger">약속보다 늦은 회신</StatusBadge>}
-              {delay > 0 && <StatusBadge kind="danger">납기 {delay.toLocaleString("ko-KR")}일 지연</StatusBadge>}
-            </dd>
-          </div>
-          {order.supplier_confirmed_at && (
-            <div>
-              <dt style={S.detailLabel}>공급업체 확인</dt>
-              <dd style={S.detailValue}>{fmtTime(order.supplier_confirmed_at)} <span style={S.hint}>(기록한 사람은 변경 이력에서 확인)</span></dd>{/* 직원도 대신 채울 수 있다 (#265 PR4) */}
-            </div>
-          )}
-        </dl>
-        {/* 상태 기록은 항목명과 날짜를 칸으로 나누고 메모는 별도 줄에 둔다. */}
-        <div style={S.detailMeta}>
-          <dl style={S.detailHistory}>
-            {/* 각 기록은 좁은 화면에서도 제목과 날짜가 같은 칸에 남는다. */}
-            <div style={S.detailHistoryCell}>
-              <dt>승인</dt>
-              <dd style={S.detailHistoryValue}>{fmtTime(order.approved_at)}</dd>
-            </div>
-            <div style={S.detailHistoryCell}>
-              <dt>발주함 표시</dt>
-              <dd style={S.detailHistoryValue}>{fmtTime(order.ordered_at)}</dd>
-            </div>
-            {order.emailed_at && (
-              <div style={S.detailHistoryCell}>
-                <dt>마지막 발송</dt>
-                {/* 메일 서버로 보낸 시각과 주소. 공급업체가 받았는지는 알 수 없다 */}
-                <dd style={S.detailHistoryValue}>{fmtTime(order.emailed_at)}<br />{order.emailed_to}</dd>
-              </div>
-            )}
-            <div style={S.detailHistoryCell}>
-              <dt>입고 완료일</dt>
-              <dd style={S.detailHistoryValue}>{fmtDate(order.received_at)}</dd>
-            </div>
-            {order.cancelled_at && (
-              <div style={S.detailHistoryCell}>
-                <dt>취소</dt>
-                <dd style={S.detailHistoryValue}>{fmtTime(order.cancelled_at)}</dd>
-              </div>
-            )}
-          </dl>
-          <dl style={S.detailMemo}>
-            <dt>납품장소 · 지불조건</dt>
-            <dd style={S.detailHistoryValue}>{order.delivery_address ?? "회사 주소"} · {order.payment_terms ?? "-"}</dd>
-            <dt>메모</dt>
-            <dd style={S.detailHistoryValue}>{order.memo ?? "-"}</dd>
-          </dl>
-        </div>
-      </div>
+      <SummaryCard order={order} today={today} />
 
       <div className="receipt-controls purchase-order-actions">
         {can(order, "edit") && <Link href={`/purchase-orders/${order.id}/edit`} style={S.linkButtonGhost}>수정</Link>}
@@ -565,6 +507,7 @@ function Detail() {
         {order.currency !== "KRW" && <p className="compact-total"><KrwConversion order={order} /></p>}
         {/* 합계는 표처럼 모든 품목 기준 */}
       </div>
+      <ConditionsCard order={order} />
       <CostCard order={order} /><TermsSection order={order} />{/* 원가는 내부 전용: 발주 상세에만 보인다 */}
       </>
       )}

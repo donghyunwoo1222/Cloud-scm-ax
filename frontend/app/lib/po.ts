@@ -216,3 +216,19 @@ export const fmtTime = (iso: string | null) => (iso ? new Date(iso).toLocaleStri
 
 // 시각을 서울 날짜(YYYY-MM-DD)로 (실제 입고일 표시용, 없으면 "-")
 export const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" }) : "-");
+
+// 요약 카드의 진행 단계 한 줄 (승인 → 발주함 → 입고 완료). iso 가 없으면 아직 안 된 단계라 날짜 없이 흐리게 그린다
+export type PoStep = { label: string; iso: string | null; date: string | null }; // date: 서울 날짜 글자, 없으면 null
+export function poProgress(order: Pick<PurchaseOrder, "status" | "approved_at" | "ordered_at" | "received_at">): PoStep[] {
+  const steps = [["승인", order.approved_at], ["발주함", order.ordered_at], ["입고 완료", order.received_at]] as const; // 순서대로
+  const rows = steps.map(([label, iso]) => ({ label, iso, date: iso ? fmtDate(iso) : null }));
+  return order.status === "CANCELLED" ? rows.filter((s) => s.iso) : rows; // 취소된 발주서는 일어나지 않을 단계를 보이지 않는다
+}
+
+// "일부 입고 2/4품목"의 숫자: 발주함 상태에서 한 줄이라도 입고가 있을 때만 {입고된 줄 수, 전체 줄 수}, 아니면 null
+// 예) 4줄 중 2줄에 입고가 있으면 {received: 2, total: 4}
+export function partialReceipt(order: Pick<PurchaseOrder, "status" | "items">): { received: number; total: number } | null {
+  if (order.status !== "ORDERED") return null; // 입고 완료·취소는 일부 입고가 아니다
+  const received = order.items.filter((i) => i.received_quantity > 0).length;
+  return received > 0 ? { received, total: order.items.length } : null;
+}
