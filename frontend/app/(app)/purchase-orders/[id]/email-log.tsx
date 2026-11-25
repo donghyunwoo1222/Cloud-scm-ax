@@ -6,14 +6,16 @@ import { apiList, Meta } from "../../../lib/api"; // 목록 호출 (data + meta)
 import { EmailLog, kindLabel, resultText } from "../../../lib/email-log"; // 이력 모양과 문장 표
 import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
 import { fmtTime } from "../../../lib/po"; // 서울 시각
-import { S } from "../../../lib/styles"; // 화면 공통 스타일
 
-// 메일 발송 이력 섹션 (최신순, 20건씩 더 보기). refreshKey 가 바뀌면 처음부터 다시 불러온다 (변경 이력과 같은 방식)
+const SHOWN = 3; // 처음에는 최근 3건만 보인다
+
+// 메일 발송 이력 구역 ("기록" 카드 안, 최신순, 20건씩 더 보기). refreshKey 가 바뀌면 처음부터 다시 불러온다 (변경 이력과 같은 방식)
 export function EmailLogSection({ orderId, refreshKey }: { orderId: string; refreshKey: number }) {
   const [rows, setRows] = useState<EmailLog[] | null>(null); // 불러온 행 (null = 아직)
   const [meta, setMeta] = useState<Meta | null>(null); // 마지막으로 받은 쪽 정보
   const [error, setError] = useState<unknown>(null); // 불러오기 오류 (화면 나머지는 그대로 둔다)
   const [busy, setBusy] = useState(false); // 더 보기 중
+  const [expanded, setExpanded] = useState(false); // 4건 이상일 때 전부 펼쳤는지
   const latest = useRef(0); // 늦게 도착한 이전 응답을 버리는 요청 번호
 
   const loadFirst = useCallback(async () => {
@@ -49,24 +51,28 @@ export function EmailLogSection({ orderId, refreshKey }: { orderId: string; refr
   }
 
   const remaining = rows && meta ? Math.max(meta.total - rows.length, 0) : 0;
+  const collapsible = !!rows && rows.length > SHOWN; // 4건 이상일 때만 더 보기/접기
+  if (!error && (!rows || rows.length === 0)) return null; // 항목이 없으면 빈 틀을 그리지 않는다
   return (
-    <section aria-labelledby="email-log-heading" style={{ marginTop: "var(--space-lg)" }}>
-      <h2 id="email-log-heading">메일 발송 이력</h2>
+    <div className="rec-zone" aria-labelledby="email-log-heading">
+      <h3 id="email-log-heading">메일 발송 이력</h3>
       <ErrorText error={error} />
-      {rows && rows.length === 0 && !error && <p style={S.hint}>발송 이력이 없습니다</p>}
       {rows && rows.length > 0 && (
         <ul role="list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
-          {rows.map((r) => (
-            <li key={r.id} style={{ ...S.sectionCard, marginTop: "var(--space-sm)" }}>
-              <strong>{kindLabel(r.kind)}</strong>{" "}
-              <span style={S.hint}>{fmtTime(r.created_at)} · {r.sent_by_name || "알 수 없음"}</span>
+          {(collapsible && !expanded ? rows.slice(0, SHOWN) : rows).map((r) => (
+            <li key={r.id} className="cl-card">
+              <div className="cl-head">
+                <strong>{kindLabel(r.kind)}</strong>
+                <span className="cl-time">{fmtTime(r.created_at)} · {r.sent_by_name || "알 수 없음"}</span>
+              </div>
               <div>받는 주소: {r.to_address}</div>
               <div>결과: {resultText(r)}</div>
             </li>
           ))}
         </ul>
       )}
-      {remaining > 0 && <button type="button" disabled={busy} onClick={loadMore}>{busy ? "불러오는 중…" : `이전 발송 더 보기 (${remaining.toLocaleString("ko-KR")}건 남음)`}</button>}
-    </section>
+      {collapsible && <button type="button" onClick={() => setExpanded(!expanded)}>{expanded ? "접기" : `더 보기 (${rows.length - SHOWN}건)`}</button>}
+      {remaining > 0 && (!collapsible || expanded) && <button type="button" disabled={busy} onClick={loadMore}>{busy ? "불러오는 중…" : `이전 발송 더 보기 (${remaining.toLocaleString("ko-KR")}건 남음)`}</button>}
+    </div>
   );
 }
