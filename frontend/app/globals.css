@@ -536,6 +536,11 @@ label:has(> :is(input:not([type="checkbox"]):not([type="radio"]), select, textar
   min-width: 0;
 }
 
+/* 긴 글을 쓰는 칸(특약 등)은 카드 폭을 다 쓴다 */
+label.field-wide:has(> :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea)) {
+  max-width: none;
+}
+
 label > :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
   width: 100%;
 }
