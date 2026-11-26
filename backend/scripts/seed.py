@@ -8,24 +8,42 @@
 """
 
 import argparse  # 명령줄 옵션(--clear) 읽기
+import os  # ALLOW_SEED_HOST 환경 변수 읽기
 
 from sqlalchemy import create_engine, delete, make_url, select  # DB 연결, 삭제·조회 문
 from sqlalchemy.orm import Session  # DB 세션
 
 from app.auth.security import hash_password  # 비밀번호 해시
 from app.config import settings  # .env 의 DATABASE_URL
-from app.models import (  # 표 7개
+from app.models import (  # 회사로 이어지는 표 11개 + 회사
+    ChatDailyStat,
     Company,
+    IdempotencyKey,
     InventoryMovement,
+    PoChangeLog,
+    PoEmailLog,
     Product,
     PurchaseOrder,
     PurchaseOrderItem,
+    SlackLink,
     Supplier,
     User,
 )
 
 SEED_DOMAIN = "@seed.local"  # 시드 계정 이메일 끝. 이걸로 시드 회사를 찾는다
-SEED_PASSWORD = "seed-pass-1234"  # 개발용 시드 계정 비밀번호 (개발 DB 전용, 실제 서비스에 쓰지 말 것)
+SEED_PASSWORD = "seed-pass-1234"  # 개발용 시드 계정 비밀번호 (로컬 전용. check_seed_allowed 를 통과한 실행에서만 쓰인다)
+LOCAL_DB_HOSTS = {"localhost", "127.0.0.1", "::1", "db"}  # 시드를 넣어도 되는 DB 호스트 (db 는 docker-compose 안 이름)
+
+
+def check_seed_allowed(app_env: str, host: str | None, database: str | None, allow_host: str = "") -> str | None:
+    """시드를 막아야 하면 이유 문장, 괜찮으면 None. DB 에 접속하기 전에 부른다."""
+    if app_env == "production":
+        return "APP_ENV=production 에서는 시드를 실행하지 않습니다."
+    if database is None or database.endswith("_test"):  # 기존 규칙: 테스트 DB 에는 넣지 않는다
+        return f"테스트 DB({database})에는 시드를 넣지 않습니다. .env 의 DATABASE_URL 을 확인하세요."
+    if host not in LOCAL_DB_HOSTS and not (allow_host and host == allow_host):  # 예외는 정확히 같은 호스트일 때만
+        return f"DB 호스트({host})가 로컬이 아닙니다. 정말 이 호스트에 넣으려면 ALLOW_SEED_HOST={host} 를 지정하세요."
+    return None
 
 # 회사 2곳: (회사명, 이메일 앞부분, 공급업체 2개(이름, 리드타임), 품목 5개(SKU, 이름, 단위, 단가, 안전재고, 공급업체 번호))
 COMPANIES = [
@@ -55,7 +73,8 @@ def clear(db: Session) -> int:
     """시드 회사와 그 회사의 모든 행을 지운다. 다른 표를 가리키는 표부터 차례로 지운다."""
     ids = seed_company_ids(db)  # 지울 회사
     if ids:
-        for model in (InventoryMovement, PurchaseOrderItem, PurchaseOrder, Product, Supplier, User):  # 가리키는 쪽부터
+        for model in (SlackLink, ChatDailyStat, IdempotencyKey, PoEmailLog, PoChangeLog, InventoryMovement,
+                      PurchaseOrderItem, PurchaseOrder, Product, Supplier, User):  # 가리키는 쪽부터
             db.execute(delete(model).where(model.company_id.in_(ids)))  # 그 회사 행 전부
         db.execute(delete(Company).where(Company.id.in_(ids)))  # 마지막에 회사
     db.commit()  # 확정
@@ -88,8 +107,9 @@ def main() -> None:
     args = parser.parse_args()
 
     url = make_url(settings.database_url)  # .env 의 DB 주소
-    if url.database is None or url.database.endswith("_test"):  # 테스트 DB 에는 절대 넣지 않는다
-        raise SystemExit(f"테스트 DB({url.database})에는 시드를 넣지 않습니다. .env 의 DATABASE_URL 을 확인하세요.")
+    reason = check_seed_allowed(settings.app_env, url.host, url.database, os.environ.get("ALLOW_SEED_HOST", ""))
+    if reason:  # 운영 모드·테스트 DB·낯선 호스트면 DB 에 접속하기 전에 중단
+        raise SystemExit(reason)
     engine = create_engine(url)  # 개발 DB 연결
     with Session(engine) as db:
         removed = clear(db)  # 넣기 전에도 먼저 지운다 (여러 번 실행해도 같은 결과)
