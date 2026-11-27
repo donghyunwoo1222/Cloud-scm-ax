@@ -2,7 +2,7 @@
 
 import Link from "next/link"; // 기존 발주서로 가는 링크
 import { useRouter } from "next/navigation"; // 저장 후 상세 화면으로 이동
-import { FormEvent, useEffect, useReducer, useRef, useState } from "react"; // 폼 제출, 최초 조회, 줄 번호와 상태, 통화와 줄을 함께 바꾸는 reducer
+import { FormEvent, KeyboardEvent, useEffect, useReducer, useRef, useState } from "react"; // 폼 제출, 최초 조회, 줄 번호와 상태, 통화와 줄을 함께 바꾸는 reducer
 
 import { api, ApiError, apiList, apiListAll } from "./api"; // 공통 API 호출 함수, 서버 오류
 import { Field } from "./field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
@@ -13,6 +13,7 @@ import {
   costEstimate, costReducer, freightLabel, CURRENCIES, CURRENCY_CODES, Currency, EXTRA_COST_SUGGESTIONS, extraCostProblem, formatScaled, formatWon, FREIGHT_TERMS,
   fxInputText, fxPriceInput, fxPriceProblem, fxTotalScaled, isCurrency, krwEstimate, MAX_EXTRA_COSTS, MAX_SPECIAL_TERMS, poPayload, rateInput, rateProblem, rateUnitLabel, toScaled, wonInput,
 } from "./po-fx"; // 외화·원가 계산과 입력 검사 (#267)
+import { enterAction, isSaveShortcut } from "./po-keys"; // Enter 줄 추가·Ctrl+S 규칙 (#358)
 import { keepAlerts, PriceAnswer, priceCheckBody, visibleAlert } from "./po-price-alert"; // 단가 변동 경고 (#283)
 import { ProductOption, ProductPicker } from "./product-picker"; // 발주 줄에서 품목을 검색해 바로 선택한다
 import { FX_ENABLED } from "./config"; // 외화 화면 스위치 (기본 꺼짐)
@@ -72,6 +73,19 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
     };
   });
   const { currency, lines } = cost;
+  const [focusLine, setFocusLine] = useState(0); // Enter 로 줄을 추가한 뒤 포커스를 줄 번호(1부터)로 옮긴다. 0 이면 옮기지 않는다
+  useEffect(() => {
+    if (focusLine) document.querySelector<HTMLInputElement>(`input[aria-label="품목 ${focusLine}"]`)?.focus(); // 새 줄이 그려진 뒤 품목 칸으로
+  }, [focusLine]);
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (!isSaveShortcut(e)) return;
+      e.preventDefault(); // 브라우저 "페이지 저장" 창은 항상 막는다
+      saveButton.current?.click(); // 저장 중이면 비활성 버튼이라 아무 일도 없다
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const fx = currency !== "KRW"; // 외화 발주서인지
   const setLines = (update: (rows: Line[]) => Line[]) => dispatch({ type: "lines", update }); // 줄 편집은 reducer 로
   const [freightAmount, setFreightAmount] = useState(order?.freight_amount != null ? String(order.freight_amount) : ""); // 운송비(원). 비움 = 미입력, 0 = 무료
@@ -82,6 +96,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   const [bulkBusy, setBulkBusy] = useState(false); // 기본 품목을 불러오는 중이면 버튼을 잠근다
   const [notice, setNotice] = useState(""); // 일괄 추가 결과 안내 (추가한 줄 수·건너뜀)
   const [checked, setChecked] = useState(false); // 저장을 한 번 시도했는지 (수량 빈 줄 안내를 그때부터 보인다)
+  const saveButton = useRef<HTMLButtonElement>(null); // Ctrl+S 가 저장 버튼을 그대로 누른다 (검증·저장 중 잠금이 버튼과 똑같다)
   const sending = useRef(false); // 상태값은 다음 화면 갱신 뒤에야 바뀌어 더블클릭을 못 막으므로, 즉시 바뀌는 ref 로 한 번 더 막는다 (#190)
 
   useEffect(() => {
@@ -108,6 +123,28 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       orderUnit: (locked ? saved?.order_unit : product?.order_unit) ?? "박스", // 기존 박스 줄은 발주 당시 이름
       moq: saved ? saved.min_order_units : product?.min_order_units, // 최소 주문량: 기존 줄은 발주 당시 값 (#194)
     };
+  }
+
+  function addLine() {
+    const key = nextLineKey.current++;
+    setLines((rows) => [...rows, { ...EMPTY_LINE, key }]);
+  }
+
+  // 폼 안 Enter: 마지막 줄 수량·단가에서는 줄 추가, 그 밖의 입력칸에서는 실수 제출만 막는다
+  function onFormKey(event: KeyboardEvent<HTMLFormElement>) {
+    if (event.key !== "Enter") return;
+    const el = event.target as HTMLElement;
+    const row = el.closest("tr");
+    const action = enterAction({
+      composing: event.nativeEvent.isComposing, handled: event.defaultPrevented,
+      kind: el instanceof HTMLInputElement && !["checkbox", "radio", "button", "submit"].includes(el.type) ? "field" : "other",
+      combobox: el.getAttribute("role") === "combobox",
+      inLastRow: !!row && row === row.parentElement?.lastElementChild,
+      lastRowHasProduct: lines[lines.length - 1]?.product_id !== "",
+    });
+    if (action === "ignore") return;
+    event.preventDefault();
+    if (action === "addLine") { addLine(); setFocusLine(lines.length + 1); }
   }
 
   function setLine(index: number, patch: Partial<Line>) {
@@ -221,7 +258,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
   const estimate = costEstimate(goodsKrw, freightAmount, extras);
 
   return (
-    <form onSubmit={submit}>
+    <form onSubmit={submit} onKeyDown={onFormKey}>
       <div className="form-compact field-form" style={{ ...S.formGrid, alignItems: "flex-end" }}>{/* 라벨이 두 줄로 꺾여도 입력 칸 아래선을 맞춘다 */}
         {order ? (
           <Field label="공급업체 (바꿀 수 없음)" short="공급업체" className="field-half">
@@ -320,10 +357,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       </table>
       </div>
       <div style={{ ...S.buttons, flexWrap: "wrap", marginTop: "var(--space-sm)" }}>{/* 버튼 사이 간격 */}
-        <button type="button" onClick={() => {
-          const key = nextLineKey.current++;
-          setLines((rows) => [...rows, { ...EMPTY_LINE, key }]);
-        }}>줄 추가</button>
+        <button type="button" onClick={addLine}>줄 추가</button>
         {targetSupplier && <button type="button" disabled={bulkBusy} onClick={addDefaultItems}>{bulkBusy ? "불러오는 중…" : "기본 품목 추가"}</button>}
         {/* 이 공급업체가 기본 공급업체인 활성 품목을 한 번에 추가한다. 추천이 있으면 수량도 채운다 */}
         {emptyRows.length > 0 && (
@@ -385,7 +419,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
       </section>
 
       <p style={{ ...S.buttons, marginTop: "var(--space-md)" }}>
-        <button type="submit" disabled={busy} onClick={(e) => { if (blockEmptyQuantity()) e.preventDefault(); }}>{busy ? "저장 중…" : order ? "변경 저장" : "초안 저장"}</button>
+        <button ref={saveButton} type="submit" disabled={busy} onClick={(e) => { if (blockEmptyQuantity()) e.preventDefault(); }}>{busy ? "저장 중…" : order ? "변경 저장" : "초안 저장"}</button>
         <Link href={order ? `/purchase-orders/${order.id}` : "/purchase-orders"} style={S.linkButtonGhost}>{order ? "발주서 상세로 돌아가기" : "발주 목록"}</Link>
       </p>
       <ErrorText error={error} labels={PO_LABELS} />
