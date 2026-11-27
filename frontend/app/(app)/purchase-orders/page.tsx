@@ -9,7 +9,7 @@ import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리�
 import { ExportButton } from "../../lib/export-button"; // 내보내기 (#191)
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
 import { seoulToday } from "../../lib/movement-form"; // 상세 화면과 같은 서울 날짜
-import { closedTotal, isClosedWithRemainder, overdueDays, PurchaseOrder, remainingQuantity, STATUS_LABEL } from "../../lib/po"; // 상세와 같은 입고 잔량 기준
+import { chipFilter, closedTotal, isClosedWithRemainder, overdueDays, poListQuery, PurchaseOrder, remainingQuantity, STATUS_LABEL } from "../../lib/po"; // 상세와 같은 입고 잔량 기준
 import { PurchaseOrderStatusBadge, StatusBadge } from "../../lib/status-badge"; // 상세 화면과 같은 상태·납기 지연 배지
 import { S } from "../../lib/styles"; // 화면 공통 스타일
 
@@ -36,10 +36,7 @@ function PurchaseOrders() {
   const receiptDue = Object.keys(RECEIPT_DUE_LABEL).includes(due) ? due : ""; // 대시보드에서 선택한 납기 구간
   const status = receiptDue ? (asked && Object.keys(STATUS_LABEL).includes(asked) ? asked : "ORDERED") : Object.keys(STATUS_LABEL).includes(asked) ? asked : ""; // 납기 구간은 발주함만 보므로 상태가 없으면 발주함
   function setUrl(nextStatus: string, nextDue: string) {
-    const next = new URLSearchParams();
-    if (nextStatus) next.set("status", nextStatus);
-    if (nextDue) next.set("receipt_due", nextDue);
-    router.replace(next.size ? `${pathname}?${next}` : pathname, { scroll: false }); // 맨 위로 튀지 않게
+    router.replace(pathname + poListQuery(nextStatus, nextDue), { scroll: false }); // 맨 위로 튀지 않게
   }
   return <PurchaseOrdersBody status={status} receiptDue={receiptDue} setUrl={setUrl} />;
 }
@@ -79,9 +76,10 @@ function PurchaseOrdersBody({ status, receiptDue, setUrl }: { status: string; re
     set(value); // 조건 바꾸기
     list.setPage(1); // 1쪽으로
   }
-  function chooseStatus(value: string) { // 상태 칩: 납기 구간은 그대로 두어 칩 건수와 목록이 같은 조건을 쓴다
+  function chooseStatus(value: string) { // 상태 칩: 발주함이 아닌 칩(전체 포함)은 입고 납기를 해제한다
+    const next = chipFilter(value, receiptDue);
     list.setPage(1);
-    setUrl(value, receiptDue);
+    setUrl(next.status, next.receiptDue);
   }
   function chooseDue(value: string) { // 납기 구간을 고르면 발주함만 본다
     list.setPage(1);
@@ -109,6 +107,9 @@ function PurchaseOrdersBody({ status, receiptDue, setUrl }: { status: string; re
           );
         })}
       </div>
+      {receiptDue && ( // 납기 구간이 걸려 있으면 다른 칩 건수가 0인 까닭을 알리고 바로 풀 수 있게 한다
+        <p style={S.sub}>{`입고 납기 "${RECEIPT_DUE_LABEL[receiptDue as keyof typeof RECEIPT_DUE_LABEL]}" 적용 중(발주함만 보입니다). `}<button type="button" onClick={() => chooseDue("")} style={{ ...S.detailFilterButton, color: "var(--color-link)", textDecoration: "underline" }}>납기 해제</button></p>
+      )}
       <div className="form-compact field-form" style={S.toolbar}>
         <Field label="입고 납기" className="field-half"><select value={receiptDue} onChange={(e) => chooseDue(e.target.value)} style={S.block}>
             <option value="">전체</option>

@@ -236,3 +236,17 @@ export function partialReceipt(order: Pick<PurchaseOrder, "status" | "items">): 
   const received = order.items.filter((i) => i.received_quantity > 0).length;
   return received > 0 ? { received, total: order.items.length } : null;
 }
+
+// 상태 칩을 눌렀을 때 새 조건: 발주함이 아닌 칩(전체 포함)은 입고 납기 구간을 해제한다 (납기는 발주함만 보므로, 예전 상태 select 와 같은 동작)
+export function chipFilter(status: string, receiptDue: string): { status: string; receiptDue: string } {
+  return { status, receiptDue: status === "ORDERED" ? receiptDue : "" };
+}
+
+// 발주 목록 주소의 쿼리 문자열. 예) ("ORDERED", "TODAY") → "?status=ORDERED&receipt_due=TODAY", 둘 다 비면 ""
+export function poListQuery(status: string, receiptDue: string): string {
+  const next = new URLSearchParams();
+  if (status) next.set("status", status);
+  if (receiptDue) next.set("receipt_due", receiptDue);
+  const text = next.toString();
+  return text ? `?${text}` : "";
+}

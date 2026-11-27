@@ -149,3 +149,20 @@ test("입고 현황 열은 발주함·입고 완료·취소됨에서만 보인�
   const table: Array<[PoStatus, boolean]> = [["DRAFT", false], ["APPROVED", false], ["ORDERED", true], ["RECEIVED", true], ["CANCELLED", true]];
   for (const [status, shown] of table) assert.equal(showsReceiptColumn(status), shown, status);
 });
+
+// ----- 발주 목록 상태 칩 (#359) -----
+import { chipFilter, poListQuery } from "./po.ts";
+
+test("발주함이 아닌 칩과 전체 칩은 입고 납기를 해제하고 주소에서 receipt_due 가 빠진다", () => {
+  for (const status of ["", "DRAFT", "APPROVED", "RECEIVED", "CANCELLED"]) {
+    const next = chipFilter(status, "TODAY");
+    assert.equal(next.receiptDue, "");
+    assert.equal(poListQuery(next.status, next.receiptDue).includes("receipt_due"), false);
+  }
+});
+
+test("발주함 칩은 입고 납기를 유지한다", () => {
+  const next = chipFilter("ORDERED", "OVERDUE");
+  assert.equal(poListQuery(next.status, next.receiptDue), "?status=ORDERED&receipt_due=OVERDUE");
+  assert.equal(poListQuery("", ""), ""); // 전체 + 납기 없음이면 주소에 조건이 없다
+});
