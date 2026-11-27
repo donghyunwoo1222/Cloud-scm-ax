@@ -6,6 +6,8 @@
 
 ## 지금 위치
 
+- #43 Supabase 배포 준비: `6c2f0a9e4b17`에서 `public`의 앱 테이블 12개와 `alembic_version`에 RLS를 켜고, 존재하는 `anon`·`authenticated` 롤의 테이블 권한을 회수한다.
+
 - #350 운영 메일 제공자 선택. 기본 SMTP(Mailpit), 운영 Resend HTTP API. 발주서·독촉·관리자 OTP·비밀번호 재설정이 같은 제공자를 쓰며, 운영 전 발신 도메인 확인 필요.
 
 - #327(#199 PR4, #199 종료) 챗봇 답 피드백: `POST /chat/guide/feedback {helpful: bool}`(엄격한 참·거짓), `chat_daily_stats`에 `helpful`·`not_helpful` 칸 추가(표 12개 유지, 마이그레이션 `d5a9b3e7f2c4`), 상한 helpful+not_helpful ≤ answered(조건부 UPDATE 한 문장 + DB CHECK 3개), 버튼은 ANSWER 답에만, 패널 상태를 `chatReducer`로 모아 전이 표 시험. 지표 정의·조회 SQL은 `erd.md`. 알려진 한계: 같은 답 반복 누르기(API 직접 호출)는 못 막고 그날 답 수까지만 묶인다. 도움 안 됨 비율은 분모가 30건 미만이면 판단하지 않는다.
@@ -168,6 +170,8 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 
 ## 정해진 공통 규칙 (구현 중 결정)
 
+- DB 보안(#43): 새 `public` 테이블은 생성 리비전에서 RLS를 켠다(`test_public_table_rls.py`로 검사). 앱의 DB 롤은 테이블 소유자이며 `FORCE`를 적용하지 않는다. 다운그레이드는 RLS를 끄고 회수된 공개 롤 권한은 복구하지 않는다.
+
 - 메일 준비 상태와 발신 주소는 선택한 제공자 설정을 공통으로 쓴다. Resend 429·5xx는 CONNECTION, 타임아웃은 TIMEOUT, 401은 AUTH, 그 밖의 4xx는 OTHER로 기록한다. 오류 응답 원문·키는 기록하지 않는다.
 
 - 발주서 상태·버튼(#260): PO status는 `purchase_orders.set_status`에서만 대입한다(`test_po_state_table`이 강제). 상태 규칙은 `po_states.py` 한 곳에 두고 `po_states.py`는 서비스를 import 하지 않는다. 화면 버튼 노출은 서버 `po_states.allowed_actions` 하나로 정하고, 화면은 `lib/po.ts`의 `can(order, action)`만 본다(값이 없으면 숨김, `?? []`). `ACTION_STATES`에는 키를 늘리지 않는다. 오류 `details`는 넓히지 않는다(`test_po_transitions`가 값 전체로 고정).
@@ -318,6 +322,8 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 - 8주차 #47: 아래 "꼭 알기 모음"으로 면접 정리
 
 ## 꼭 알기 모음
+
+- #43 앱 DB 롤은 테이블 소유자로 두고 공개 롤은 RLS와 권한 회수로 차단한다 / 예: 앱은 재고 입출고 1건을 저장할 수 있고, `anon`은 같은 테이블의 `SELECT`부터 거부된다 / 예상 질문: RLS를 켰는데 백엔드는 왜 계속 읽고 쓸 수 있나요?
 
 - #350 전송 오류를 이력의 기존 코드에 맞춰 기록한다 / 429는 잠시 뒤 다시 시도할 수 있는 CONNECTION, 401은 키 설정을 확인해야 하는 AUTH로 분류하며, 응답 원문은 기록하지 않는다 / 예상 면접 질문: 제공자를 추가하면서 기존 발송 이력과 키 보안을 어떻게 지켰나요?
 
