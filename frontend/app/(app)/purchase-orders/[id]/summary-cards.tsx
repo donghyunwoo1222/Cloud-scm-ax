@@ -45,7 +45,7 @@ export function SummaryCard({ order, today }: { order: PurchaseOrder; today: str
         {/* 단계 표시: 끝난 단계는 채운 점, 마지막으로 끝난 단계는 굵게. 날짜는 점 아래 흐린 글자 */}
         <ol aria-label="진행 단계" style={{ display: "flex", margin: 0, padding: 0, listStyle: "none" }}>
           {steps.map((s, i) => (
-            <li key={s.label} title={s.iso ? fmtTime(s.iso) : undefined} style={{ flex: i < steps.length - 1 ? "1 1 0" : "0 0 auto", display: "grid", gap: 2, minWidth: 0 }}>
+            <li key={s.label} title={s.iso ? fmtTime(s.iso) : undefined} style={{ flex: i < steps.length - 1 ? "1 1 0" : "0 0 auto", display: "grid", gap: "var(--space-xs)", alignContent: "start", minWidth: 0 }}>
               <span aria-hidden="true" style={{ display: "flex", alignItems: "center" }}>
                 <span style={{ width: 12, height: 12, borderRadius: "50%", boxSizing: "border-box", border: "2px solid var(--color-foreground)", background: s.iso ? "var(--color-foreground)" : "transparent", opacity: s.iso ? 1 : 0.35 }} />
                 {i < steps.length - 1 && <span style={{ flex: 1, height: 2, background: steps[i + 1].iso ? "var(--color-foreground)" : "var(--color-border)" }} />}
@@ -56,7 +56,7 @@ export function SummaryCard({ order, today }: { order: PurchaseOrder; today: str
           ))}
         </ol>
         {/* 메일 서버로 보낸 시각과 주소. 공급업체가 받았는지는 알 수 없다 */}
-        {order.emailed_at && <p style={{ ...S.hint, margin: "var(--space-sm) 0 0", fontSize: "var(--text-sm)" }}><span style={{ fontWeight: 600 }}>메일 발송</span> {fmtTime(order.emailed_at)}{order.emailed_to && ` · ${order.emailed_to}`}</p>}
+        {order.emailed_at && <p style={{ ...S.hint, margin: "var(--space-md) 0 0", fontSize: "var(--text-sm)" }}><span style={{ fontWeight: 600 }}>메일 발송</span> {fmtTime(order.emailed_at)}{order.emailed_to && ` · ${order.emailed_to}`}</p>}
         {order.cancelled_at && <p style={{ margin: "var(--space-xs) 0 0" }}>취소: {fmtTime(order.cancelled_at)}</p>}{/* 취소 사유는 응답에 없어 서버 변경이 필요하다 */}
       </div>
     </div>
