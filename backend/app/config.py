@@ -1,15 +1,48 @@
 from pathlib import Path  # 파일 경로를 다루는 표준 도구
+from typing import Literal  # 허용값을 정해 두는 타입
 
-from pydantic import Field, SecretStr  # 값 길이 같은 검사 조건, 출력해도 값이 가려지는 비밀 글자
+from pydantic import (  # 값 길이 같은 검사 조건, 출력해도 값이 가려지는 비밀 글자, 값을 다 읽은 뒤의 검사
+    Field,
+    SecretStr,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict  # 환경 변수·.env를 읽는 도구
 
 ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"  # 저장소 맨 위의 .env 파일 위치 (backend/app/config.py 기준 두 단계 위)
+
+
+EXAMPLE_SECRET_MARKERS = ("change-me", "changeme")  # .env.example 의 예시 키에 든 글자. production 에서 쓰면 거부
+ALLOWED_SMTP_SECURITY = ("starttls", "ssl")  # production 에서 허용하는 SMTP 암호화 방식
+DEV_DB_PASSWORD = "scm_local_pw"  # 로컬 개발용 DB 비밀번호. production DATABASE_URL 에 들어 있으면 거부
+
+
+def validate_production_settings(cfg) -> list[str]:
+    """production 이 아니면 빈 목록. production 이면 어긴 규칙마다 '어떤 값이 왜 문제인지' 한 줄씩 돌려준다."""
+    if cfg.app_env != "production":
+        return []  # 개발 모드는 지금 동작 그대로
+    problems = []
+    if not cfg.cookie_secure:
+        problems.append("COOKIE_SECURE 가 true 여야 합니다 (false 면 로그인 쿠키가 HTTP 로도 전송됩니다).")
+    if any(m in cfg.secret_key.lower() for m in EXAMPLE_SECRET_MARKERS):
+        problems.append("SECRET_KEY 가 .env.example 의 예시값입니다. 임의의 긴 값으로 바꾸세요.")
+    if cfg.admin_otp_enabled:
+        if not cfg.smtp_host:
+            problems.append("ADMIN_OTP_ENABLED=true 인데 SMTP_HOST 가 비어 있어 관리자 인증코드 메일을 보낼 수 없습니다.")
+        if (cfg.smtp_security or "").lower() not in ALLOWED_SMTP_SECURITY:  # 허용값 목록 방식: none·tls·빈 값·오타는 모두 위반
+            problems.append(f"ADMIN_OTP_ENABLED=true 인데 SMTP_SECURITY={cfg.smtp_security!r} 입니다 (인증코드가 암호화 없이 전송될 수 있습니다). 허용값: starttls, ssl.")
+    if not cfg.app_base_url.startswith("https://"):
+        problems.append("APP_BASE_URL 은 https:// 로 시작하는 배포 주소여야 합니다 (비어 있거나 http:// 이면 재설정 메일 링크가 안전하지 않습니다).")
+    if DEV_DB_PASSWORD in cfg.database_url:
+        problems.append("DATABASE_URL 에 개발용 기본 비밀번호가 들어 있습니다. 운영용 비밀번호로 바꾸세요.")
+    return problems
 
 
 class Settings(BaseSettings):
     # 환경 변수가 있으면 그 값을, 없으면 .env 파일 값을 쓴다 (Docker에서는 compose가 환경 변수로 넣는다)
     model_config = SettingsConfigDict(env_file=ROOT_ENV, extra="ignore")
 
+    app_env: Literal["development", "production"] = "development"  # APP_ENV: production 이면 시작할 때 운영 필수값을 점검하고 어기면 시작 거부. 다른 값도 거부
+    api_docs_enabled: bool = False  # API_DOCS_ENABLED: production 에서도 /docs·/redoc·/openapi.json 을 열려면 true (development 는 항상 열림)
     database_url: str  # DB 주소 (DATABASE_URL), 기본값 없음: 비어 있으면 시작할 때 바로 오류
     secret_key: str = Field(min_length=32)  # 로그인 토큰 서명 키 (SECRET_KEY), 기본값 없음. 짧으면 추측당하기 쉬워 32자 미만이면 시작 거부
     cookie_secure: bool = False  # COOKIE_SECURE: 배포(HTTPS)에서만 true. true면 쿠키가 HTTPS로만 전송된다
@@ -56,6 +89,13 @@ class Settings(BaseSettings):
     slack_bot_token: SecretStr = SecretStr("")  # SLACK_BOT_TOKEN: xoxb- 봇 토큰 (메시지 보내기, PR 3부터 사용)
     slack_signing_secret: SecretStr = SecretStr("")  # SLACK_SIGNING_SECRET: Events API 요청 서명 검증 (PR 3부터 사용)
     slack_app_token: SecretStr = SecretStr("")  # SLACK_APP_TOKEN: xapp- 앱 수준 토큰, 개발용 Socket Mode (PR 3부터 사용)
+
+    @model_validator(mode="after")
+    def _check_production(self):
+        problems = validate_production_settings(self)  # production 규칙 위반 목록
+        if problems:
+            raise ValueError("APP_ENV=production 설정 오류: " + " / ".join(problems))  # 시작 거부 (모두 한 줄에 나열)
+        return self
 
 
 settings = Settings()  # 앱 어디서나 import 해서 쓰는 설정 한 벌
