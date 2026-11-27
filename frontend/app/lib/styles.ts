@@ -51,6 +51,10 @@ export const S = {
   detailMemo: { margin: "var(--space-md) 0 0", paddingInline: "var(--space-md)" }, // 메모는 날짜 칸 아래에서 가로 폭 전체를 쓴다
   detailFilterGroup: { display: "inline-flex", gap: 2, padding: 2, border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)", background: "var(--color-muted)" }, // 필터 두 버튼을 작은 세그먼트 하나로 묶는다 (동작 버튼 줄과 모양을 달리한다)
   detailFilterButton: { display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", minHeight: "var(--chip-min)", paddingInline: "var(--space-sm)", border: 0, background: "transparent", fontSize: "var(--text-sm)", outlineOffset: -2 }, // 작은 칩: 테두리 없이 글자만, 키보드 테두리는 안쪽에 표시한다
+  chipRow: { display: "flex", flexWrap: "wrap", gap: "var(--space-xs) var(--space-sm)", margin: "var(--space-md) 0" }, // 상태 칩 줄: 많으면 줄바꿈 (#359)
+  statusChip: { display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", minHeight: "var(--chip-min)", paddingInline: "var(--space-sm)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-full)", background: "var(--color-card)", fontSize: "var(--text-sm)" }, // 상태 칩
+  statusChipSelected: { border: "1px solid var(--color-link)", color: "var(--color-link)", fontWeight: 700 }, // 눌린 칩 (aria-pressed 와 함께, 색만으로 구분하지 않게 굵게)
+  statusChipCount: { fontVariantNumeric: "tabular-nums", color: "var(--color-muted-foreground)" }, // 칩 안 건수
   detailFilterSelected: { background: "var(--color-card)", color: "var(--color-link)", fontWeight: 700, boxShadow: "var(--shadow-sm)" }, // 현재 선택은 흰 칩과 굵은 글자로 강조한다
   detailTableCount: { margin: 0, marginInlineStart: "auto", fontSize: "var(--text-sm)", color: "var(--color-muted-foreground)" }, // 표시 개수는 남는 공간의 오른쪽 끝에 둔다
 

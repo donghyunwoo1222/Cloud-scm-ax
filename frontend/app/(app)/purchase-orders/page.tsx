@@ -1,10 +1,10 @@
 "use client"; // 목록·필터를 다루는 화면이라 브라우저에서 실행
 
 import Link from "next/link"; // 상세·작성 화면 링크
-import { useSearchParams } from "next/navigation"; // 주소의 ?status= 읽기 (대시보드 숫자를 누르면 걸러진 채로 열기)
+import { usePathname, useRouter, useSearchParams } from "next/navigation"; // 주소의 ?status= 읽고 쓰기 (칩·대시보드 링크 모두 주소가 기준)
 import { Suspense, useEffect, useState } from "react"; // 주소 읽는 부품 감싸기, 처음 한 번 실행, 상태
 
-import { apiListAll } from "../../lib/api"; // 공통 API 호출 함수
+import { api, apiListAll } from "../../lib/api"; // 공통 API 호출 함수
 import { Field } from "../../lib/field"; // 모바일에서 라벨이 테두리에 걸리는 입력 항목
 import { ExportButton } from "../../lib/export-button"; // 내보내기 (#191)
 import { ErrorText, ListControls, Pager, useList } from "../../lib/list"; // 목록 공통 부품
@@ -26,25 +26,42 @@ export default function Page() {
   );
 }
 
-// 주소의 status 를 읽어 목록 부품에 넘긴다. key 를 status 로 주어, 화면이 열린 채(Next.js 가 보관한 화면) 다른 status 링크로 다시 들어와도
-// 목록 부품을 새로 만들어 초기값이 다시 적용되게 한다 (useState 초기값은 처음 만들 때 한 번만 쓰인다)
+// 상태·납기 구간은 주소(?status=, ?receipt_due=)가 기준이다. 칩을 누르면 주소를 바꾸고(새로고침해도 유지), 검색·공급업체는 그대로 둔다
 function PurchaseOrders() {
   const params = useSearchParams();
-  const asked = params.get("status") ?? ""; // 발주 상태는 주소에서 초기값만 읽는다
-  const due = params.get("receipt_due") ?? ""; // 대시보드에서 선택한 납기 구간
-  const initialDue = Object.keys(RECEIPT_DUE_LABEL).includes(due) ? due : "";
-  const initial = initialDue ? "ORDERED" : Object.keys(STATUS_LABEL).includes(asked) ? asked : "";
-  return <PurchaseOrdersBody key={`${initial}:${initialDue}`} initialStatus={initial} initialDue={initialDue} />;
+  const router = useRouter();
+  const pathname = usePathname();
+  const asked = params.get("status") ?? "";
+  const due = params.get("receipt_due") ?? "";
+  const receiptDue = Object.keys(RECEIPT_DUE_LABEL).includes(due) ? due : ""; // 대시보드에서 선택한 납기 구간
+  const status = receiptDue ? (asked && Object.keys(STATUS_LABEL).includes(asked) ? asked : "ORDERED") : Object.keys(STATUS_LABEL).includes(asked) ? asked : ""; // 납기 구간은 발주함만 보므로 상태가 없으면 발주함
+  function setUrl(nextStatus: string, nextDue: string) {
+    const next = new URLSearchParams();
+    if (nextStatus) next.set("status", nextStatus);
+    if (nextDue) next.set("receipt_due", nextDue);
+    router.replace(next.size ? `${pathname}?${next}` : pathname, { scroll: false }); // 맨 위로 튀지 않게
+  }
+  return <PurchaseOrdersBody status={status} receiptDue={receiptDue} setUrl={setUrl} />;
 }
 
-function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: string; initialDue: string }) {
-  const [status, setStatus] = useState(initialStatus); // 고른 상태 ("" 이면 전체). 처음 값은 주소에서
-  const [receiptDue, setReceiptDue] = useState(initialDue); // 발주함 상태에 적용할 납기 구간
+function PurchaseOrdersBody({ status, receiptDue, setUrl }: { status: string; receiptDue: string; setUrl: (status: string, due: string) => void }) {
+  const [counts, setCounts] = useState<Record<string, number> | null>(null); // 상태별 건수 (상태 조건만 뺀 같은 필터)
   const [supplierId, setSupplierId] = useState(""); // 고른 공급업체 ("" 이면 전체)
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]); // 공급업체 선택지
   const [today, setToday] = useState(""); // 화면이 열리면 서울 기준 오늘을 기록한다
   const [error, setError] = useState<unknown>(null); // 선택지 불러오기 오류
   const list = useList<PurchaseOrder>("/purchase-orders", { status, supplier_id: supplierId, receipt_due: receiptDue }); // 서버에서 거른 뒤 20개씩 읽는다
+
+  const countQuery = new URLSearchParams(); // 목록과 같은 검색·공급업체·납기 구간, 상태만 뺀다
+  if (list.q) countQuery.set("q", list.q);
+  if (supplierId) countQuery.set("supplier_id", supplierId);
+  if (receiptDue) countQuery.set("receipt_due", receiptDue);
+  const countPath = `/purchase-orders/status-counts?${countQuery}`;
+  useEffect(() => {
+    let cancelled = false; // 조건을 빨리 바꿨을 때 늦게 온 이전 건수는 버린다
+    api<Record<string, number>>(countPath).then((c) => { if (!cancelled) setCounts(c); }).catch((e) => { if (!cancelled) setError(e); });
+    return () => { cancelled = true; };
+  }, [countPath]);
 
   useEffect(() => {
     // 비활성 업체가 낸 지난 발주서도 걸러 볼 수 있게 비활성도 포함한다
@@ -62,6 +79,14 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
     set(value); // 조건 바꾸기
     list.setPage(1); // 1쪽으로
   }
+  function chooseStatus(value: string) { // 상태 칩: 납기 구간은 그대로 두어 칩 건수와 목록이 같은 조건을 쓴다
+    list.setPage(1);
+    setUrl(value, receiptDue);
+  }
+  function chooseDue(value: string) { // 납기 구간을 고르면 발주함만 본다
+    list.setPage(1);
+    setUrl(value ? "ORDERED" : status, value);
+  }
 
   return (
     <section>
@@ -72,21 +97,20 @@ function PurchaseOrdersBody({ initialStatus, initialDue }: { initialStatus: stri
       <p><Link href="/purchase-orders/new" style={S.linkButton}>발주서 작성</Link></p>
 
       <ListControls placeholder="발주번호 검색" onSearch={list.search} />
+      <div role="group" aria-label="발주 상태" style={S.chipRow}>{/* 칩이 많으면 다음 줄로 넘어가고 가로 스크롤은 없다 */}
+        {[["", "전체"], ...Object.entries(STATUS_LABEL)].map(([code, label]) => {
+          const selected = status === code;
+          const count = counts ? (code ? counts[code] ?? 0 : Object.values(counts).reduce((a, b) => a + b, 0)) : null; // 전체 = 상태별 합계
+          return (
+            <button key={code || "ALL"} type="button" aria-pressed={selected} onClick={() => chooseStatus(code)}
+              style={{ ...S.statusChip, ...(selected ? S.statusChipSelected : {}) }}>
+              {label}{count !== null && <span style={S.statusChipCount}>{count.toLocaleString("ko-KR")}</span>}
+            </button>
+          );
+        })}
+      </div>
       <div className="form-compact field-form" style={S.toolbar}>
-        <Field label="상태" className="field-half"><select value={status} onChange={(e) => {
-            const value = e.target.value;
-            filter(setStatus, value);
-            if (value !== "ORDERED") setReceiptDue(""); // 다른 상태에는 입고 예정 필터를 적용하지 않는다
-          }} style={S.block}>
-            <option value="">전체</option>
-            {Object.entries(STATUS_LABEL).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-          </select>
-        </Field>
-        <Field label="입고 납기" className="field-half"><select value={receiptDue} onChange={(e) => {
-            const value = e.target.value;
-            filter(setReceiptDue, value);
-            if (value) setStatus("ORDERED"); // 납기 구간을 고르면 발주함만 본다
-          }} style={S.block}>
+        <Field label="입고 납기" className="field-half"><select value={receiptDue} onChange={(e) => chooseDue(e.target.value)} style={S.block}>
             <option value="">전체</option>
             {Object.entries(RECEIPT_DUE_LABEL).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
           </select>

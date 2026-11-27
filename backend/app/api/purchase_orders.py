@@ -70,6 +70,17 @@ def list_orders(
     return {"data": po_service.build_out(user.company_id, db, rows, user.role), "meta": meta}
 
 
+@router.get("/status-counts")  # 상태 칩 건수 (#359). /{order_id} 보다 먼저 선언. 상태 조건만 뺀 목록과 같은 필터
+def status_counts(
+    user: CurrentUser,
+    db: ReadDB,
+    supplier_id: QueryId = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    receipt_due: Annotated[ReceiptDue | None, Query()] = None,
+) -> dict:
+    return {"data": po_service.status_counts(user.company_id, db, supplier_id, q, receipt_due)}
+
+
 @router.get("/export")  # 내보내기 (#191). /{order_id} 보다 먼저 선언해야 "export" 를 번호로 읽지 않는다
 def export_orders(
     user: CurrentUser,  # 관리자·담당자 둘 다 (단가·금액은 화면에서 이미 보인다)
