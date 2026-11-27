@@ -1,4 +1,4 @@
-"""발주서 메일 반자동 발송(#158): 미리보기 → 확인 → SMTP 발송 → 성공하면 ORDERED + 발송 기록.
+"""발주서 메일 반자동 발송(#158): 미리보기 → 확인 → 메일 발송 → 성공하면 ORDERED + 발송 기록.
 
 메일 문장은 고정 틀이다(LLM 아님). 사용자는 앞머리 한 문단(intro)만 고친다. 숫자는 발주서 문서(build_document)와 같은 값을 쓴다.
 """
@@ -7,6 +7,7 @@ import logging  # 실패 원문을 서버 로그에 남긴다
 import re  # 로컬 시험 주소 검사
 import secrets  # 공급업체 링크 토큰 (#265)
 import smtplib  # 표준 SMTP 클라이언트 (새 라이브러리 없음)
+from base64 import b64encode  # 첨부 파일을 JSON에 넣을 글자로 변환
 from datetime import timedelta  # 링크 유효 기간
 from email.message import EmailMessage  # 표준 메일 만들기 (본문·첨부·머리글)
 from email.utils import formataddr  # "회사명 <주소>" 모양 만들기
@@ -14,13 +15,14 @@ from html import (
     escape,  # 사용자·DB 글자를 HTML 에 넣기 전에 < > & 를 바꾼다 (본문에 태그가 끼어들지 않게)
 )
 
+import httpx2  # 기존 HTTP 클라이언트
 from sqlalchemy import func  # DB 의 현재 시각
 from sqlalchemy.orm import Session  # DB 세션 타입
 
 from app.auth.security import (
     hash_reset_token,  # 링크 토큰 → SHA-256 해시 (재설정 링크와 같은 함수, #170)
 )
-from app.config import settings  # SMTP 설정 (환경 변수)
+from app.config import settings  # 메일 설정 (환경 변수)
 from app.errors import AppError  # 공통 오류
 from app.models import PoEmailLog, PurchaseOrder, User  # 표들
 from app.pagination import PageParams, paginate  # 이력 목록 쪽 나누기
@@ -30,7 +32,7 @@ from app.services.po_states import ACTION_STATES  # 보낼 수 있는 상태 (#2
 from app.services.tenant import get_owned, scoped  # 회사 조건이 붙은 조회 (다른 회사 404)
 
 log = logging.getLogger(__name__)  # 이 파일의 로그
-SMTP_TIMEOUT = 10 # 메일 서버 응답을 기다리는 최대 초 (그동안 발주서 행이 잠겨 있다)
+MAIL_TIMEOUT = 10  # 전송 단계별 타임아웃(초). 발송 중 발주서 행이 잠겨 있다
 INTRO_MAX = 2000  # 앞머리 문단 최대 글자 수 (스키마와 같은 값)
 LINK_DAYS = 30  # 공급업체 확인 링크 유효 기간 (#265, 발송 시각부터)
 LINK_PREVIEW = "[발송할 때 이 발주서 전용 확인 링크가 들어갑니다]"  # 미리보기에는 진짜 토큰 대신 이 문구
@@ -198,7 +200,7 @@ def build_preview(company_id: int, db: Session, user: User, order_id: int) -> di
         "attachments": [f"{doc['po_number']}.pdf", f"{doc['po_number']}.xlsx"],
         "status": order.status,
         "emailed_at": order.emailed_at, "emailed_to": order.emailed_to,  # 이미 보냈으면 확인창에서 한 번 더 묻는다
-        "mail_ready": bool(settings.smtp_host and settings.smtp_from),  # 메일 서버 설정이 없으면 화면이 미리 안내한다
+        "mail_ready": mail_ready(),  # 메일 서버 설정이 없으면 화면이 미리 안내한다
     }
 
 
@@ -206,7 +208,7 @@ def build_message(doc: dict, intro: str, reply_to: str, link: str | None = None)
     """보낼 메일 한 통: 시스템 주소에서 공급업체로, 답장은 담당자에게, PDF·엑셀 첨부."""
     msg = EmailMessage()
     msg["Subject"] = subject_of(doc)
-    msg["From"] = formataddr((doc["buyer"]["name"], settings.smtp_from))  # 보내는 주소는 시스템 주소 하나, 이름만 회사명
+    msg["From"] = formataddr((doc["buyer"]["name"], sender_address()))  # 보내는 주소는 시스템 주소 하나, 이름만 회사명
     msg["To"] = doc["supplier"]["email"]
     msg["Reply-To"] = reply_to  # 공급업체가 답장하면 담당자 메일함으로 간다
     msg.set_content(f"{intro}\n\n{fixed_text(doc, link)}")  # 글자 본문
@@ -218,10 +220,81 @@ def build_message(doc: dict, intro: str, reply_to: str, link: str | None = None)
     return msg
 
 
+def sender_address() -> str:
+    """선택한 제공자의 발신 주소."""
+    return settings.resend_from.strip() if settings.mail_provider == "resend" else settings.smtp_from
+
+
+def mail_ready() -> bool:
+    """미리보기와 모든 발송 경로가 쓰는 준비 조건."""
+    if settings.mail_provider == "resend":
+        return bool(sender_address() and settings.resend_api_key.get_secret_value().strip())
+    return bool(settings.smtp_host and sender_address())
+
+
+class ResendMailError(OSError):
+    """기존 발송 오류 처리에서 쓸 안전한 문구와 분류 코드."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+def deliver_resend(msg: EmailMessage) -> None:
+    """완성된 메일의 본문과 첨부만 Resend 형식으로 옮긴다."""
+    payload = {
+        "from": str(msg["From"]),
+        "to": [address.addr_spec for address in msg["To"].addresses],
+        "subject": str(msg["Subject"]),
+    }
+    if msg["Reply-To"]:
+        payload["reply_to"] = [address.addr_spec for address in msg["Reply-To"].addresses]
+    for mime, field in (("plain", "text"), ("html", "html")):  # 있는 본문 형식만 보낸다
+        if (body := msg.get_body(preferencelist=(mime,))) is not None:
+            payload[field] = body.get_content()
+    attachments = [
+        {"filename": part.get_filename(), "content": b64encode(part.get_content()).decode("ascii")}
+        for part in msg.iter_attachments()
+    ]
+    if attachments:
+        payload["attachments"] = attachments
+
+    key = settings.resend_api_key.get_secret_value().strip()
+    if not key or any(not ("!" <= char <= "~") for char in key):  # 잘못된 헤더 값이 HTTP 예외로 새지 않게 막는다
+        raise ResendMailError("AUTH", "Resend API 키 설정 오류")
+    try:
+        response = httpx2.post(
+            "https://api.resend.com/emails",
+            json=payload,
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=MAIL_TIMEOUT,
+            follow_redirects=False,  # 키와 메일을 다른 주소로 보내지 않는다
+        )
+    except httpx2.TimeoutException:
+        error = ResendMailError("TIMEOUT", "Resend 요청 시간 초과")
+    except httpx2.HTTPError:
+        error = ResendMailError("CONNECTION", "Resend 연결 실패")
+    else:
+        status = response.status_code  # 민감한 값이 있을 수 있는 응답 본문은 읽지 않는다
+        if 200 <= status < 300:
+            return
+        if status == 401:
+            code = "AUTH"  # 영구 오류: 키 설정 확인
+        elif status == 429 or 500 <= status < 600:
+            code = "CONNECTION"  # 일시 오류: 잠시 뒤 다시 시도할 수 있다
+        else:
+            code = "OTHER"  # 영구 오류: 발송 설정이나 입력을 확인한다
+        error = ResendMailError(code, f"Resend HTTP {status}")
+    raise error  # 원래 HTTP 예외의 요청·헤더가 예외 체인에 남지 않게 한다
+
+
 def deliver(msg: EmailMessage) -> None:
-    """SMTP 로 실제 발송. 테스트는 이 함수를 가짜로 바꿔 끼운다(monkeypatch)."""
+    """메일 한 통을 선택한 제공자로 보낸다."""
+    if settings.mail_provider == "resend":
+        deliver_resend(msg)
+        return
     smtp_class = smtplib.SMTP_SSL if settings.smtp_security == "ssl" else smtplib.SMTP  # 465 는 처음부터 암호화
-    with smtp_class(settings.smtp_host, settings.smtp_port, timeout=SMTP_TIMEOUT) as smtp:
+    with smtp_class(settings.smtp_host, settings.smtp_port, timeout=MAIL_TIMEOUT) as smtp:
         if settings.smtp_security == "starttls":
             smtp.starttls()  # 587: 연결 뒤 암호화로 바꾼다 (비밀번호가 평문으로 가지 않게)
         if settings.smtp_user:
@@ -231,14 +304,17 @@ def deliver(msg: EmailMessage) -> None:
 
 def failure(exc: Exception, tail: str = "발주서는 승인됨 상태 그대로입니다.") -> AppError:
     """발송 실패를 사용자가 알아들을 문장으로 (메일 서버의 원문 오류·비밀번호는 내보내지 않는다). tail 은 끝 문장(독촉은 따로, #269)."""
-    if isinstance(exc, smtplib.SMTPAuthenticationError):
+    code = failure_code(exc)
+    if code == "AUTH":
         reason = "메일 서버 로그인에 실패했습니다. 관리자에게 메일 설정 확인을 요청하세요."
-    elif isinstance(exc, smtplib.SMTPRecipientsRefused):
+    elif code == "RECIPIENT_REFUSED":
         reason = "메일 서버가 받는 주소를 거부했습니다. 공급업체 이메일을 확인하세요."
+    elif isinstance(exc, ResendMailError) and code == "OTHER":
+        reason = "메일 서비스가 발송 요청을 거부했습니다. 관리자에게 발송 설정 확인을 요청하세요."
     else:
         reason = "메일 서버에 연결하지 못했거나 발송 중 오류가 났습니다. 잠시 뒤 다시 시도하세요."
-    log.warning("메일 발송 실패 %s: %s", type(exc).__name__, exc)  # 원문은 서버 로그에만 (본문·비밀번호는 예외에 없다)
-    return AppError(502, "MAIL_FAILED", f"{reason} {tail}", {"failure_code": failure_code(exc)})  # 응답에는 고정 분류 코드만
+    log.warning("메일 발송 실패 %s: %s", type(exc).__name__, exc)  # Resend 예외에는 고정 문구와 상태코드만 있다
+    return AppError(502, "MAIL_FAILED", f"{reason} {tail}", {"failure_code": code})  # 응답에는 고정 분류 코드만
 
 
 def list_attempts(company_id: int, db: Session, order_id: int, page: PageParams) -> tuple[list[dict], dict]:
@@ -260,6 +336,8 @@ def failure_code(exc: Exception) -> str:
     """발송 실패의 종류 코드 (이력 표 failure_code). 원문 메시지는 저장하지 않는다.
 
     SMTPException 은 OSError 의 자식이라, 구체적인 것부터 보고 일반 OSError(연결 거부·주소 못 찾음)는 맨 끝에 본다."""
+    if isinstance(exc, ResendMailError):
+        return exc.code
     if isinstance(exc, smtplib.SMTPAuthenticationError):
         return "AUTH"
     if isinstance(exc, smtplib.SMTPRecipientsRefused):
@@ -290,7 +368,7 @@ def send_order(company_id: int, db: Session, user: User, order_id: int, intro: s
     to = doc["supplier"]["email"]
     if not to:
         raise AppError(409, "NO_SUPPLIER_EMAIL", "공급업체 이메일이 없어 보낼 수 없습니다. 공급업체 정보에 이메일을 넣어 주세요.")
-    if not (settings.smtp_host and settings.smtp_from):
+    if not mail_ready():
         raise AppError(503, "MAIL_NOT_CONFIGURED", "메일 서버 설정이 없어 보낼 수 없습니다. 관리자에게 문의하세요.")
     base = supplier_link_base()
     token = secrets.token_urlsafe(32) if base else None  # 원본 토큰은 메일 본문에만 들어간다 (DB·응답·로그에는 없음)
@@ -298,7 +376,7 @@ def send_order(company_id: int, db: Session, user: User, order_id: int, intro: s
     entry = {"company_id": company_id, "purchase_order_id": order.id, "kind": "ORDER", "sent_by": user.id,
              "to_address": to, "with_link": token is not None}  # 이력 행 값 (토큰·본문·제목은 넣지 않는다)
     try:
-        deliver(build_message(doc, intro, user.email, link))  # 실제 발송 (최대 SMTP_TIMEOUT 초)
+        deliver(build_message(doc, intro, user.email, link))  # 실제 발송 (전송 타임아웃 적용)
     except (smtplib.SMTPException, OSError) as exc:  # 메일 서버 거부·연결 실패·시간 초과
         # 여기까지 발주서·토큰은 하나도 바뀌지 않았다(아래 대입은 모두 발송 성공 뒤). 그래서 API 가 커밋해도 실패 행만 저장된다
         db.add(PoEmailLog(**entry, result="FAILED", failure_code=failure_code(exc)))
