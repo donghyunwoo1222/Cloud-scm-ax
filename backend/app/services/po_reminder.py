@@ -4,7 +4,7 @@
 - 발주서 상태·emailed_*(마지막 발주서 발송)·변경 이력은 바꾸지 않는다. 기록은 po_email_log(kind REMINDER) 시도마다 1행.
 - 지연 판단은 purchase_orders.receipt_due_condition("OVERDUE") 한 곳(대시보드·목록과 같은 조건). 발송은 잠근 뒤 다시 본다.
 - 한도(간격·발주당 횟수·회사 하루)는 발주서 행을 잠근 안에서 po_email_log 를 센다. 회사 행은 잠그지 않는다:
-  SMTP 를 기다리는 최대 10초 동안 그 회사의 발주 작성·추천 초안(둘 다 회사 행을 잠근다)이 멈추기 때문이다.
+  메일 서비스 응답을 기다리는 동안 그 회사의 발주 작성·추천 초안(둘 다 회사 행을 잠근다)이 멈추기 때문이다.
   그래서 회사 하루 상한은 느슨하다(서로 다른 발주에 동시에 보내면 상한을 조금 넘을 수 있다).
 - 메일 본문에 넣는 칸은 reminder_facts 가 고른 칸뿐이다(허용 목록, 문서: supplier-document-fields.md 6절).
   단가·금액·메모·지불조건·첨부는 넣지 않는다.
@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session  # DB 세션 타입
 
 from app.auth.security import hash_reset_token  # 토큰 → SHA-256 해시 (원본은 저장하지 않는다)
 from app.clock import SEOUL, seoul_today  # 서울 기준 날짜
-from app.config import settings  # 스위치·한도·SMTP 설정
+from app.config import settings  # 스위치·한도 설정
 from app.errors import AppError  # 공통 오류
 from app.models import Company, PoEmailLog, PurchaseOrder, Supplier, User  # 표들
 from app.services import (
@@ -177,7 +177,7 @@ def build_preview(company_id: int, db: Session, user: User, order_id: int) -> di
         "reply_to": user.email,  # 답장 받을 주소 = 지금 보내는 사람
         "subject": mail["subject"], "intro": mail["intro"], "fixed_html": mail["fixed_html"],
         "with_link": po_mail.supplier_link_base() is not None,
-        "mail_ready": bool(settings.smtp_host and settings.smtp_from),
+        "mail_ready": po_mail.mail_ready(),
         **c,
         "blocked": blocked.code if blocked else None,  # REMINDER_LIMIT / REMINDER_TOO_SOON / REMINDER_DAILY_LIMIT / None
     }
@@ -188,7 +188,7 @@ def build_message(facts: dict, intro: str, to: str, reply_to: str, link: str | N
     mail = build_reminder(facts, link)
     msg = EmailMessage()
     msg["Subject"] = mail["subject"]
-    msg["From"] = formataddr((facts["buyer_name"], settings.smtp_from))  # 보내는 주소는 시스템 주소 하나, 이름만 회사명
+    msg["From"] = formataddr((facts["buyer_name"], po_mail.sender_address()))  # 보내는 주소는 시스템 주소 하나, 이름만 회사명
     msg["To"] = to
     msg["Reply-To"] = reply_to
     msg.set_content(f"{intro}\n\n{mail['fixed_text']}")
@@ -210,7 +210,7 @@ def send_reminder(company_id: int, db: Session, user: User, order_id: int, intro
     to = db.get_one(Supplier, order.supplier_id).email
     if not to:
         raise AppError(409, "NO_SUPPLIER_EMAIL", "공급업체 이메일이 없어 보낼 수 없습니다. 공급업체 정보에 이메일을 넣어 주세요.")
-    if not (settings.smtp_host and settings.smtp_from):
+    if not po_mail.mail_ready():
         raise AppError(503, "MAIL_NOT_CONFIGURED", "메일 서버 설정이 없어 보낼 수 없습니다. 관리자에게 문의하세요.")
     if blocked := limit_error(company_id, db, counters(company_id, db, order.id)):  # 잠금 안에서 센다
         raise blocked
@@ -220,7 +220,7 @@ def send_reminder(company_id: int, db: Session, user: User, order_id: int, intro
     entry = {"company_id": company_id, "purchase_order_id": order.id, "kind": "REMINDER", "sent_by": user.id,
              "to_address": to, "with_link": token is not None}  # 이력 행 값 (토큰·본문·제목은 넣지 않는다)
     try:
-        po_mail.deliver(build_message(facts, intro, to, user.email, link))  # 실제 발송 (최대 SMTP_TIMEOUT 초)
+        po_mail.deliver(build_message(facts, intro, to, user.email, link))  # 실제 발송 (전송 타임아웃 적용)
     except (smtplib.SMTPException, OSError) as exc:
         db.add(PoEmailLog(**entry, result="FAILED", failure_code=po_mail.failure_code(exc)))  # 여기까지 발주서는 그대로다
         raise po_mail.failure(exc, FAILED_TAIL) from exc

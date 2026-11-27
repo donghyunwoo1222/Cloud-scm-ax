@@ -14,7 +14,7 @@ from app.auth.security import (  # 비밀번호·토큰 도구
     hash_reset_token,
     validate_password,
 )
-from app.config import settings  # APP_BASE_URL, SMTP_FROM
+from app.config import settings  # APP_BASE_URL
 from app.errors import AppError  # 공통 오류
 from app.models import User  # 사용자 표
 from app.services import po_mail  # 메일 발송(deliver) 재사용 (#158)
@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)  # 이 파일의 로그
 
 def ensure_ready() -> None:
     """링크·메일 설정이 없으면 503. 이메일과 무관한 서버 설정 문제라 존재 여부가 드러나지 않는다."""
-    if not (settings.app_base_url and settings.smtp_host and settings.smtp_from):
+    if not (settings.app_base_url and po_mail.mail_ready()):
         raise AppError(503, "MAIL_NOT_CONFIGURED", "지금은 재설정 메일을 보낼 수 없습니다. 관리자에게 문의해 주세요.")
 
 
@@ -47,7 +47,7 @@ def send_reset_mail(email: str, token: str) -> None:
     """재설정 링크 메일 한 통을 보낸다. 실패해도 응답은 이미 나갔으니 로그만 남긴다(원문 오류·링크는 남기지 않는다)."""
     msg = EmailMessage()
     msg["Subject"] = "[Cloud SCM] 비밀번호 재설정 안내"
-    msg["From"] = settings.smtp_from  # 시스템 주소
+    msg["From"] = po_mail.sender_address()  # 시스템 주소
     msg["To"] = email  # 요청한 이메일
     link = f"{settings.app_base_url.rstrip('/')}/reset-password?token={token}"  # 앞부분은 환경 변수
     msg.set_content(
