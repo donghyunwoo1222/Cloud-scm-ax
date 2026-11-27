@@ -3,7 +3,7 @@
 from fastapi import APIRouter, BackgroundTasks, Request, Response  # 라우터, 요청·응답 객체
 from sqlalchemy.orm import Session  # DB 세션 타입
 
-from app.auth import lockout  # 로그인 시도 제한
+from app.auth import lockout, signup_limit  # 로그인 시도 제한
 from app.auth.deps import COOKIE_NAME, AnyUser  # 쿠키 이름, 로그인 사용자
 from app.auth.security import (  # 토큰 유효 시간, 토큰 만들기
     OTP_TOKEN_MINUTES,
@@ -64,7 +64,8 @@ def me_out(db: Session, user: User, otp_notice: str | None = None) -> dict:
 
 
 @router.post("/companies", status_code=201)  # 회사 가입 (로그인 전 누구나)
-def sign_up(data: CompanySignup, db: DB) -> dict:
+def sign_up(data: CompanySignup, request: Request, db: DB) -> dict:
+    signup_limit.check_signup(request, db)  # 비밀번호 해시·회사 생성 전에 시도 횟수를 확정한다.
     admin = auth_service.create_company(db, data)  # 회사 + 첫 관리자 생성
     return me_out(db, admin)  # 만든 관리자 정보
 

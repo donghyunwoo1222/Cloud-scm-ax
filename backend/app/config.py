@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT_ENV, extra="ignore", hide_input_in_errors=True)
 
     app_env: Literal["development", "production"] = "development"  # APP_ENV: production 이면 시작할 때 운영 필수값을 점검하고 어기면 시작 거부. 다른 값도 거부
+    signup_rate_limit_enabled: bool = False  # 로컬 기본 꺼짐. 배포 설정에서 활성화한다.
+    signup_rate_limit_window_seconds: int = Field(3600, ge=1, le=2147483647)
+    signup_rate_limit_max_attempts: int = Field(5, ge=1, le=2147483647)
+    trusted_proxy_count: int = Field(0, ge=0)  # 0이면 소켓 주소만 사용한다.
     api_docs_enabled: bool = False  # API_DOCS_ENABLED: production 에서도 /docs·/redoc·/openapi.json 을 열려면 true (development 는 항상 열림)
     database_url: str  # DB 주소 (DATABASE_URL), 기본값 없음: 비어 있으면 시작할 때 바로 오류
     secret_key: str = Field(min_length=32)  # 로그인 토큰 서명 키 (SECRET_KEY), 기본값 없음. 짧으면 추측당하기 쉬워 32자 미만이면 시작 거부
