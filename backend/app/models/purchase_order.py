@@ -83,6 +83,7 @@ class PurchaseOrder(CompanyMixin, Base):
     freight_amount: Mapped[int | None] = mapped_column(BigInteger)  # 운송비 (원, 내부 전용)
     extra_costs: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"), default=list)  # 부대비용 [{name, amount}] (원, 내부 전용)
     special_terms: Mapped[str | None]  # 특약 (공급업체 기본값 복사, 공급업체와 합의하는 글)
+    source_po_id: Mapped[int | None] = mapped_column(ForeignKey("purchase_orders.id"))  # 이 발주서를 복사해 만든 원본 발주서 (#188, 직접 만들었으면 비움)
 
 
 class PurchaseOrderItem(CompanyMixin, Base):

@@ -56,6 +56,7 @@ export type PurchaseOrder = {
   freight_amount: number | null; // 운송비 (원, 내부 전용). null = 미입력, 0 = 무료
   extra_costs: { name: string; amount: number }[]; // 부대비용 줄 (원, 내부 전용)
   special_terms: string | null; // 특약
+  source_po_id: number | null; // 복사해 만든 발주서면 원본 발주서 번호 (#188)
   cost: PoCost; // 원가 합산 (서버 계산, 내부 전용)
   items: PoItem[]; // 품목 줄
 };
@@ -89,7 +90,7 @@ export const STATUS_LABEL: Record<PoStatus, string> = {
 // 오류 details 의 칸 이름 → 화면 이름 (422 문장 뒤에 어느 칸인지 덧붙인다)
 export const PO_LABELS = {
   supplier_id: "공급업체", due_date: "약속 납기", supplier_due_date: "회신 납기", supplier_confirmed_at: "공급업체 확인", memo: "메모", delivery_address: "납품장소", payment_terms: "지불조건", items: "품목 줄", product_id: "품목", quantity: "수량", unit_price: "단가", movement_date: "입고일",
-  box_quantity: "발주단위 수", reason: "사유",
+  box_quantity: "발주단위 수", reason: "사유", source_po_id: "복사한 원본 발주서",
   currency: "통화", exchange_rate: "환율", krw_goods_total: "품목 원화 합계", freight_terms: "운송비 조건", freight_amount: "운송비", extra_costs: "부대비용", special_terms: "특약", fx_unit_price: "외화 단가", fx_box_unit_price: "외화 박스 단가", fx_price: "외화 단가",
 };
 

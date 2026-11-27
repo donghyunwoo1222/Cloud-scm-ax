@@ -302,6 +302,62 @@ def create_order(company_id: int, db: Session, user_id: int, data: PurchaseOrder
     return order
 
 
+def reorder_plan(company_id: int, db: Session, source: PurchaseOrder) -> tuple[list[ItemIn], list[dict], list[dict], PurchaseOrder | None]:
+    """원본 줄을 지금 마스터 기준으로 다시 읽는다 (#188). 반환: (새 줄, 복사될 줄 요약, 제외된 줄 요약, 이 업체의 기존 DRAFT).
+
+    복사하는 것은 품목과 수량뿐이다. 단가·환산계수·최소 주문량은 create_order 가 지금 품목에서 새로 스냅샷한다.
+    예) 원본 박스 줄 3박스(10개입) → 품목이 지금 20개입이면 3박스 = 60개, 단가도 지금 박스 단가.
+    """
+    lines = list(db.scalars(scoped(company_id, PurchaseOrderItem).where(
+        PurchaseOrderItem.purchase_order_id == source.id).order_by(PurchaseOrderItem.id)))
+    products = {p.id: p for p in db.scalars(scoped(company_id, Product).where(
+        Product.id.in_([i.product_id for i in lines])))}
+    items, kept, excluded = [], [], []
+    for line in lines:
+        product = products[line.product_id]
+        brief = {"product_id": product.id, "sku": product.sku, "name": product.name, "unit": product.unit, "quantity": line.quantity}
+        if not product.is_active:  # 비활성 품목은 새 발주에 못 쓴다 (원칙 8)
+            excluded.append(brief)
+            continue
+        if line.units_per_box is not None and product.units_per_box is not None:  # 박스 줄: 같은 박스 수, 지금 입수·박스 단가
+            items.append(ItemIn(product_id=product.id, box_quantity=line.quantity // line.units_per_box))
+        else:  # 재고 단위 줄 (품목의 박스 설정이 없어졌어도 같은 낱개 수량), 지금 단가
+            items.append(ItemIn(product_id=product.id, quantity=line.quantity, unit_price=product.unit_cost))
+        kept.append(brief)
+    draft = db.scalar(scoped(company_id, PurchaseOrder).where(
+        PurchaseOrder.supplier_id == source.supplier_id, PurchaseOrder.status == "DRAFT"))
+    return items, kept, excluded, draft
+
+
+def reorder_preview(company_id: int, db: Session, order_id: int) -> dict:
+    """GET /purchase-orders/{id}/reorder: 복사하면 어떻게 되는지 미리 본다 (읽기만, 확인 창용)."""
+    source = get_order(company_id, db, order_id)  # 다른 회사 404
+    _, kept, excluded, draft = reorder_plan(company_id, db, source)
+    supplier = db.get(Supplier, source.supplier_id)
+    return {"supplier_active": supplier.is_active, "items": kept, "excluded": excluded,
+            "existing_draft": {"id": draft.id, "po_number": draft.po_number} if draft else None}
+
+
+def reorder(company_id: int, db: Session, user_id: int, order_id: int) -> tuple[PurchaseOrder, list[dict]]:
+    """POST /purchase-orders/{id}/reorder: 원본 상태와 상관없이 새 DRAFT 를 만든다 (#188). 원본은 바뀌지 않는다.
+
+    복사: 공급업체·품목·수량, 공급업체 문서에 나가는 조건(지불조건·운송 조건·특약·납품장소).
+    복사하지 않음: 납기·메모, 환율·외화 값(항상 KRW), 운송비·부대비용 금액(내부 전용), 추천 근거, 승인·입고·메일 기록.
+    """
+    source = get_order(company_id, db, order_id)
+    items, _, excluded, _ = reorder_plan(company_id, db, source)
+    if not items:
+        raise AppError(409, "NO_COPYABLE_ITEMS", "복사할 수 있는 활성 품목이 없습니다.", {"excluded": excluded})
+    terms = {k: v for k, v in {"delivery_address": source.delivery_address, "payment_terms": source.payment_terms,
+                               "freight_terms": source.freight_terms, "special_terms": source.special_terms}.items() if v}  # 비어 있으면 공급업체 기본값에 맡긴다
+    order = create_order(company_id, db, user_id, PurchaseOrderCreate(
+        supplier_id=source.supplier_id, currency="KRW", items=items, **terms))  # 비활성 업체 409, 기존 DRAFT 409 DUPLICATE_DRAFT
+    order.source_po_id = source.id
+    log_change(db, company_id, order.id, user_id, [("source_po_id", None, source.po_number)])  # 어디서 복사했는지 이력에도
+    db.flush()
+    return order, excluded
+
+
 def update_order(company_id: int, db: Session, user_id: int, order_id: int, data: PurchaseOrderUpdate) -> PurchaseOrder:
     """PATCH /purchase-orders/{id}: DRAFT 일 때만(409 INVALID_STATUS). items 를 보내면 최종 목록으로 맞춘다.
 

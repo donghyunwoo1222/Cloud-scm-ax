@@ -170,6 +170,7 @@ erDiagram
 | supplier\_token\_expires\_at | 시각 | 선택 | 링크 토큰 만료 시각(#265, 내부 전용) |
 | supplier\_confirmed\_at | 시각 | 선택 | 공급업체가 확인한 시각(#265) |
 | supplier\_due\_date | 날짜 | 선택 | 공급업체가 회신한 납기(#265). 약속 납기 `due_date`는 덮어쓰지 않고, 지연 계산에만 `coalesce(supplier_due_date, due_date)`를 쓴다 |
+| source\_po\_id | 번호 | 선택 | 복사해 만든 발주서의 원본 발주서(`purchase_orders.id`, #188). 직접 만들었으면 비어 있다. 복사 때 `po_change_log`에 field `source_po_id`(새 값: 원본 발주번호)도 남긴다 |
 | supplier\_reply\_count | 정수 | 필수 | 공급업체 회신 횟수(#265, 기본 0) |
 | cancelled\_at | 시각 | 선택 | CANCELLED로 바뀐 시각 |
 | currency | 선택지 | 필수 | 통화(#267, 기본 KRW). 만들 때 공급업체 `default_currency` 를 복사. 바꾸면 품목 줄을 새 통화의 단가로 다시 보내야 한다(자동 환산 없음) |
