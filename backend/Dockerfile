@@ -11,5 +11,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 나머지 코드 복사
 COPY . .
 
-# 기본 실행 명령 (로컬 개발에서는 docker-compose.yml 의 command 가 --reload 로 덮어쓴다)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Render가 준 포트로 워커 하나를 실행한다. 로컬 Compose는 개발용 명령으로 덮어쓴다.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port \"${PORT:-8000}\" --workers 1"]

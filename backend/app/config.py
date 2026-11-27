@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     app_env: Literal["development", "production"] = "development"  # APP_ENV: production 이면 시작할 때 운영 필수값을 점검하고 어기면 시작 거부. 다른 값도 거부
     api_docs_enabled: bool = False  # API_DOCS_ENABLED: production 에서도 /docs·/redoc·/openapi.json 을 열려면 true (development 는 항상 열림)
     database_url: str  # DB 주소 (DATABASE_URL), 기본값 없음: 비어 있으면 시작할 때 바로 오류
+    db_pool_size: int = Field(5, ge=1)  # 기본 연결 수. SQLAlchemy에서 0은 연결 수 무제한이므로 막는다
+    db_max_overflow: int = Field(5, ge=0)  # 동시에 더 빌릴 수 있는 임시 연결 수
+    db_pool_recycle: int = Field(1800, ge=0)  # 이 시간(초)보다 오래된 연결은 다시 빌릴 때 교체한다
     secret_key: str = Field(min_length=32)  # 로그인 토큰 서명 키 (SECRET_KEY), 기본값 없음. 짧으면 추측당하기 쉬워 32자 미만이면 시작 거부
     cookie_secure: bool = False  # COOKIE_SECURE: 배포(HTTPS)에서만 true. true면 쿠키가 HTTPS로만 전송된다
     # 발주서·독촉·OTP·재설정 메일 공통 설정
