@@ -6,7 +6,7 @@
 
 | 문서 | 내용 |
 |---|---|
-| [erd.md](./erd.md) | 표 12개(업무 7개 + 멱등 키 + 발주서 변경 이력 + 슬랙 연결 + 메일 발송 이력 + 챗봇 일별 통계), 컬럼, 관계, 업무 규칙(R1~R10) 대응, 시나리오 S1~S14 점검 |
+| [erd.md](./erd.md) | 표 14개(업무 7개 + 멱등 키 + 발주서 변경 이력 + 슬랙 연결 + 메일 발송 이력 + 챗봇 일별 통계 + 가입 제한 + 매입 세금계산서), 컬럼, 관계, 업무 규칙(R1~R10) 대응, 시나리오 S1~S14 점검 |
 | [api-design.md](./api-design.md) | REST API 32개, 권한, 오류 코드, 핵심 API 상세 |
 | [architecture.md](./architecture.md) | 기술 스택, 구성도, 폴더 구조, 추천 계산 함수, 배포·운영, 주차별 계획 |
 | [state-machines.md](./state-machines.md) | 발주서 상태 전이표·상태별 되는 일·표 밖 전이 2곳, 암묵적 상태 머신 17개, 새 상태 추가 체크리스트(#260) |
@@ -17,7 +17,7 @@
 
 ## 핵심 설계 요약
 
-- 표 12개: companies, users, suppliers, products, purchase_orders, purchase_order_items, inventory_movements, idempotency_keys(멱등 키, #190), po_change_log(발주서 변경 이력, #181), slack_links(슬랙 연결, #197), po_email_log(메일 발송 이력, 추가 전용, #182), chat_daily_stats(챗봇 일별 통계, 숫자만, 기술용, #199)
+- 표 14개: companies, users, suppliers, products, purchase_orders, purchase_order_items, inventory_movements, idempotency_keys(멱등 키, #190), po_change_log(발주서 변경 이력, #181), slack_links(슬랙 연결, #197), po_email_log(메일 발송 이력, 추가 전용, #182), chat_daily_stats(챗봇 일별 통계, 숫자만, 기술용, #199), signup_rate_limits(가입 제한, 기술용), purchase_tax_invoices(매입 세금계산서, 취소 표시만, 내부 전용, #268)
 - 재고는 컬럼으로 저장하지 않고 `inventory_movements`의 합계로 계산한다.
 - 모든 업무 표에 `company_id`를 둔다. 회사 정보는 토큰에서만 가져온다.
 - 마이너스 재고는 서버 트랜잭션과 행 잠금으로 막는다.

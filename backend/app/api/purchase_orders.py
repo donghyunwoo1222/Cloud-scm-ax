@@ -34,6 +34,9 @@ from app.schemas.purchase_orders import (  # 요청 모양
     ReceiptDue,
     ReminderSend,
     SupplierReplyRecord,
+    TaxInvoiceCancel,
+    TaxInvoiceCreate,
+    TaxInvoiceFilter,
 )
 from app.services import (
     export,  # 목록 내보내기 (#191)
@@ -44,6 +47,7 @@ from app.services import (
     po_reminder,  # 납기 지연 독촉 메일 (#269)
     price_alert,  # 단가 변동 경고 (#283)
     supplier_reply,  # 직원이 받은 공급업체 회신 기록 (#265 PR4)
+    tax_invoices,  # 매입 세금계산서 수취 기록 (#268, 내부 전용)
 )
 from app.services import purchase_orders as po_service  # 업무 규칙
 
@@ -65,8 +69,9 @@ def list_orders(
     status: Annotated[PoStatus | None, Query()] = None,  # 이 상태의 발주만
     q: Annotated[str | None, Query(max_length=100)] = None,  # 발주번호 부분 검색
     receipt_due: Annotated[ReceiptDue | None, Query()] = None,  # 발주함 발주의 납기 구간
+    tax_invoice: Annotated[TaxInvoiceFilter | None, Query()] = None,  # missing = 세금계산서 미수취 (#268)
 ) -> dict:
-    rows, meta = po_service.list_orders(user.company_id, db, page, supplier_id, status, q, receipt_due)
+    rows, meta = po_service.list_orders(user.company_id, db, page, supplier_id, status, q, receipt_due, tax_invoice)
     return {"data": po_service.build_out(user.company_id, db, rows, user.role), "meta": meta}
 
 
@@ -77,8 +82,9 @@ def status_counts(
     supplier_id: QueryId = None,
     q: Annotated[str | None, Query(max_length=100)] = None,
     receipt_due: Annotated[ReceiptDue | None, Query()] = None,
+    tax_invoice: Annotated[TaxInvoiceFilter | None, Query()] = None,  # 목록과 같은 미수취 필터 (#268)
 ) -> dict:
-    return {"data": po_service.status_counts(user.company_id, db, supplier_id, q, receipt_due)}
+    return {"data": po_service.status_counts(user.company_id, db, supplier_id, q, receipt_due, tax_invoice)}
 
 
 @router.get("/export")  # 내보내기 (#191). /{order_id} 보다 먼저 선언해야 "export" 를 번호로 읽지 않는다
@@ -250,6 +256,25 @@ def record_supplier_reply(order_id: PathId, data: SupplierReplyRecord, user: Cur
     order = supplier_reply.record_by_staff(user.company_id, db, user.id, order_id, data.due_date, data.reason)  # 404·409·422
     db.commit()  # 확정 (발주서 잠금도 여기서 풀린다). 같은 날짜 재입력은 바뀐 것이 없어 멱등 키가 필요 없다
     return one(user, db, order)
+
+
+@router.get("/{order_id}/tax-invoices")  # 세금계산서 목록과 입고 금액 대조 (#268, 읽기만, 둘 다, 내부 전용)
+def get_tax_invoices(order_id: PathId, user: CurrentUser, db: DB) -> dict:
+    return {"data": tax_invoices.get_view(user.company_id, db, order_id)}  # 404
+
+
+@router.post("/{order_id}/tax-invoices", status_code=201)  # 세금계산서 기록 (발주함·입고 완료만, 둘 다, 상태는 그대로)
+def record_tax_invoice(order_id: PathId, data: TaxInvoiceCreate, user: CurrentUser, db: DB) -> dict:
+    out = tax_invoices.record(user.company_id, db, user.id, order_id, data)  # 404·409·422
+    db.commit()  # 확정 (발주서 잠금도 여기서 풀린다). 같은 번호 재전송은 409 라 멱등 키가 필요 없다
+    return {"data": out}
+
+
+@router.post("/{order_id}/tax-invoices/{invoice_id}/cancel")  # 세금계산서 취소 표시 (발주 상태 무관, 사유 필수, 둘 다)
+def cancel_tax_invoice(order_id: PathId, invoice_id: PathId, data: TaxInvoiceCancel, user: CurrentUser, db: DB) -> dict:
+    out = tax_invoices.cancel(user.company_id, db, user.id, order_id, invoice_id, data.reason)  # 404·409·422
+    db.commit()
+    return {"data": out}
 
 
 @router.post("/{order_id}/receipts", status_code=201)  # 발주 입고 (ORDERED 일 때만, 부분 가능, 다 차면 RECEIVED)

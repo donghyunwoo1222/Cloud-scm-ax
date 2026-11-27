@@ -287,3 +287,26 @@ class PriceCheck(BaseModel):
 
     supplier_id: Id  # 이 공급업체의 직전 발주와 비교한다
     items: Annotated[list[PriceCheckItem], Field(min_length=1, max_length=MAX_ORDER_LINES)]  # 발주서 줄 수 상한과 같다
+
+
+TaxInvoiceFilter = Literal["missing"]  # 목록 필터 (#268): missing = 입고 기록이 있는데 유효한 세금계산서가 0장
+
+
+class TaxInvoiceCreate(BaseModel):
+    """POST /purchase-orders/{id}/tax-invoices 본문 (#268). 공급업체·회사·작성자는 발주서와 로그인에서만 가져온다."""
+
+    model_config = ConfigDict(extra="forbid")  # supplier_id·company_id 같은 칸은 422
+
+    invoice_number: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]  # 번호 (형식 강제 없음)
+    issue_date: date  # 발행일 (미래·5년보다 이른 날짜는 서비스에서 422)
+    supply_amount: BigWon  # 공급가액(원, 0 이상 정수)
+    tax_amount: BigWon  # 세액(원, 0 이상 정수). 10% 와 달라도 저장한다 (응답의 tax_expected 로 안내)
+    memo: Memo = None  # 내부 메모 (1000자까지)
+
+
+class TaxInvoiceCancel(BaseModel):
+    """POST /purchase-orders/{id}/tax-invoices/{invoice_id}/cancel 본문 (#268). 사유 필수 (공백뿐이면 서비스에서 422)."""
+
+    model_config = ConfigDict(extra="forbid")  # 모르는 칸은 422
+
+    reason: Annotated[str, Field(max_length=500)]  # 취소 사유 (다른 사유 칸과 같은 500자)

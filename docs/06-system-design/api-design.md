@@ -59,7 +59,7 @@
 | 자동화 템플릿 | GET /import-templates/{products\|sales}.{xlsx\|csv} | 머리글 + 예시 한 줄이 든 가져오기 템플릿 내려받기(#189). 그 밖의 이름은 404 | 둘 다 |
 | F5 현재 재고 | GET /stock, GET /stock/{product\_id} | 품목별 현재고(이력 합계)와 안전재고. 발주 진행 중 수량(`in_transit`), 상태(`status`: 가용재고 ≤ 재주문점이면 SHORTAGE, 추천 제외 품목은 UNKNOWN + `status_reason`, 비활성은 null, 추천과 같은 계산, #76). `q`(최대 100자)는 공백을 다듬어 SKU·품목명 부분 일치 검색에 사용한다(대소문자 무시, `%`·`_`는 글자 그대로). `status`와 함께 주면 두 조건으로 거른 뒤 쪽을 나눈다. | 둘 다 |
 | F5 재고 추이 | GET /stock/{product\_id}/trend | 서울 기준 오늘 포함 30일의 품목별 마감 재고와 입고 기록 (#126) | 둘 다 |
-| F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status`·`receipt_due` 필터, `q` 발주번호 부분 검색), DRAFT 발주서 만들기(직접). 응답의 `has_receipts`는 전량 정정된 입고 이력도 포함한다. 발주서 응답(목록·상세·상태 변경·추천 초안)의 `allowed_actions`는 로그인한 사용자가 지금 할 수 있는 동작 목록(`edit, approve, order, cancel, email, receive, document` 중, 역할 반영)이며 화면 버튼은 이것을 따른다(`state-machines.md` 4절). | 둘 다 |
+| F6 발주 | GET /purchase-orders, POST /purchase-orders | 목록(`supplier_id`·`status`·`receipt_due`·`tax_invoice` 필터, `q` 발주번호 부분 검색), DRAFT 발주서 만들기(직접). 응답의 `has_receipts`는 전량 정정된 입고 이력도 포함한다. 발주서 응답(목록·상세·상태 변경·추천 초안)의 `allowed_actions`는 로그인한 사용자가 지금 할 수 있는 동작 목록(`edit, approve, order, cancel, email, receive, document` 중, 역할 반영)이며 화면 버튼은 이것을 따른다(`state-machines.md` 4절). | 둘 다 |
 | F6 | POST /purchase-orders/price-check | 단가 변동 경고(#283). 읽기만 한다(줄이 여러 개라 본문을 받는 POST). 본문 `{"supplier_id", "items": [{"product_id", "unit_price"(원, 비우면 null)}]}`(1~2,000줄, 발주서 줄 수 상한과 같다). 저장·승인은 막지 않는다 | 둘 다 |
 | F6 | GET /purchase-orders/{id}, PATCH /purchase-orders/{id} | 상세, DRAFT 일 때만 품목·수량 수정 | 둘 다 |
 | 자동화 발주서 문서 | GET /purchase-orders/{id}/document, GET /purchase-orders/{id}/document.xlsx | 승인 이후(APPROVED·ORDERED·RECEIVED) 발주서의 문서 값(수신처·발주처·품목표·금액·한글 금액·발주 조건)과 같은 값의 엑셀 파일 (#157) | 둘 다 |
@@ -229,6 +229,15 @@
 - `FX_ENABLED` 가 꺼져 있으면(기본) 발주서 작성·수정(`PATCH`)에서 KRW 가 아닌 `currency`, `exchange_rate`, 줄의 `fx_price` 를 보내거나, 공급업체 등록·수정에서 KRW 가 아닌 `default_currency` 를 보내면 422 `FX_DISABLED`("해외 거래 기능은 아직 사용할 수 없습니다. 통화는 원화(KRW)만 선택할 수 있습니다.")다. 키를 보내지 않으면 통과하고, 이미 만든 외화 발주서·업체의 조회·승인·취소는 막지 않으며, 켜면 입력이 열린다.
 - 공급업체 등록·수정·응답에 `default_currency`(기본 KRW, 수정에서 null 불가)·`default_freight_terms`·`default_special_terms`.
 - 발주서 내보내기(`/purchase-orders/export`)에 통화·환율·운송비 조건·운송비·부대비용 합계·특약·품목 원화 합계·원가, 줄별 외화 단가·외화 발주단위 단가·외화 금액 열이 생겼다.
+
+### 매입 세금계산서 (#268)
+
+내부 전용이다. 발주서 응답·문서·엑셀·메일·공개 확인 화면에는 넣지 않고 아래 경로로만 읽는다. 권한은 관리자·담당자 둘 다, 다른 회사 발주서는 모두 404. 원화 발주서만(외화 부가세 기준 보류).
+
+- `GET /purchase-orders/{id}/tax-invoices` → `{items, summary}`. `items` 는 최신순(취소한 것 포함) `{id, invoice_number, issue_date, supply_amount, tax_amount, total, tax_expected, memo, created_by, created_by_name, created_at, cancelled_at, cancelled_by, cancelled_by_name, cancel_reason}`. `total` = 공급가액 + 세액, `tax_expected` = 공급가액 × 10% 원 미만 버림(발주서 문서의 `vat_of`, 다르면 화면이 안내만). `summary` = `{received_goods_krw, supply_total, tax_total, difference, status, line_count}`: 합계는 취소 제외, `difference` = `supply_total − received_goods_krw`(+ 더 받음, − 덜 받음), `status` = `MISSING`(입고 금액 > 0, 계산서 0장) / `MATCHED`(차이 0) / `DIFFERENT`, `line_count` = 입고된 줄 수. 입고 금액은 원가의 `cost.received_goods_krw` 와 같은 값(정정 반영, 잔량 마감 제외, 발주함·입고 완료가 아니면 0).
+- `POST /purchase-orders/{id}/tax-invoices` (201) 본문 `{invoice_number(1~50자, 앞뒤 공백 제거), issue_date, supply_amount, tax_amount(0~1조 정수), memo?}`. 모르는 칸(`supplier_id` 등) 422. 발주서 행을 잠근 뒤 검사 순서: 404 → 상태 409 `INVALID_STATUS`(ORDERED·RECEIVED 만, details `{"status"}`) → 외화 422 `VALIDATION_ERROR`(field `currency`) → 발행일 422(field `issue_date`, 미래·5년보다 이름) → 번호 409 `DUPLICATE_TAX_INVOICE`(같은 회사·같은 공급업체의 취소하지 않은 같은 번호, 동시 요청도 DB 유일 인덱스로). 응답은 GET 과 같은 모양.
+- `POST /purchase-orders/{id}/tax-invoices/{invoice_id}/cancel` 본문 `{reason}`(필수, 500자, 공백뿐이면 422). 발주서 상태와 관계없이 된다(취소된 발주 포함). 다른 발주서의 계산서 id 는 404, 이미 취소면 409 `ALREADY_CANCELLED`. 행은 지우지 않는다. 응답은 GET 과 같은 모양.
+- 목록 필터 `GET /purchase-orders?tax_invoice=missing`: 입고 기록(RECEIPT)이 있고 취소하지 않은 계산서가 0장인 발주서. `GET /purchase-orders/status-counts` 도 같은 `tax_invoice` 를 받아 같은 조건(`filtered_orders`)으로 센다. 그 밖의 값은 422. 내보내기에는 아직 없다.
 
 ### 회사 정보 (#156)
 
@@ -408,6 +417,8 @@
 | CORRECTION\_EXCEEDS | 409 | 한 이력에 대한 정정 수량 합계가 원래 수량을 넘음 | 정정 이력(A1) |
 | INVALID\_STATUS | 409 | 현재 발주 상태에서 할 수 없는 동작(초안이 아닌데 수정, 승인 전 발주, ORDERED가 아닌 발주의 입고 정정 등) | R5 |
 | CANNOT\_CANCEL\_RECEIVED | 409 | 입고 이력이 있는 발주 취소 | 확정 정책 |
+| DUPLICATE\_TAX\_INVOICE | 409 | 같은 회사·같은 공급업체에 취소하지 않은 같은 번호의 세금계산서가 있음(#268) | 세금계산서 |
+| ALREADY\_CANCELLED | 409 | 이미 취소한 세금계산서를 다시 취소(#268) | 세금계산서 |
 | DUPLICATE\_ITEM | 409 | 같은 발주서(초안)에 같은 품목을 두 줄 넣거나 다시 넣음 | S10 |
 | NOT\_RECOMMENDED | 409 | 추천으로 초안 만들기에서 다시 계산해 보니 추천 대상이 아닌 품목이 있음(details에 품목·사유, #40) | F8 |
 | DUPLICATE\_DRAFT | 409 | 이미 DRAFT가 있는 공급업체에 새 발주서를 만듦. details에 기존 발주서 id·발주번호(#33) | S10 |
