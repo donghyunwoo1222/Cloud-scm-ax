@@ -100,6 +100,18 @@ def get_order(order_id: PathId, user: CurrentUser, db: DB) -> dict:
     return one(user, db, po_service.get_order(user.company_id, db, order_id))  # 다른 회사 404
 
 
+@router.get("/{order_id}/reorder")  # 이 발주서로 새 초안: 미리보기 (#188, 읽기만)
+def get_reorder_preview(order_id: PathId, user: CurrentUser, db: DB) -> dict:
+    return {"data": po_service.reorder_preview(user.company_id, db, order_id)}
+
+
+@router.post("/{order_id}/reorder", status_code=201)  # 이 발주서로 새 초안 만들기 (#188, 관리자·담당자 둘 다, 작성과 같은 권한)
+def reorder(order_id: PathId, user: CurrentUser, db: DB) -> dict:
+    order, excluded = po_service.reorder(user.company_id, db, user.id, order_id)  # 404·409
+    db.commit()  # 요청 끝에 한 번만 확정
+    return {**one(user, db, order), "excluded": excluded}
+
+
 @router.get("/{order_id}/change-log")  # 변경 이력 (최신순, 읽기만)
 def get_change_log(order_id: PathId, user: CurrentUser, db: DB, page: Page) -> dict:
     rows, meta = po_change_log.list_changes(user.company_id, db, order_id, page)  # 다른 회사 404

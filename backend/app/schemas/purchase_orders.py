@@ -189,6 +189,7 @@ class PurchaseOrderOut(BaseModel):
     freight_amount: int | None  # 운송비 (원, 내부 전용)
     extra_costs: list[ExtraCost]  # 부대비용 줄 (원, 내부 전용)
     special_terms: str | None  # 특약
+    source_po_id: int | None = None  # 복사해 만든 발주서면 원본 발주서 번호 (#188)
     cost: CostOut  # 원가 합산 (서버 계산, 내부 전용)
     items: list[ItemOut]  # 품목 줄
 
