@@ -6,7 +6,13 @@ from sqlalchemy.orm import Session, sessionmaker  # 세션(DB와 대화하는 �
 
 from app.config import settings  # .env·환경 변수에서 읽은 DB 주소
 
-engine = create_engine(settings.database_url, pool_pre_ping=True)  # 쓰기 전에 연결이 살아 있는지 확인해 끊긴 연결 오류를 줄인다
+engine = create_engine(
+    settings.database_url,  # 환경 변수에서 읽은 DB 주소
+    pool_size=settings.db_pool_size,  # 재사용하는 연결 수
+    max_overflow=settings.db_max_overflow,  # 바쁠 때만 추가로 쓰는 연결 수
+    pool_recycle=settings.db_pool_recycle,  # 오래된 연결을 다음 대여 때 교체하는 기준(초)
+    pool_pre_ping=True,  # 연결을 빌릴 때 살아 있는지 먼저 확인한다
+)
 SessionLocal = sessionmaker(bind=engine)  # 요청마다 SessionLocal()로 세션을 하나씩 만든다
 
 # 여러 번 나눠 읽는 계산(추천·재고 상태·대시보드)은 트랜잭션 전체를 한 시점의 DB 모습으로 읽는다.

@@ -36,7 +36,8 @@ def docs_urls(cfg) -> dict:
 app = FastAPI(title="Cloud SCM + AX", **docs_urls(settings))  # 앱 시작점, 제목은 /docs API 문서에 표시된다
 register_error_handlers(app)  # 오류를 {"error": {...}} 모양으로 맞춘다
 warn_if_disabled()  # 시작할 때 ADMIN_OTP_ENABLED=false 면 경고 로그
-app.include_router(health.router, prefix="/api/v1")  # 모든 경로 앞에 /api/v1을 붙여 등록한다
+app.include_router(health.router, prefix="/api/v1")  # 기존 API 상태 확인
+app.include_router(health.probe_router)  # 배포 상태 확인은 루트에 등록한다
 app.include_router(auth.router, prefix="/api/v1")  # 가입·로그인·로그아웃·내 정보
 app.include_router(companies.router, prefix="/api/v1")  # 회사 정보 조회·수정
 app.include_router(users.router, prefix="/api/v1")  # 직원 계정 관리 (관리자 전용)
