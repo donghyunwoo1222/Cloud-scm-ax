@@ -46,6 +46,12 @@ DB 풀은 접속을 여러 요청이 재사용할 수 있게 보관하는 묶음
 6. **헬스체크.** `curl.exe -i https://scm-api.example.invalid/healthz`와 `curl.exe -i https://scm-api.example.invalid/healthz/db`에서 예시 호스트를 Render 서비스 주소로 바꿔 실행한다. 두 경로 모두 로그인 없이 확인하며 정상은 빈 본문과 HTTP 200이다. 앞 경로는 앱만 확인한다. 뒤 경로는 DB에 `SELECT 1`을 실행하고 접속·쿼리 실패 시 빈 본문과 HTTP 503을 반환한다.
 7. **외부 모니터 등록.** 무료 HTTP 모니터가 Render 주소의 `/healthz/db`를 15분보다 짧은 주기(예: 5분)로 호출하도록 설정한다. HTTP 요청은 Render Free의 휴면을 줄이고, 성공한 쿼리는 Supabase Free의 비활성 일시정지를 막기 위한 DB 활동을 만든다. 무료 한도와 모니터 장애에 따라 계속 가동된다는 보장은 없다. [Render Free 제한](https://render.com/docs/free) · [Supabase 일시정지](https://supabase.com/docs/guides/platform/free-project-pausing)
 
+## 보안 점검
+
+- Next.js 응답은 `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, 기본 `Referrer-Policy: strict-origin-when-cross-origin`을 보낸다. 비밀번호 재설정과 공급업체 확인 화면은 `no-referrer`를 보낸다. 전체 CSP 도입은 화면의 스크립트·스타일 호환성 검증이 필요한 별도 작업이다.
+- 비밀번호 재설정 토큰은 프런트 `/reset-password` 주소의 `token` 쿼리에 있다. Uvicorn은 요청 경로와 쿼리를 남기지만, 재설정 확인 API에는 토큰이 POST 본문으로 전달된다. 프런트 호스팅 로그와 브라우저 방문 기록에는 주소가 남을 수 있다. 백엔드에서도 접근 로그에 쿼리 기록을 끌 필요가 있으면 Uvicorn의 `--no-access-log`로 접근 로그 전체를 끌 수 있다.
+- 발주·독촉 메일 실패 로그는 고정 코드만, 재설정·관리자 인증코드 메일 실패 로그는 예외 종류만 기록한다. 앱 DB 엔진은 SQLAlchemy 진단에서 SQL에 전달한 값을 숨긴다. 예상치 못한 오류의 DB 드라이버 원문과 호스팅 계층 로그는 별도로 확인해야 한다.
+
 ## 알려진 한계
 
 - **휴면과 첫 접속.** Render Free는 15분간 들어오는 요청이 없으면 휴면에 들어간다. 다음 첫 접속에서 다시 뜨기까지 최대 약 1분을 예상한다. [Render Free 제한](https://render.com/docs/free)

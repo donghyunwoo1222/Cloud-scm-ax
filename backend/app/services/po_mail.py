@@ -313,7 +313,7 @@ def failure(exc: Exception, tail: str = "발주서는 승인됨 상태 그대로
         reason = "메일 서비스가 발송 요청을 거부했습니다. 관리자에게 발송 설정 확인을 요청하세요."
     else:
         reason = "메일 서버에 연결하지 못했거나 발송 중 오류가 났습니다. 잠시 뒤 다시 시도하세요."
-    log.warning("메일 발송 실패 %s: %s", type(exc).__name__, exc)  # Resend 예외에는 고정 문구와 상태코드만 있다
+    log.warning("메일 발송 실패: %s", code)  # SMTP 서버가 돌려준 원문에는 메일 내용이 들어갈 수 있다
     return AppError(502, "MAIL_FAILED", f"{reason} {tail}", {"failure_code": code})  # 응답에는 고정 분류 코드만
 
 
