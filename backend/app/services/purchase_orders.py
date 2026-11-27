@@ -519,11 +519,10 @@ def orders_with_receipts(company_id: int, db: Session, order_ids: list[int]) -> 
     )))
 
 
-def list_orders(
-    company_id: int, db: Session, page: PageParams, supplier_id: int | None,
-    status: str | None = None, q: str | None = None, receipt_due: ReceiptDue | None = None,
-) -> tuple[list[PurchaseOrder], dict]:
-    """GET /purchase-orders: 모든 조건을 적용한 뒤 최신순으로 쪽을 나눈다."""
+def filtered_orders(
+    company_id: int, supplier_id: int | None, status: str | None, q: str | None, receipt_due: ReceiptDue | None,
+):
+    """목록과 상태별 건수가 함께 쓰는 조건 함수 (#359). 같은 함수라서 칩 숫자와 목록 총 개수가 어긋나지 않는다."""
     stmt = scoped(company_id, PurchaseOrder)  # 회사 조건이 붙은 시작점
     if supplier_id is not None:
         stmt = stmt.where(PurchaseOrder.supplier_id == supplier_id)  # 이 업체 발주만 (남의 업체 id 면 빈 목록)
@@ -533,7 +532,28 @@ def list_orders(
         stmt = stmt.where(PurchaseOrder.status == "ORDERED", receipt_due_condition(receipt_due, seoul_today()))
     if q and (term := q.strip()):
         stmt = stmt.where(PurchaseOrder.po_number.icontains(term, autoescape=True))  # 쪽을 나누기 전에 검색한다.
+    return stmt
+
+
+def list_orders(
+    company_id: int, db: Session, page: PageParams, supplier_id: int | None,
+    status: str | None = None, q: str | None = None, receipt_due: ReceiptDue | None = None,
+) -> tuple[list[PurchaseOrder], dict]:
+    """GET /purchase-orders: 모든 조건을 적용한 뒤 최신순으로 쪽을 나눈다."""
+    stmt = filtered_orders(company_id, supplier_id, status, q, receipt_due)
     return paginate(db, stmt.order_by(PurchaseOrder.created_at.desc(), PurchaseOrder.id.desc()), page)
+
+
+def status_counts(
+    company_id: int, db: Session, supplier_id: int | None, q: str | None, receipt_due: ReceiptDue | None,
+) -> dict[str, int]:
+    """GET /purchase-orders/status-counts: 상태 조건만 뺀 같은 필터로 상태별 건수. 건수가 0인 상태도 0으로 채운다.
+
+    예) 작성 중 2건·발주함 1건 → {"DRAFT": 2, "APPROVED": 0, "ORDERED": 1, "RECEIVED": 0, "CANCELLED": 0}
+    """
+    sub = filtered_orders(company_id, supplier_id, None, q, receipt_due).subquery()  # 상태 조건 없음
+    found = dict(db.execute(select(sub.c.status, func.count()).group_by(sub.c.status)).all())
+    return {code: int(found.get(code, 0)) for code in STATUS_NAMES}  # 상태 5개를 항상 모두 내려 준다
 
 
 def received_quantities(company_id: int, db: Session, item_ids: list[int]) -> dict[int, int]:

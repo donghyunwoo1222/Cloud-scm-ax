@@ -272,3 +272,55 @@ def test_query_count_same_for_3_and_30_items(client, world, data, session, engin
         return len(seen)
 
     assert count_queries(3) == count_queries(30)
+
+
+# ----- 상태별 건수 (#359) -----
+COUNTS = f"{URL}/status-counts"  # 상태 칩 건수 경로
+ZERO = {"DRAFT": 0, "APPROVED": 0, "ORDERED": 0, "RECEIVED": 0, "CANCELLED": 0}  # 비어 있을 때도 상태 5개가 모두 온다
+
+
+def counts(client, **params):
+    return client.get(COUNTS, params=params).json()["data"]
+
+
+def listed(client, **params):
+    return client.get(URL, params=params).json()["meta"]["total"]  # 같은 필터로 목록을 조회한 총 개수
+
+
+def test_status_counts_empty_has_all_zero(client, world, data):
+    login_as(client)
+    assert counts(client) == ZERO  # 건수 0인 칩도 0으로 내려온다
+
+
+def test_status_counts_match_list_total_for_each_filter_combo(client, world, data, session):
+    login_as(client)
+    s2, s3 = new_supplier(client, "둘째업체"), new_supplier(client, "셋째업체")
+    for supplier_id in (world["a_supplier"].id, s2, s3):  # 업체마다 DRAFT 하나
+        assert client.post(URL, json={"supplier_id": supplier_id, "items": [line(data["p1"])]}).status_code == 201
+    orders = session.scalars(select(PurchaseOrder).where(PurchaseOrder.company_id == world["a_company"].id).order_by(PurchaseOrder.id)).all()
+    orders[1].status, orders[2].status = "ORDERED", "CANCELLED"
+    orders[1].due_date = seoul_today()  # 오늘 납기인 발주함
+    session.commit()
+    for params in ({}, {"supplier_id": s2}, {"supplier_id": world["a_supplier"].id}, {"q": orders[1].po_number},
+                   {"q": "없는번호"}, {"receipt_due": "TODAY"}, {"receipt_due": "OVERDUE"}, {"supplier_id": s3, "q": orders[2].po_number}):
+        got = counts(client, **params)
+        assert set(got) == set(ZERO)
+        assert all(got[status] == listed(client, status=status, **params) for status in ZERO), params  # 칩 숫자 = 목록 총 개수
+        assert sum(got.values()) == listed(client, **params), params  # 전체 칩 = 칩 합계
+    assert counts(client) == {**ZERO, "DRAFT": 1, "ORDERED": 1, "CANCELLED": 1}
+    assert counts(client, receipt_due="TODAY") == {**ZERO, "ORDERED": 1}  # 납기 구간은 발주함만 남긴다
+    assert counts(client, supplier_id=s2) == {**ZERO, "ORDERED": 1}  # 상태 조건은 걸지 않는다
+
+
+def test_status_counts_exclude_other_company_and_bad_status(client, world, data):
+    login_as(client)
+    client.post(URL, json=body(world, line(data["p1"])))
+    assert counts(client)["DRAFT"] == 1
+    login_as(client, "staff@b.test")
+    assert counts(client) == ZERO  # 회사 A 발주는 안 센다
+    assert counts(client, supplier_id=world["a_supplier"].id) == ZERO  # 남의 업체 id 도 0
+    assert client.get(COUNTS, params={"receipt_due": "BOGUS"}).status_code == 422
+
+
+def test_status_counts_requires_login(client, world, data):
+    assert client.get(COUNTS).status_code == 401
