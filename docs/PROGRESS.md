@@ -6,6 +6,8 @@
 
 ## 지금 위치
 
+- #43 Supabase 배포 준비: `6c2f0a9e4b17`에서 `public`의 앱 테이블 12개와 `alembic_version`에 RLS를 켜고, 존재하는 `anon`·`authenticated` 롤의 테이블 권한을 회수한다.
+
 - #327(#199 PR4, #199 종료) 챗봇 답 피드백: `POST /chat/guide/feedback {helpful: bool}`(엄격한 참·거짓), `chat_daily_stats`에 `helpful`·`not_helpful` 칸 추가(표 12개 유지, 마이그레이션 `d5a9b3e7f2c4`), 상한 helpful+not_helpful ≤ answered(조건부 UPDATE 한 문장 + DB CHECK 3개), 버튼은 ANSWER 답에만, 패널 상태를 `chatReducer`로 모아 전이 표 시험. 지표 정의·조회 SQL은 `erd.md`. 알려진 한계: 같은 답 반복 누르기(API 직접 호출)는 못 막고 그날 답 수까지만 묶인다. 도움 안 됨 비율은 분모가 30건 미만이면 판단하지 않는다.
 - #328 독촉 후속: 메일 실패 응답(502 `MAIL_FAILED`)의 `details`에서 예외 클래스 이름을 빼고 `{"failure_code": AUTH|RECIPIENT_REFUSED|TIMEOUT|CONNECTION|OTHER}`로 바꿨다(원문은 서버 로그에만). 독촉 본문 품목명 이스케이프 테스트 추가(코드는 이미 이스케이프하고 있었음).
 - #182 종료(PR #313 백엔드, #319 화면): 새 표 `po_email_log`(메일 발송 시도 이력, 추가 전용, 마이그레이션 `b2e6d9a4c7f1`). 발송 시도마다 1행(SENT·FAILED·UNSAVED, 실패는 `failure_code`만 저장), `GET /purchase-orders/{id}/email-log`. 화면: 발주 상세·문서 화면에 "메일 발송 이력", 확인창 문구, 이미 메일을 보낸 발주 취소 시 경고(2026-11-20·21 머지).
@@ -166,6 +168,8 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 
 ## 정해진 공통 규칙 (구현 중 결정)
 
+- DB 보안(#43): 새 `public` 테이블은 생성 리비전에서 RLS를 켠다(`test_public_table_rls.py`로 검사). 앱의 DB 롤은 테이블 소유자이며 `FORCE`를 적용하지 않는다. 다운그레이드는 RLS를 끄고 회수된 공개 롤 권한은 복구하지 않는다.
+
 - 발주서 상태·버튼(#260): PO status는 `purchase_orders.set_status`에서만 대입한다(`test_po_state_table`이 강제). 상태 규칙은 `po_states.py` 한 곳에 두고 `po_states.py`는 서비스를 import 하지 않는다. 화면 버튼 노출은 서버 `po_states.allowed_actions` 하나로 정하고, 화면은 `lib/po.ts`의 `can(order, action)`만 본다(값이 없으면 숨김, `?? []`). `ACTION_STATES`에는 키를 늘리지 않는다. 오류 `details`는 넓히지 않는다(`test_po_transitions`가 값 전체로 고정).
 - 엑셀 셀(#280): 사용자·외부 입력 글자를 셀에 넣을 때는 `export.xlsx_cell`을 쓴다.
 - 공급업체용 문서(#281): `build_document`에 칸을 더하면 `docs/06-system-design/supplier-document-fields.md` 분류표와 `test_supplier_doc_leak.py`의 `ALLOWED_KEYS`를 같이 고친다. 내부 전용 값(추천 사유, 변경 이력, 발송 이력, 내부 id, 멱등 키, 원가·마진)은 문서·엑셀·PDF·메일 본문에 나가면 안 된다.
@@ -314,6 +318,8 @@ main 브랜치는 보호 규칙이 켜져 있다(PR로만 머지, CI `backend`·
 - 8주차 #47: 아래 "꼭 알기 모음"으로 면접 정리
 
 ## 꼭 알기 모음
+
+- #43 앱 DB 롤은 테이블 소유자로 두고 공개 롤은 RLS와 권한 회수로 차단한다 / 예: 앱은 재고 입출고 1건을 저장할 수 있고, `anon`은 같은 테이블의 `SELECT`부터 거부된다 / 예상 질문: RLS를 켰는데 백엔드는 왜 계속 읽고 쓸 수 있나요?
 
 - #225 모달은 품목 객체가 아니라 번호만 들고 목록에서 찾는다 / 모달이 복사본을 들고 있으면 목록을 다시 불러와 단가가 바뀌어도 옛 단가가 보인다. 번호만 두면 새 값이 보이고, 쪽 이동으로 목록에서 사라지면 모달이 닫힌다 / "상태에 객체 대신 id를 저장한 이유는?"
 - #193 LLM이 선택 열을 빼도 서버는 통과시키므로, 확인 화면에서 핵심 칸(입고의 수량)을 따로 경고한다 / 입고 파일에서 LLM이 수량 열을 못 찾아도 필수 칸은 product_col 하나라 서버는 그대로 받는다. 그대로 반영하면 품목만 등록되고 입고는 0건이라, 화면이 "읽지 못함" 경고 행을 보여 준다 / "LLM이 일부만 읽었을 때 사용자 실수를 어떻게 막았나요?"
