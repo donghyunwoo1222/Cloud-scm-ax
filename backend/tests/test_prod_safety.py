@@ -69,3 +69,49 @@ def test_settings_refuses_start_and_unknown_env(monkeypatch):
 ])
 def test_check_seed_allowed(env, host, db, allow, blocked):
     assert (check_seed_allowed(env, host, db, allow) is not None) == blocked
+
+
+@pytest.mark.parametrize("value,ok", [
+    ("NONE", False), ("none", False), ("tls", False), ("", False), (" ", False), (None, False),
+    ("SSL", True), ("StartTLS", True), ("starttls", True), ("ssl", True),
+])
+def test_smtp_security_allow_list(value, ok):
+    problems = validate_production_settings(make(smtp_security=value))
+    assert (problems == []) == ok
+    if not ok:
+        assert "starttls, ssl" in problems[0]  # 메시지에 허용값이 적혀 있다
+
+
+@pytest.mark.parametrize("query,environ,blocked", [
+    ({"hostaddr": "10.0.0.5"}, {}, True),
+    ({"host": "prod.example.com"}, {}, True),
+    ({"service": "prod"}, {}, True),
+    ({}, {"PGHOSTADDR": "10.0.0.5"}, True),
+    ({}, {"PGHOST": "prod.example.com"}, True),
+    ({}, {"PGSERVICE": "prod"}, True),
+    ({}, {}, False),
+])
+def test_seed_blocks_connection_redirects(query, environ, blocked):
+    # ALLOW_SEED_HOST 가 일치해도 우회 값이 있으면 막힌다
+    assert (check_seed_allowed("development", "localhost", "scm", "localhost", query, environ) is not None) == blocked
+    assert (check_seed_allowed("development", "prod.example.com", "scm", "prod.example.com", query, environ) is not None) == blocked
+
+
+def test_seed_allowed_plain_cases():
+    assert check_seed_allowed("development", "localhost", "scm", "", {}, {}) is None
+    assert check_seed_allowed("development", "prod.example.com", "scm", "prod.example.com", {}, {}) is None
+
+
+@pytest.mark.parametrize("env,enabled,open_", [
+    ("development", False, True), ("production", False, False), ("production", True, True),
+])
+def test_api_docs_gate(env, enabled, open_):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.main import docs_urls
+
+    cfg = make(app_env=env, api_docs_enabled=enabled)
+    client = TestClient(FastAPI(**docs_urls(cfg)))
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert (client.get(path).status_code == 200) == open_

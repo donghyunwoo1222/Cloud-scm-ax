@@ -35,12 +35,21 @@ SEED_PASSWORD = "seed-pass-1234"  # 개발용 시드 계정 비밀번호 (로컬
 LOCAL_DB_HOSTS = {"localhost", "127.0.0.1", "::1", "db"}  # 시드를 넣어도 되는 DB 호스트 (db 는 docker-compose 안 이름)
 
 
-def check_seed_allowed(app_env: str, host: str | None, database: str | None, allow_host: str = "") -> str | None:
+REDIRECT_QUERY_KEYS = ("hostaddr", "host", "service")  # DATABASE_URL 쿼리에서 실제 접속 대상을 바꿀 수 있는 키
+REDIRECT_ENV_VARS = ("PGHOSTADDR", "PGHOST", "PGSERVICE")  # 같은 효과를 내는 환경 변수
+
+
+def check_seed_allowed(app_env: str, host: str | None, database: str | None, allow_host: str = "",
+                       query: dict | None = None, environ: dict | None = None) -> str | None:
     """시드를 막아야 하면 이유 문장, 괜찮으면 None. DB 에 접속하기 전에 부른다."""
     if app_env == "production":
         return "APP_ENV=production 에서는 시드를 실행하지 않습니다."
     if database is None or database.endswith("_test"):  # 기존 규칙: 테스트 DB 에는 넣지 않는다
         return f"테스트 DB({database})에는 시드를 넣지 않습니다. .env 의 DATABASE_URL 을 확인하세요."
+    bad_keys = [k for k in REDIRECT_QUERY_KEYS if k in (query or {})]
+    bad_vars = [k for k in REDIRECT_ENV_VARS if (environ or {}).get(k)]
+    if bad_keys or bad_vars:  # 실제 접속 대상이 host 값과 달라질 수 있어 검사 값을 믿을 수 없다 (ALLOW_SEED_HOST 로도 못 푼다)
+        return f"실제 접속 대상을 확인할 수 없어 중단합니다: {', '.join(bad_keys + bad_vars)} 를 제거하세요."
     if host not in LOCAL_DB_HOSTS and not (allow_host and host == allow_host):  # 예외는 정확히 같은 호스트일 때만
         return f"DB 호스트({host})가 로컬이 아닙니다. 정말 이 호스트에 넣으려면 ALLOW_SEED_HOST={host} 를 지정하세요."
     return None
@@ -107,7 +116,8 @@ def main() -> None:
     args = parser.parse_args()
 
     url = make_url(settings.database_url)  # .env 의 DB 주소
-    reason = check_seed_allowed(settings.app_env, url.host, url.database, os.environ.get("ALLOW_SEED_HOST", ""))
+    reason = check_seed_allowed(settings.app_env, url.host, url.database, os.environ.get("ALLOW_SEED_HOST", ""),
+                               dict(url.query), dict(os.environ))
     if reason:  # 운영 모드·테스트 DB·낯선 호스트면 DB 에 접속하기 전에 중단
         raise SystemExit(reason)
     engine = create_engine(url)  # 개발 DB 연결

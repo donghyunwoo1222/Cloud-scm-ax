@@ -12,6 +12,7 @@ ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"  # 저장소 맨 위의 
 
 
 EXAMPLE_SECRET_MARKERS = ("change-me", "changeme")  # .env.example 의 예시 키에 든 글자. production 에서 쓰면 거부
+ALLOWED_SMTP_SECURITY = ("starttls", "ssl")  # production 에서 허용하는 SMTP 암호화 방식
 DEV_DB_PASSWORD = "scm_local_pw"  # 로컬 개발용 DB 비밀번호. production DATABASE_URL 에 들어 있으면 거부
 
 
@@ -27,8 +28,8 @@ def validate_production_settings(cfg) -> list[str]:
     if cfg.admin_otp_enabled:
         if not cfg.smtp_host:
             problems.append("ADMIN_OTP_ENABLED=true 인데 SMTP_HOST 가 비어 있어 관리자 인증코드 메일을 보낼 수 없습니다.")
-        if cfg.smtp_security == "none":
-            problems.append("ADMIN_OTP_ENABLED=true 인데 SMTP_SECURITY=none 입니다 (인증코드가 암호화 없이 전송됩니다). starttls 나 ssl 을 쓰세요.")
+        if (cfg.smtp_security or "").lower() not in ALLOWED_SMTP_SECURITY:  # 허용값 목록 방식: none·tls·빈 값·오타는 모두 위반
+            problems.append(f"ADMIN_OTP_ENABLED=true 인데 SMTP_SECURITY={cfg.smtp_security!r} 입니다 (인증코드가 암호화 없이 전송될 수 있습니다). 허용값: starttls, ssl.")
     if not cfg.app_base_url.startswith("https://"):
         problems.append("APP_BASE_URL 은 https:// 로 시작하는 배포 주소여야 합니다 (비어 있거나 http:// 이면 재설정 메일 링크가 안전하지 않습니다).")
     if DEV_DB_PASSWORD in cfg.database_url:
@@ -41,6 +42,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT_ENV, extra="ignore")
 
     app_env: Literal["development", "production"] = "development"  # APP_ENV: production 이면 시작할 때 운영 필수값을 점검하고 어기면 시작 거부. 다른 값도 거부
+    api_docs_enabled: bool = False  # API_DOCS_ENABLED: production 에서도 /docs·/redoc·/openapi.json 을 열려면 true (development 는 항상 열림)
     database_url: str  # DB 주소 (DATABASE_URL), 기본값 없음: 비어 있으면 시작할 때 바로 오류
     secret_key: str = Field(min_length=32)  # 로그인 토큰 서명 키 (SECRET_KEY), 기본값 없음. 짧으면 추측당하기 쉬워 32자 미만이면 시작 거부
     cookie_secure: bool = False  # COOKIE_SECURE: 배포(HTTPS)에서만 true. true면 쿠키가 HTTPS로만 전송된다
