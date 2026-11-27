@@ -99,6 +99,21 @@ cd backend
 | 가나패션(시드) | admin.gana@seed.local | staff.gana@seed.local |
 | 사아마트(시드) | admin.saa@seed.local | staff.saa@seed.local |
 
+### 7. 시연용 데이터
+
+개발용 시드와 별도로, 시연 회사 한 곳에 생활용품 6개, 32일치 판매, 입출고·실사 조정 및 국내 발주 사례를 추가한다. 발주 화면에서는 발주 상태 5가지와 변경·메일 이력을 볼 수 있다. 초안 편집에서 직전 단가 대비 25% 상승·20% 하락 경고(기본 기준 10%)를 볼 수 있다. 재고가 부족한 품목 2개는 발주 추천에 나온다.
+
+`backend`에서 `DATABASE_URL`을 마이그레이션한 전용 시연 DB로 설정하고, URL의 호스트를 `ALLOW_DEMO_HOST`에 직접 지정한다. 예를 들어 URL 호스트가 `127.0.0.1`이면 다음과 같이 실행한다.
+
+```powershell
+$env:ALLOW_DEMO_HOST = "127.0.0.1"
+.venv\Scripts\python -m scripts.demo_data
+```
+
+운영 모드(`APP_ENV=production`), 테스트 DB, URL 쿼리 옵션 또는 접속 대상을 바꿀 수 있는 `PGHOST` 등 환경변수가 있으면 DB 연결 전에 종료한다. 기존 시연 회사가 있으면 중단하며, 재시연용 데이터가 필요하면 새 전용 DB를 사용한다.
+
+로그인 계정이 필요하면 **최초 실행 전에** `DEMO_ADMIN_PASSWORD`와 `DEMO_STAFF_PASSWORD`를 각각 환경변수로 설정하고 명령에 `--with-accounts`를 붙인다. 계정은 `admin@scm-demo.invalid`, `staff@scm-demo.invalid`다. 관리자 메일 인증은 앱 설정을 따르므로, 인증코드가 켜진 환경에서는 로컬 테스트 메일함에서 코드를 받아야 한다. 발주 메일 기록은 화면 시연용이며 실제 발송은 일어나지 않는다.
+
 ## 문서
 - [docs/](docs/) 기획·설계·검증 문서
 
