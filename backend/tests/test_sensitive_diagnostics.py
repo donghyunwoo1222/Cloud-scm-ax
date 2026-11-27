@@ -10,8 +10,9 @@ from app.db import engine
 from app.services import password_reset, po_mail
 
 
-def test_order_mail_failure_logs_code_without_server_reply(caplog):
+def test_order_mail_failure_logs_code_without_server_reply(monkeypatch, caplog):
     reply = b"synthetic-mail-body-marker"  # 서버가 원본 메일 일부를 되돌려 보낸 상황
+    monkeypatch.setattr(po_mail.log, "disabled", False)  # DB 준비에서 Alembic이 기존 로거를 끈다
     with caplog.at_level(logging.WARNING, logger=po_mail.__name__):
         error = po_mail.failure(smtplib.SMTPDataError(554, reply))
 
@@ -22,6 +23,7 @@ def test_order_mail_failure_logs_code_without_server_reply(caplog):
 
 def test_password_reset_mail_failure_omits_link_and_body(monkeypatch, caplog):
     token = "synthetic-reset-marker"
+    monkeypatch.setattr(password_reset.log, "disabled", False)  # 이 테스트에서만 로거를 다시 켠다
     monkeypatch.setattr(settings, "app_base_url", "https://scm.example.invalid")
     monkeypatch.setattr(settings, "mail_provider", "smtp")
     monkeypatch.setattr(settings, "smtp_from", "scm@example.invalid")
