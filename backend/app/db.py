@@ -8,6 +8,7 @@ from app.config import settings  # .env·환경 변수에서 읽은 DB 주소
 
 engine = create_engine(
     settings.database_url,  # 환경 변수에서 읽은 DB 주소
+    hide_parameters=True,  # SQLAlchemy 로그와 예외 메시지에서 쿼리에 전달한 값을 숨긴다
     pool_size=settings.db_pool_size,  # 재사용하는 연결 수
     max_overflow=settings.db_max_overflow,  # 바쁠 때만 추가로 쓰는 연결 수
     pool_recycle=settings.db_pool_recycle,  # 오래된 연결을 다음 대여 때 교체하는 기준(초)

@@ -11,13 +11,25 @@ const nextConfig: NextConfig = {
     return [{ source: "/api/:path*", destination: `${backendUrl}/api/:path*` }];
   },
   async headers() {
+    // 재설정 링크의 쿼리가 브라우저의 다음 요청에 Referer로 붙지 않게 한다.
+    const noReferrer = { key: "Referrer-Policy", value: "no-referrer" };
     // 공급업체 확인 화면(#265, 로그인 없음): 주소 # 뒤 토큰이 다른 사이트로 새거나(Referer) 검색·캐시에 남지 않게
     const supplierReply = [
-      { key: "Referrer-Policy", value: "no-referrer" },
+      noReferrer,
       { key: "X-Robots-Tag", value: "noindex" },
       { key: "Cache-Control", value: "no-store" },
     ];
     return [
+      // Next는 여러 규칙이 맞으면 같은 헤더의 마지막 값을 쓴다.
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+      { source: "/reset-password", headers: [noReferrer] },
       { source: "/supplier-reply", headers: supplierReply },
       { source: "/supplier-reply/:path*", headers: supplierReply },
     ];
