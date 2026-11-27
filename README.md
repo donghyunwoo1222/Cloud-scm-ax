@@ -38,6 +38,12 @@ DB 주소는 실행 위치에 따라 두 가지다.
 - 백엔드가 Docker 안에서 돌 때: `postgresql+psycopg://scm:scm_local_pw@db:5432/scm` (`docker-compose.yml`이 직접 넣는다)
 - 내 컴퓨터에서 테스트·Alembic을 돌릴 때: `postgresql+psycopg://scm:scm_local_pw@localhost:5433/scm` (`.env`의 값)
 
+### 운영 메일 설정
+
+운영에서 HTTP API로 메일을 보내려면 백엔드 환경에 `MAIL_PROVIDER=resend`, `RESEND_API_KEY`, `RESEND_FROM`을 설정한다. 발주서·납기 독촉·관리자 인증코드·비밀번호 재설정 메일에 공통으로 적용된다. 운영 전 발신 도메인 확인 필요. [Resend 발송 API 문서](https://resend.com/docs/api-reference/emails/send-email)
+
+로컬 Docker에서는 기본값 `MAIL_PROVIDER=smtp`로 Mailpit을 쓴다.
+
 ### 2. DB + 백엔드 띄우기 (Docker)
 
 ```powershell

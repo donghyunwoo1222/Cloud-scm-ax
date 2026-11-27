@@ -54,7 +54,7 @@ def grace_notice(user: User, at: datetime) -> str | None:
 
 def ensure_mail_ready() -> None:
     """메일 서버 설정이 없으면 503. 비밀번호가 맞은 관리자에게만 나오므로 계정 존재 여부와는 무관하다."""
-    if not (settings.smtp_host and settings.smtp_from):
+    if not po_mail.mail_ready():
         raise AppError(503, "MAIL_NOT_CONFIGURED", "지금은 인증코드 메일을 보낼 수 없습니다. 서버 관리자에게 문의해 주세요.")
 
 
@@ -146,7 +146,7 @@ def send_code_mail(email: str, code: str) -> None:
     """코드 메일 한 통. 응답 뒤(BackgroundTasks)에 보내고, 실패하면 예외 종류만 로그에 남긴다(코드·주소는 남기지 않는다)."""
     msg = EmailMessage()
     msg["Subject"] = "[Cloud SCM] 관리자 로그인 인증코드"
-    msg["From"] = settings.smtp_from
+    msg["From"] = po_mail.sender_address()
     msg["To"] = email
     msg.set_content(
         f"로그인 인증코드: {code}\n\n{CODE_MINUTES}분 동안 한 번만 쓸 수 있습니다.\n"

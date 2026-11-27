@@ -25,7 +25,12 @@ def validate_production_settings(cfg) -> list[str]:
         problems.append("COOKIE_SECURE 가 true 여야 합니다 (false 면 로그인 쿠키가 HTTP 로도 전송됩니다).")
     if any(m in cfg.secret_key.lower() for m in EXAMPLE_SECRET_MARKERS):
         problems.append("SECRET_KEY 가 .env.example 의 예시값입니다. 임의의 긴 값으로 바꾸세요.")
-    if cfg.admin_otp_enabled:
+    if cfg.mail_provider == "resend":  # OTP 사용 여부와 관계없이 전송 설정을 점검한다
+        if not cfg.resend_api_key.get_secret_value().strip():
+            problems.append("MAIL_PROVIDER=resend 인데 RESEND_API_KEY 가 비어 있습니다.")
+        if not cfg.resend_from.strip():
+            problems.append("MAIL_PROVIDER=resend 인데 RESEND_FROM 이 비어 있습니다.")
+    elif cfg.admin_otp_enabled:
         if not cfg.smtp_host:
             problems.append("ADMIN_OTP_ENABLED=true 인데 SMTP_HOST 가 비어 있어 관리자 인증코드 메일을 보낼 수 없습니다.")
         if (cfg.smtp_security or "").lower() not in ALLOWED_SMTP_SECURITY:  # 허용값 목록 방식: none·tls·빈 값·오타는 모두 위반
@@ -39,14 +44,17 @@ def validate_production_settings(cfg) -> list[str]:
 
 class Settings(BaseSettings):
     # 환경 변수가 있으면 그 값을, 없으면 .env 파일 값을 쓴다 (Docker에서는 compose가 환경 변수로 넣는다)
-    model_config = SettingsConfigDict(env_file=ROOT_ENV, extra="ignore")
+    model_config = SettingsConfigDict(env_file=ROOT_ENV, extra="ignore", hide_input_in_errors=True)
 
     app_env: Literal["development", "production"] = "development"  # APP_ENV: production 이면 시작할 때 운영 필수값을 점검하고 어기면 시작 거부. 다른 값도 거부
     api_docs_enabled: bool = False  # API_DOCS_ENABLED: production 에서도 /docs·/redoc·/openapi.json 을 열려면 true (development 는 항상 열림)
     database_url: str  # DB 주소 (DATABASE_URL), 기본값 없음: 비어 있으면 시작할 때 바로 오류
     secret_key: str = Field(min_length=32)  # 로그인 토큰 서명 키 (SECRET_KEY), 기본값 없음. 짧으면 추측당하기 쉬워 32자 미만이면 시작 거부
     cookie_secure: bool = False  # COOKIE_SECURE: 배포(HTTPS)에서만 true. true면 쿠키가 HTTPS로만 전송된다
-    # 발주서 메일 발송(#158). 코드에 비밀번호를 넣지 않고 환경 변수로만 받는다. SMTP_HOST 가 비면 발송 요청은 503
+    # 발주서·독촉·OTP·재설정 메일 공통 설정
+    mail_provider: Literal["smtp", "resend"] = "smtp"  # MAIL_PROVIDER: 기본은 로컬 SMTP
+    resend_api_key: SecretStr = SecretStr("")  # RESEND_API_KEY: 출력에서 가린다
+    resend_from: str = ""  # RESEND_FROM: Resend 발신 이메일 주소
     smtp_host: str = ""  # SMTP_HOST: 메일 서버 주소 (예: smtp.gmail.com, 로컬은 mailpit)
     smtp_port: int = 587  # SMTP_PORT: 587(STARTTLS) / 465(SSL) / 1025(로컬 mailpit)
     smtp_user: str = ""  # SMTP_USER: 로그인 아이디 (비면 로그인 생략, 로컬 mailpit)
