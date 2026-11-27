@@ -26,7 +26,11 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(AppError)  # 우리가 낸 업무 오류
     async def handle_app_error(request: Request, exc: AppError):
-        return JSONResponse(error_body(exc.code, exc.message, exc.details), status_code=exc.status, headers=exc.headers)  # 그대로 옮긴다
+        return JSONResponse(
+            error_body(exc.code, exc.message, exc.details),
+            status_code=exc.status,
+            headers=exc.headers,
+        )
 
     @app.exception_handler(HTTPException)  # 없는 경로(404), 깨진 본문(400) 등도 같은 모양으로
     async def handle_http_error(request: Request, exc: HTTPException):
