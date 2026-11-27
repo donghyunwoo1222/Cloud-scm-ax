@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"; // 상태, 요
 
 import { apiList, Meta } from "../../../lib/api"; // 목록 호출 (data + meta)
 import { ErrorText } from "../../../lib/list"; // 서버 오류 표시
-import { describeChangeParts } from "../../../lib/change-describe"; // 이력 한 행의 문장·항목/이전/이후 (시험하려고 lib 로 분리)
+import { describeChangeParts, isCopyRow } from "../../../lib/change-describe"; // 이력 한 행의 문장·항목/이전/이후 (시험하려고 lib 로 분리)
 import { ChangeLog, fmtTime } from "../../../lib/po"; // 이력 모양, 시각
 
 const SHOWN_GROUPS = 3; // 처음에는 최근 3묶음만 보인다
@@ -24,7 +24,7 @@ function Group({ rows }: { rows: ChangeLog[] }) {
   const [open, setOpen] = useState(false); // 긴 묶음을 펼쳤는지
   const long = rows.length > PREVIEW_LINES;
   const shown = long && !open ? rows.slice(0, PREVIEW_LINES - 1) : rows; // 6줄을 넘으면 5줄만
-  const title = rows.every((r) => r.field === "status") ? "상태 변경" : rows.every((r) => r.field.startsWith("supplier_")) ? "공급업체 회신" : "수정"; // 링크·직원 입력은 이름으로 구분한다
+  const title = rows.some(isCopyRow) ? "복사" : rows.every((r) => r.field === "status") ? "상태 변경" : rows.every((r) => r.field.startsWith("supplier_")) ? "공급업체 회신" : "수정"; // 링크·직원 입력은 이름으로 구분한다
   // 잔량 마감 = 같은 묶음에 items[SKU].closed_quantity 행이 있다 (서버가 마감 때만 같이 남긴다). 사유는 상태 줄에만 보이게 한다
   // shortcut: 20건 쪽 경계에서 묶음이 갈리면 "(잔량 마감)" 표시가 빠질 수 있다, 이력 데이터에 마감 표시가 생기면 그걸 쓴다
   const isClose = rows.some((r) => /\.closed_quantity$/.test(r.field));
@@ -38,6 +38,7 @@ function Group({ rows }: { rows: ChangeLog[] }) {
       <ul className="cl-rows" role="list">
         {shown.map((r) => {
           const p = describeChangeParts(r);
+          if (isCopyRow(r)) return <li key={r.id} className="cl-row" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}><span><strong>{r.new_value}</strong>에서 복사해 만든 초안</span></li>; // 번호만 저장돼 있어 링크는 없다
           return (
             <li key={r.id} className="cl-row">
               <span className="cl-label">{p.label}</span>

@@ -12,10 +12,14 @@ const show = (field: string, value: string | null) =>
   value === null || value === "" ? "없음" : field === "status" ? STATUS_LABEL[value as PoStatus] ?? value
     : field === "supplier_confirmed_at" ? fmtTime(value) : field === "freight_terms" ? FREIGHT_TERMS[value] ?? value : field === "freight_amount" ? `${value}원` : value; // 운송비 조건 코드는 화면 이름으로
 
+// 발주서 복사로 생긴 기록(source_po_id: 없음 → 원본 PO 번호)인지. 예) {field:"source_po_id", old:null, new:"PO-7"} → true
+export const isCopyRow = (row: Pick<ChangeLog, "field" | "old_value" | "new_value">) => row.field === "source_po_id" && !row.old_value && !!row.new_value;
+
 // 이력 한 행을 한 줄 문장으로. 모르는 field 는 원래 이름을 그대로 쓴다
 // 예) items[A-1].unit_price 1000→1200 → "품목 A-1 단가: 1000 → 1200", due_date 없음 → "약속 납기: 없음 → 2026-11-20"
 export function describeChange(row: Pick<ChangeLog, "field" | "old_value" | "new_value">): string {
   const { field, old_value: before, new_value: after } = row;
+  if (isCopyRow(row)) return `${after}에서 복사해 만든 초안`; // "(없음) →" 대신 한 줄
   const match = /^items\[(.+?)\](?:\.(\w+))?$/.exec(field); // items[SKU] 또는 items[SKU].칸
   if (match && !match[2]) {
     if (before === null) return `품목 ${match[1]} 줄 추가: ${show(field, after)}`;

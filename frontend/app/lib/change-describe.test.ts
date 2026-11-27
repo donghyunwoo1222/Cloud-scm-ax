@@ -21,3 +21,12 @@ const cases: Array<[string, string, string | null, string | null, { label: strin
 for (const [name, field, old_value, new_value, want] of cases) {
   test(`describeChangeParts: ${name}`, () => assert.deepEqual(describeChangeParts({ field, old_value, new_value }), want));
 }
+
+// 발주서 복사 기록은 "(없음) →" 없이 한 줄로 (#188)
+test("복사 기록 문장", async () => {
+  const { describeChange, isCopyRow } = await import("./change-describe.ts");
+  const row = { field: "source_po_id", old_value: null, new_value: "PO-7" };
+  assert.equal(isCopyRow(row), true);
+  assert.equal(describeChange(row), "PO-7에서 복사해 만든 초안");
+  assert.equal(isCopyRow({ field: "memo", old_value: null, new_value: "x" }), false);
+});
