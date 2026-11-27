@@ -46,21 +46,23 @@ export function ReorderPanel({ id, onClose }: { id: string; onClose: () => void 
   const q = (n: number) => n.toLocaleString("ko-KR"); // 수량 표시
   const dim = { ...S.hint, margin: 0, fontSize: "var(--text-sm)" } as const; // 흐린 보조 문구
   return (
-    <section style={{ ...S.sectionCard, display: "grid", gap: "var(--space-sm)" }} aria-labelledby="reorder-heading">
+    <section style={{ ...S.sectionCard, display: "grid", gap: "var(--space-md)" }} aria-labelledby="reorder-heading">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--space-sm)" }}>
         <h2 id="reorder-heading" style={{ margin: 0 }}>이 발주서로 새 초안</h2>
         <button type="button" onClick={onClose} disabled={busy}>닫기</button>{/* 보조 버튼: 채우지 않은 기본 모양 */}
       </div>
       {!preview && !error && <p>불러오는 중…</p>}
       {preview && (
-        <>
+        <div style={{ maxWidth: "40rem", display: "grid", gap: "var(--space-md)" }}>{/* 한 줄이 너무 길어지지 않게 폭을 제한하고, 묶음 사이는 한 칸 더 띄운다 */}
+          <div style={{ display: "grid", gap: "var(--space-sm)" }}>
           <p style={{ margin: 0 }}>품목과 수량만 가져와요. 단가·입수·최소 주문량은 지금 품목 정보로 새로 정해요.</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)", alignItems: "center" }} aria-label="가져오지 않는 것">
             {["납기", "메모", "운송비", "부대비용", "환율"].map((t) => <span key={t} style={{ ...S.statusChip, minHeight: 0, color: "var(--color-muted-foreground)" }}>{t} 제외</span>)}
           </div>
           <p style={dim}>승인 전에는 재고에 영향이 없어요.</p>
+          </div>
           {draft && (
-            <div role="status" style={{ borderInlineStart: "4px solid var(--color-warning)", paddingInlineStart: "var(--space-sm)", display: "grid", gap: "var(--space-xs)", justifyItems: "start" }}>
+            <div role="status" style={{ borderInlineStart: "4px solid var(--color-warning)", paddingInlineStart: "var(--space-md)", paddingBlock: "var(--space-sm)", display: "grid", gap: "var(--space-sm)", justifyItems: "start" }}>
               <p style={{ margin: 0 }}>이 공급업체에 작성 중인 발주서 {draft.po_number} 가 있어요. 새 초안은 업체당 하나만 만들 수 있어요.</p>
               <Link href={`/purchase-orders/${draft.id}`} style={{ display: "inline-flex", alignItems: "center", minHeight: "var(--control-min)", paddingInline: "var(--space-md)", borderRadius: "var(--radius-md, 6px)", background: "var(--color-primary)", color: "var(--color-on-primary)", textDecoration: "none", fontWeight: 600 }}>{/* 이동이지만 이 패널의 주 동작이라 버튼 모양 */}작성 중인 발주서 열기</Link>
             </div>
@@ -68,13 +70,13 @@ export function ReorderPanel({ id, onClose }: { id: string; onClose: () => void 
           {!preview.supplier_active && <p role="alert" style={S.error}>비활성 공급업체라 새 발주서를 만들 수 없습니다.</p>}
           {preview.items.length > 0 && (
             <div>
-              <h3 style={{ margin: "0 0 var(--space-xs)", fontSize: "var(--text-base)" }}>가져올 품목 {preview.items.length}개</h3>
+              <h3 style={{ margin: "0 0 var(--space-sm)", fontSize: "var(--text-base)" }}>가져올 품목 {preview.items.length}개</h3>
               <table style={{ width: "100%", borderCollapse: "collapse" }} aria-label="가져올 품목">
                 <tbody>
                   {preview.items.map((i) => (
                     <tr key={i.product_id}>
-                      <td style={{ padding: "var(--space-xs) var(--space-sm)" }}>{i.name} <span style={{ ...S.sub, display: "inline" }}>{i.sku}</span></td>
-                      <td style={{ textAlign: "right", whiteSpace: "nowrap", padding: "var(--space-xs) var(--space-sm)" }}>{q(i.quantity)}{i.unit}</td>
+                      <td style={{ padding: "var(--space-sm)" }}>{i.name} <span style={{ ...S.sub, display: "inline" }}>{i.sku}</span></td>
+                      <td style={{ textAlign: "right", whiteSpace: "nowrap", padding: "var(--space-sm)" }}>{q(i.quantity)}{i.unit}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -83,14 +85,14 @@ export function ReorderPanel({ id, onClose }: { id: string; onClose: () => void 
           )}
           {preview.excluded.length > 0 && (
             <div>
-              <h3 style={{ margin: "0 0 var(--space-xs)", fontSize: "var(--text-base)", color: "var(--color-muted-foreground)" }}>제외되는 품목 {preview.excluded.length}개</h3>
+              <h3 style={{ margin: "0 0 var(--space-sm)", fontSize: "var(--text-base)", color: "var(--color-muted-foreground)" }}>제외되는 품목 {preview.excluded.length}개</h3>
               <ul style={{ ...dim, paddingInlineStart: "var(--space-lg)" }}>
                 {preview.excluded.map((i) => <li key={i.product_id}>{i.name} {q(i.quantity)}{i.unit} · 비활성 품목</li>)}
               </ul>
             </div>
           )}
           {preview.items.length === 0 && <p role="alert" style={S.error}>가져올 수 있는 활성 품목이 없습니다.</p>}
-        </>
+        </div>
       )}
       {!duplicate && <ErrorText error={error} />}
       {!draft && (
