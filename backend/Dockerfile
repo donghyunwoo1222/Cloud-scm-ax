@@ -12,4 +12,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Render가 준 포트로 워커 하나를 실행한다. 로컬 Compose는 개발용 명령으로 덮어쓴다.
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port \"${PORT:-8000}\" --workers 1"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --no-proxy-headers --host 0.0.0.0 --port \"${PORT:-8000}\" --workers 1"]

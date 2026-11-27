@@ -9,10 +9,11 @@ from starlette.exceptions import HTTPException  # 없는 경로·깨진 본문 �
 class AppError(Exception):
     """업무 오류. 어디서든 raise 하면 아래 처리기가 정해진 모양의 응답으로 바꾼다."""
 
-    def __init__(self, status: int, code: str, message: str, details=None):
+    def __init__(self, status: int, code: str, message: str, details=None, *, headers: dict[str, str] | None = None):
         self.status = status  # HTTP 상태 코드 (예: 401, 409)
         self.code = code  # 프론트가 분기할 영문 코드 (예: EMAIL_TAKEN)
         self.message = message  # 화면에 그대로 보여줄 한국어 문장
+        self.headers = headers  # Retry-After 등 업무 오류에 필요한 응답 헤더
         self.details = details  # 어느 칸이 문제인지 등 추가 정보 (없으면 None)
 
 
@@ -25,7 +26,11 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(AppError)  # 우리가 낸 업무 오류
     async def handle_app_error(request: Request, exc: AppError):
-        return JSONResponse(error_body(exc.code, exc.message, exc.details), status_code=exc.status)  # 그대로 옮긴다
+        return JSONResponse(
+            error_body(exc.code, exc.message, exc.details),
+            status_code=exc.status,
+            headers=exc.headers,
+        )
 
     @app.exception_handler(HTTPException)  # 없는 경로(404), 깨진 본문(400) 등도 같은 모양으로
     async def handle_http_error(request: Request, exc: HTTPException):
