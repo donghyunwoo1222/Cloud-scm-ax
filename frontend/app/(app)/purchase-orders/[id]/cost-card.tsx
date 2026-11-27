@@ -43,7 +43,7 @@ export function CostCard({ order }: { order: PurchaseOrder }) {
           </ul>
         </>
       )}
-      {cost.missing.length > 0 && <p role="status" style={S.hint}>아직 입력하지 않은 항목: {cost.missing.map((m) => MISSING_NAME[m] ?? m).join(", ")}</p>}
+      {cost.missing.length > 0 && <p role="status" style={{ ...S.hint, margin: "var(--space-sm) 0" }}>아직 입력하지 않은 항목: {cost.missing.map((m) => MISSING_NAME[m] ?? m).join(", ")}</p>}
       {fx && (order.status === "APPROVED" || order.status === "ORDERED") && <p style={S.hint}>환율을 잘못 넣었으면 취소 후 새로 작성하세요. 승인한 뒤에는 환율을 고칠 수 없습니다.</p>}
     </section>
   );
