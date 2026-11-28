@@ -18,6 +18,7 @@ const MENU = [
   { links: [{ href: "/dashboard", label: "대시보드", icon: "M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z" }] }, // 그룹 밖: 첫 화면
   { title: "재고 업무", links: [ // 매일 하는 재고 일
     { href: "/inventory", label: "재고 현황", icon: "M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8" },
+    { href: "/sales-analytics", label: "판매 분석", icon: "M4 20V10M10 20V4M16 20v-8M22 20H2" },
     { href: "/products", label: "품목", icon: "M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8zM7.5 7.5h.01" },
     { href: "/receipts", label: "입고 등록", icon: "M12 3v12M7 10l5 5 5-5M5 21h14" },
     { href: "/shipments", label: "출고 등록", icon: "M12 21V9M7 14l5-5 5 5M5 3h14" },
