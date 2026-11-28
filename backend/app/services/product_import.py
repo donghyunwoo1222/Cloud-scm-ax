@@ -27,6 +27,9 @@ from app.services.sales_import import (  # 파일 읽기·열 힌트를 그대�
     read_table,
     suggest_columns,
 )
+from app.services.sales_import import (
+    row_no as _row_no,
+)
 
 HINTS = {  # 열 미리 선택 힌트 (일반 낱말만)
     "product_col": ["sku", "품목코드", "상품코드"],
@@ -120,7 +123,7 @@ def analyze(company_id: int, db: Session, rows: list[list[str]], opts: ProductIm
         problems.append({"row": row_no, "reason": reason, "message": message or PROBLEM_MESSAGES[reason], "sku": sku})
 
     for offset, row in enumerate(rows):
-        row_no = offset + 2  # 머리글 1, 첫 데이터 2 (엑셀과 같은 번호)
+        row_no = _row_no(row, offset)  # 엑셀에서 보이는 원래 행 번호
         sku = _get(row, opts.product_col).upper()
         if not sku or len(sku) > 50:
             problem(row_no, "MISSING_SKU")

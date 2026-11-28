@@ -27,6 +27,7 @@ class ReceiptImportOptions(BaseModel):
     supplier_col: int | None = Col  # (선택) 공급업체 열: 새 품목의 업체가 섞였는지 확인만 한다 (2곳 이상이면 422)
     default_supplier_id: Id | None = None  # 새 품목의 기본 공급업체 (새 품목이 있을 때 반영에 필수)
     exclude_problems: bool = False  # 문제 행을 빼고 반영할지
+    expected_apply_count: int | None = Field(default=None, ge=0, le=100_000)  # (선택) 미리보기에서 본 반영 건수. 지금 계산과 다르면 아무것도 쓰지 않고 409
 
 
 class NewProduct(BaseModel):

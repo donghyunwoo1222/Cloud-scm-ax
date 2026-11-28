@@ -25,10 +25,12 @@ from app.services.products import (
 from app.services.sales_import import (  # 판매 가져오기의 파일 읽기·값 해석을 그대로 쓴다
     MAX_PROBLEMS_SHOWN,
     _get,
+    check_preview_unchanged,
     invalid,
     parse_date,
     parse_quantity,
     read_table,
+    row_no,
     suggest_columns,
 )
 
@@ -115,7 +117,7 @@ def analyze(company_id: int, db: Session, rows: list[list[str]], opts: ReceiptIm
         problems.append({"row": line_row, "reason": reason, "message": PROBLEM_MESSAGES[reason], "sku": sku})
 
     for offset, row in enumerate(rows):
-        line = Line(offset + 2, _get(row, opts.product_col).upper(), row)
+        line = Line(row_no(row, offset), _get(row, opts.product_col).upper(), row)
         if not line.sku or len(line.sku) > 50:
             problem(line.row, "MISSING_SKU")
             continue
@@ -269,7 +271,8 @@ def _check_one_supplier(rows: list[list[str]], result: dict, opts: ReceiptImport
     """
     if opts.supplier_col is None:
         return
-    names = sorted({_get(rows[p["row"] - 2], opts.supplier_col) for p in result["new_products"]} - {""})
+    by_no = {row_no(r, i): r for i, r in enumerate(rows)}  # 원래 행 번호 → 행
+    names = sorted({_get(by_no[p["row"]], opts.supplier_col) for p in result["new_products"]} - {""})
     if len(names) > 1:
         shown = ", ".join(names[:5]) + (" 등" if len(names) > 5 else "")
         raise AppError(422, "MULTIPLE_SUPPLIERS",
@@ -303,6 +306,7 @@ def commit(company_id: int, db: Session, user_id: int, filename: str, content: b
         ).all()
     result = analyze(company_id, db, rows, opts, seoul_today())  # ② 잠근 뒤 다시 계산
     _check_one_supplier(rows, result, opts)
+    check_preview_unchanged(opts.expected_apply_count, len(result["to_apply"]))
     if result["problems"] and not opts.exclude_problems:
         raise AppError(409, "IMPORT_HAS_PROBLEMS", f"문제 행이 {len(result['problems'])}건 있어 반영할 수 없습니다.",
                        {"problem_count": len(result["problems"])})

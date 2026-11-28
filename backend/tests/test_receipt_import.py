@@ -302,3 +302,19 @@ def test_commit_query_count_does_not_grow_with_rows(engine, world, existing, ses
     assert counts["새 품목 1개"] == counts["새 품목 50개"], counts
     assert max(counts.values()) <= 15, counts
     assert stock(session, world["a_company"], "OLD-1") == sum(range(1, 11)) + sum(range(1, 301)) + 2
+
+
+def test_expected_apply_count_receipts(client, world, existing, session):
+    """#258: 미리보기 후 다른 반영으로 건수가 달라지면 409(아무것도 안 씀), 같으면 201, 필드가 없으면 기존 동작."""
+    login_as(client)
+    one = csv_file(f"{day(1)},OLD-1,,,,10,")
+    both = csv_file(f"{day(1)},OLD-1,,,,10,", f"{day(2)},OLD-1,,,,5,")
+    assert post(client, "/preview", both, world).json()["data"]["apply_count"] == 2
+    assert post(client, "", one, world).status_code == 201  # 그 사이 첫 줄이 먼저 반영됨 → 이제 반영할 줄은 1건
+    res = post(client, "", both, world, expected_apply_count=2)
+    assert res.status_code == 409 and res.json()["error"]["code"] == "PREVIEW_CHANGED"
+    assert stock(session, world["a_company"], "OLD-1") == 10  # 아무것도 쓰지 않았다
+    assert post(client, "", both, world, expected_apply_count=1).status_code == 201
+    assert stock(session, world["a_company"], "OLD-1") == 15
+    # 필드 없는 요청은 기존 동작 (모두 반영된 뒤라 반영할 행 없음)
+    assert post(client, "", both, world).json()["error"]["code"] == "NOTHING_TO_IMPORT"

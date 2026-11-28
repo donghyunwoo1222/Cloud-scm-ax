@@ -17,3 +17,4 @@ class SalesImportOptions(BaseModel):
     option_col: int | None = Field(default=None, ge=0, le=1000)  # (선택) 옵션 열: 섞임 경고용, 반영에는 안 쓴다
     sales_channel: SalesChannel | None = None  # 판매 채널 (반영 때 필수)
     exclude_problems: bool = False  # 문제 행을 빼고 반영할지
+    expected_apply_count: int | None = Field(default=None, ge=0, le=100_000)  # (선택) 미리보기에서 본 반영 건수. 지금 계산과 다르면 아무것도 쓰지 않고 409
