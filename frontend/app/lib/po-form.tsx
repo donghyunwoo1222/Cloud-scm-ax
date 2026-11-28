@@ -379,7 +379,7 @@ export function PoForm({ order }: { order?: PurchaseOrder }) {
             </select>
           </Field>
           <Field label="운송비 (원)" short="운송비(원)" className="field-half">
-            <input inputMode="numeric" value={freightAmount} placeholder="비우면 미입력, 무료는 0" onChange={(e) => setFreightAmount(wonInput(freightAmount, e.target.value))} />
+            <input inputMode="numeric" value={freightAmount} placeholder="무료는 0" onChange={(e) => setFreightAmount(wonInput(freightAmount, e.target.value))} />
           </Field>
         </div>
         <datalist id="extra-cost-names">{EXTRA_COST_SUGGESTIONS.map((n) => <option key={n} value={n} />)}</datalist>

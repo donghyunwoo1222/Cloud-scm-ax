@@ -305,6 +305,9 @@ button.status-tip:hover:not(:disabled) {
 .info-strip.flat { border: 0; border-radius: 0; background: transparent; gap: var(--space-sm); }
 .info-strip.flat > div { background: var(--color-muted); border-radius: var(--radius-sm); }
 
+/* 긴 글(특약)이 든 구역: 칸을 위아래로 쌓아 칸마다 내용 높이만큼만, 폭은 카드 전체를 쓴다 (옆 칸 높이에 맞춰 늘어나지 않게) */
+.info-strip.stack { grid-auto-flow: row; grid-auto-columns: auto; }
+
 .info-strip dt {
   font-size: var(--text-xs);
   color: var(--color-muted-foreground);
