@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { barRatio, bucketLabel, coverNote, coverText, filterItems, isShortCover, PAGE_STEP, parseQuery, peakWord, shareText, toQuery, TOP_N, trendLabel, visibleItems } from "./sales-analytics.ts";
+import { barRatio, bucketLabel, coverNote, coverText, filterItems, PAGE_STEP, parseQuery, peakWord, shareText, toQuery, TOP_N, trendLabel, visibleItems } from "./sales-analytics.ts";
 
 test("소진 예상일: 숫자는 '약 N일', 값이 없으면 상태 이름", () => {
   const rows: [string, "OK" | "NO_SALES_30D" | "INSUFFICIENT_DATA", number | null, string][] = [
@@ -14,14 +14,6 @@ test("소진 예상일: 숫자는 '약 N일', 값이 없으면 상태 이름", (
     ["OK 인데 값 없음", "OK", null, "데이터 부족"],
   ];
   for (const [name, cover_status, days_of_cover, want] of rows) assert.equal(coverText({ cover_status, days_of_cover }), want, name);
-});
-
-test("곧 소진: 7일 이하의 숫자만, 판매 없음·데이터 부족은 아니다", () => {
-  assert.equal(isShortCover({ cover_status: "OK", days_of_cover: 7 }), true);
-  assert.equal(isShortCover({ cover_status: "OK", days_of_cover: 0 }), true);
-  assert.equal(isShortCover({ cover_status: "OK", days_of_cover: 7.1 }), false);
-  assert.equal(isShortCover({ cover_status: "NO_SALES_30D", days_of_cover: null }), false);
-  assert.equal(isShortCover({ cover_status: "INSUFFICIENT_DATA", days_of_cover: null }), false);
 });
 
 test("기간·묶음 쿼리: 허용 값만 따르고 나머지는 30일·일", () => {

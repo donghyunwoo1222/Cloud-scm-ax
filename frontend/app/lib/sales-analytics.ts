@@ -4,8 +4,6 @@ export const DAY_OPTIONS = [7, 30, 90] as const; // 기간 선택지(일)
 export const BUCKET_OPTIONS = [["day", "일"], ["week", "주"]] as const; // 묶음 선택지
 export const TOP_N = 10; // 처음에 보이는 품목 수
 export const PAGE_STEP = 50; // "더 보기" 한 번에 더 보이는 품목 수
-// shortcut: 화면은 더 이상 쓰지 않는다(곧 소진은 서버 cover_alert). 기존 테스트 단언을 지키려고 남김, 사용자 확인 후 테스트와 함께 제거
-export const SHORT_COVER_DAYS = 7;
 
 export type Days = (typeof DAY_OPTIONS)[number];
 export type Bucket = "day" | "week";
@@ -42,11 +40,6 @@ export function coverText(item: Pick<SalesItem, "cover_status" | "days_of_cover"
   if (item.days_of_cover <= 0) return "재고 없음";
   if (item.days_of_cover < 1) return "1일 미만";
   return `약 ${Math.round(item.days_of_cover).toLocaleString("ko-KR")}일`;
-}
-
-// (화면에서 쓰지 않음, 위 SHORT_COVER_DAYS 참고)
-export function isShortCover(item: Pick<SalesItem, "cover_status" | "days_of_cover">): boolean {
-  return item.cover_status === "OK" && item.days_of_cover !== null && item.days_of_cover <= SHORT_COVER_DAYS;
 }
 
 // 소진 예상일 아래 근거 한 줄. 입고 예정이 있으면 "입고 예정 500개 포함", 리드타임을 모르면 "발주 정보 없음". 둘 다 아니면 빈 값
