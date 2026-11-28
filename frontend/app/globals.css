@@ -1586,3 +1586,9 @@ details.reason > p {
   .cl-row { grid-template-columns: minmax(0, 1fr); } /* 좁은 화면: 라벨 위, 값 아래 */
   .cl-reason { grid-column: 1; }
 }
+
+/* 세금계산서 수취 카드(#268): 카드 안의 위험 동작 버튼(취소). 위험색 글자와 테두리, 글자는 그대로라 색만으로 구분하지 않는다 */
+.tax-card button.danger-action {
+  border-color: var(--color-destructive);
+  color: var(--color-destructive);
+}
