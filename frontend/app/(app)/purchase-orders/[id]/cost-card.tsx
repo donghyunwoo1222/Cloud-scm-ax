@@ -56,7 +56,7 @@ export function TermsSection({ order }: { order: PurchaseOrder }) {
   return (
     <section aria-labelledby="terms-heading" style={S.sectionCard}>
       <h2 id="terms-heading" style={{ marginTop: 0 }}>운송조건·특약 <span style={S.hint}>(공급업체 문서에 표시됩니다)</span></h2>
-      <dl className="info-strip flat">
+      <dl className="info-strip flat stack">
         {t.freight && <div><dt>운송조건</dt><dd>{t.freight}</dd></div>}
         {t.special && <div><dt>특약</dt><dd style={{ whiteSpace: "pre-wrap" }}>{t.special}</dd></div>}
       </dl>
