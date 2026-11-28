@@ -75,6 +75,7 @@
 | F6 | POST /purchase-orders/{id}/supplier-reply | 직원이 전화·메일로 받은 공급업체 회신 기록(#265 PR4). 본문 `{"due_date": "YYYY-MM-DD"(선택), "reason": "받은 경로(필수, 500자 이하)"}`. ORDERED 만(부분 입고 포함), 상태는 그대로. 회신 횟수·5번 제한에 넣지 않는다. 이력 행위자 = 직원, 사유 = 받은 경로 | 둘 다 |
 | 자동화 공급업체 확인 링크 | POST /supplier-reply/view, POST /supplier-reply/confirm | 로그인 없는 공개 경로(#265). 발주 메일 링크의 토큰(본문 `token`)으로 발주 내용 보기·확인 버튼(+회신 납기). 회사·발주 id 는 받지 않는다. `SUPPLIER_LINK_ENABLED=false` 면 404 | 공급업체(메일 링크) |
 | F7 대시보드 | GET /dashboard | 부족·과잉·장기재고·진행 중 발주·이번 달 입출고 요약. 입고 예정과 월 입출고는 각각 `incoming_by_unit`, `in_by_unit`, `out_by_unit`에 재고 단위별 합계를 반환한다. | 둘 다 |
+| 판매 분석 (#357) | GET /sales-analytics?days=7\|30\|90&bucket=day\|week | 기간 판매 추이(빈 날·주는 0), 품목별 판매 수량·비율·ABC(누적 80/95%), 현재고, 소진 예상일. 수량만(금액 없음). 판매 수량은 `net_sales_by`(SALE − 그 SALE 의 정정, 폐기·기타 출고 제외), 일평균·소진 예상일은 기간과 무관하게 추천과 같은 최근 30일 기준이고 `cover_status` 가 `INSUFFICIENT_DATA`(첫 이력 14일 미만)·`NO_SALES_30D` 면 숫자는 null. 출처는 `source: SALE_MOVEMENTS`(판매 가져오기 + 직접 입력 SALE). 활성 품목 전부 + 기간 판매가 있는 비활성 품목, 판매량 많은 순 | 둘 다 |
 | F8 발주 추천 | GET /recommendations | 현재 시점 추천 목록 계산·반환 | 둘 다 |
 | F8 | POST /recommendations/drafts | 선택한 품목으로 공급업체별 DRAFT 발주서 생성·품목 추가 | 둘 다 |
 

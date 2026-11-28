@@ -43,6 +43,7 @@ class InventoryMovement(CompanyMixin, Base):
             name="ck_movements_sales_channel",
         ),
         Index("ix_movements_company_product_date", "company_id", "product_id", "movement_date"),  # 품목별 재고·기간 판매 조회용
+        Index("ix_movements_company_type_date", "company_id", "movement_type", "movement_date"),  # 회사 전체 기간 판매 합계용 (#357)
         Index(
             "uq_movements_company_type_ref_product", "company_id", "movement_type", "external_ref", "product_id",
             unique=True, postgresql_where=text("external_ref IS NOT NULL"),  # 값이 있을 때만 회사·유형·품목 안에서 유일 (파일 중복 반영 방지, #154·#155·#254)
