@@ -192,7 +192,7 @@ def test_migration_up_down_up_and_downgrade_stops_on_conflict():
 
     assert "uq_movements_company_type_ref_product" in indexes()
     assert "uq_movements_company_type_external_ref" not in indexes()
-    command.downgrade(cfg, "-1")  # 충돌이 없으면 되돌아간다
+    command.downgrade(cfg, "c4a7e2d9f1b3")  # 충돌이 없으면 #254 바로 앞으로 되돌아간다 ("-1" 은 뒤에 마이그레이션이 생기면 그것을 되돌린다)
     assert "uq_movements_company_type_external_ref" in indexes()
     assert "uq_movements_company_type_ref_product" not in indexes()
     command.upgrade(cfg, "head")
@@ -215,10 +215,10 @@ def test_migration_up_down_up_and_downgrade_stops_on_conflict():
                                     quantity=1, external_ref="SAME", created_by=user.id))
         s.commit()
     with pytest.raises(RuntimeError, match="downgrade 불가"):
-        command.downgrade(cfg, "-1")
+        command.downgrade(cfg, "c4a7e2d9f1b3")
     assert "uq_movements_company_type_ref_product" in indexes()  # 멈춘 뒤에도 새 인덱스가 그대로다
     with eng.begin() as conn:  # 충돌 행을 치우면(테스트 DB 한정) 다시 되돌릴 수 있다
         conn.execute(text("DELETE FROM inventory_movements WHERE id = (SELECT max(id) FROM inventory_movements)"))
-    command.downgrade(cfg, "-1")
+    command.downgrade(cfg, "c4a7e2d9f1b3")
     assert "uq_movements_company_type_external_ref" in indexes()
     eng.dispose()
