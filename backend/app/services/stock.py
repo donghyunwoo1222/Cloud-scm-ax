@@ -106,22 +106,32 @@ def net_sales(company_id: int, db: Session, today: date, product_ids: list[int] 
     예) 오늘 11-04: 10-06 판매는 포함(오늘−29일), 10-05 판매는 제외(오늘−30일). SALE 100 + 정정 90 → 10 (S13).
     product_ids 를 주면 그 품목만 본다(큰 수량 경고, #190). 정정은 원래 이력과 품목이 같아 같은 조건으로 줄인다.
     """
+    start = today - timedelta(days=SALES_WINDOW_DAYS - 1)  # 오늘−29일부터
+    return net_sales_by(company_id, db, start, today, InventoryMovement.product_id, product_ids)
+
+
+def net_sales_by(company_id: int, db: Session, start: date, end: date, key, product_ids: list[int] | None = None) -> dict:
+    """기간(start~end, 양 끝 포함) 순판매를 key(품목 id 또는 판매 날짜) 별로 합친다. net_sales 와 판매 분석(#357)이 같은 규칙을 쓴다.
+
+    순판매 = SALE − 그 SALE 을 가리키는 정정. 정정은 원래 SALE 의 날짜·품목으로 센다(정정한 날이 아니라). 판매가 없는 키는 없고, 전부 정정되면 0.
+    """
     only = [InventoryMovement.product_id.in_(product_ids)] if product_ids is not None else []  # 품목 조건 (없으면 회사 전체)
     corrected = (
         select(InventoryMovement.reverses_movement_id.label("original_id"), func.sum(InventoryMovement.quantity).label("qty"))  # 원래 이력별 정정 합계
         .where(InventoryMovement.company_id == company_id, InventoryMovement.movement_type == "CORRECTION", *only)
         .group_by(InventoryMovement.reverses_movement_id).subquery()
     )
-    return {pid: int(qty) for pid, qty in db.execute(
-        select(InventoryMovement.product_id, func.sum(InventoryMovement.quantity - func.coalesce(corrected.c.qty, 0)))  # SALE마다 (수량 − 정정)
+    net = func.sum(InventoryMovement.quantity - func.coalesce(corrected.c.qty, 0))  # SALE마다 (수량 − 정정)
+    return {k: int(qty) for k, qty in db.execute(
+        select(key, net)
         .outerjoin(corrected, corrected.c.original_id == InventoryMovement.id)  # 정정을 원래 SALE 에 붙인다
         .where(
             InventoryMovement.company_id == company_id,  # 우리 회사만 (R1)
             InventoryMovement.movement_type == "SALE",  # 판매만 (폐기·기타 출고·조정 제외)
-            InventoryMovement.movement_date >= today - timedelta(days=SALES_WINDOW_DAYS - 1),  # 오늘−29일부터
-            InventoryMovement.movement_date <= today,  # 오늘까지
+            InventoryMovement.movement_date >= start,  # 기간 시작부터
+            InventoryMovement.movement_date <= end,  # 기간 끝까지
             *only,
-        ).group_by(InventoryMovement.product_id)
+        ).group_by(key)
     ).all()}
 
 
