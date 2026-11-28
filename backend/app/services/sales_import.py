@@ -47,13 +47,13 @@ PROBLEM_MESSAGES = {  # 문제 행 사유 → 화면에 보일 문장
     "FUTURE_DATE": "오늘 이후 날짜입니다.",
     "TOO_OLD_DATE": "5년보다 이전 날짜입니다. 연도를 확인해 주세요.",
     "MISSING_REF": "고유 주문번호가 비어 있거나 너무 깁니다.",
-    "DUPLICATE_REF_IN_FILE": "파일 안에서 주문번호가 앞의 행과 겹칩니다.",
+    "DUPLICATE_REF_IN_FILE": "파일 안에서 주문번호와 상품 코드가 앞의 행과 겹칩니다.",
     "UNKNOWN_SKU": "등록되지 않은 상품 코드(SKU)입니다.",
     "INSUFFICIENT_STOCK": "날짜순으로 적용하면 재고가 부족해집니다.",
 }
 SKIP_MESSAGES = {  # 건너뜀 사유 → 화면에 보일 문장
     "STATUS_NOT_SELECTED": "반영하기로 고르지 않은 상태",
-    "ALREADY_IMPORTED": "이미 반영된 주문번호",
+    "ALREADY_IMPORTED": "이미 반영된 주문 줄",
 }
 
 
@@ -195,14 +195,14 @@ def analyze(company_id: int, db: Session, rows: list[list[str]], opts: SalesImpo
     """행들을 검사해 반영할 줄·건너뛸 줄·문제 줄을 가른다. DB 는 읽기만 한다.
 
     판단 순서(행 하나당 첫 번째 사유 하나만):
-      상태 거르기(건너뜀) → 칸 값 검사(문제) → 파일 안 주문번호 중복(문제) → 이미 반영된 번호(건너뜀)
-      → 미등록 SKU(문제) → 날짜순 누적 재고가 음수(문제)
+      상태 거르기(건너뜀) → 칸 값 검사(문제) → 파일 안 (주문번호, SKU) 중복(문제) → 미등록 SKU(문제)
+      → 이미 반영된 (주문번호, 품목)(건너뜀) → 날짜순 누적 재고가 음수(문제)
     """
     skipped: Counter = Counter()  # 사유별 건너뜀 개수
     problems: list[dict] = []  # 문제 행 (행 번호, 사유)
     candidates: list[Line] = []  # 칸 검사를 통과한 줄
     selected = set(opts.statuses or [])
-    seen_refs: set[str] = set()  # 파일에서 앞서 나온 주문번호
+    seen_refs: set[tuple[str, str]] = set()  # 파일에서 앞서 나온 (주문번호, SKU). 주문 1건에 품목 여러 줄은 정상이다 (#254)
     option_values: dict[str, set[str]] = defaultdict(set)  # SKU 별 옵션 값 종류
 
     def problem(row_no: int, reason: str, sku: str | None = None) -> None:
@@ -227,47 +227,50 @@ def analyze(company_id: int, db: Session, rows: list[list[str]], opts: SalesImpo
             problem(row_no, bad_date, sku)  # 수동 등록과 같은 규칙: 미래·5년보다 이른 날짜는 안 받는다
         elif not ref or len(ref) > 100:
             problem(row_no, "MISSING_REF", sku)
-        elif ref in seen_refs:
-            problem(row_no, "DUPLICATE_REF_IN_FILE", sku)  # 앞의 행은 유지하고 뒤의 겹친 행만 막는다
+        elif (ref, sku) in seen_refs:
+            problem(row_no, "DUPLICATE_REF_IN_FILE", sku)  # 앞의 행은 유지하고 뒤의 겹친 행만 막는다 (합산하지 않는다)
         else:
-            seen_refs.add(ref)
+            seen_refs.add((ref, sku))
             candidates.append(Line(row_no, sku, quantity, day, ref))
             if opts.option_col is not None and _get(row, opts.option_col):
                 option_values[sku].add(_get(row, opts.option_col))
 
-    # 이미 반영된 주문번호는 건너뜀 (같은 파일을 다시 올려도 두 번 반영되지 않는다)
-    existing = set(db.scalars(
-        select(InventoryMovement.external_ref).where(
-            InventoryMovement.company_id == company_id,  # 우리 회사 이력만 (R1)
-            InventoryMovement.movement_type == "SALE",  # 번호는 유형마다 따로 센다 (입고 번호와 겹쳐도 무관, #155)
-            InventoryMovement.external_ref.in_([c.ref for c in candidates]),
-        )
-    )) if candidates else set()
-    fresh = []
-    for c in candidates:
-        if c.ref in existing:
-            skipped["ALREADY_IMPORTED"] += 1
-        else:
-            fresh.append(c)
-
     # SKU → 우리 회사 품목 (다른 회사 SKU 는 여기서 찾아지지 않아 미등록으로 처리된다)
     product_ids = dict(db.execute(
         select(Product.sku, Product.id).where(
-            Product.company_id == company_id, Product.sku.in_({c.sku for c in fresh}),
+            Product.company_id == company_id, Product.sku.in_({c.sku for c in candidates}),
         )
-    ).all()) if fresh else {}
+    ).all()) if candidates else {}
     known = []
-    for c in fresh:
+    for c in candidates:
         c.product_id = product_ids.get(c.sku)
         if c.product_id is None:
             problem(c.row, "UNKNOWN_SKU", c.sku)
         else:
             known.append(c)
 
+    # 이미 반영된 (주문번호, 품목)은 줄 단위로 건너뜀 (같은 파일을 다시 올려도 두 번 반영되지 않는다).
+    # 예) 주문 O1 의 A 줄만 반영돼 있으면 O1 의 B 줄만 새로 반영된다 (#254)
+    existing = set(db.execute(
+        select(InventoryMovement.external_ref, InventoryMovement.product_id).where(
+            InventoryMovement.company_id == company_id,  # 우리 회사 이력만 (R1)
+            InventoryMovement.movement_type == "SALE",  # 번호는 유형마다 따로 센다 (입고 번호와 겹쳐도 무관, #155)
+            InventoryMovement.external_ref.in_({c.ref for c in known}),
+            InventoryMovement.product_id.in_({c.product_id for c in known}),
+        )
+    ).all()) if known else set()
+    fresh = []
+    for c in known:
+        if (c.ref, c.product_id) in existing:
+            skipped["ALREADY_IMPORTED"] += 1
+        else:
+            fresh.append(c)
+    known = fresh
+
     # 날짜순 누적: 품목마다 현재고에서 시작해 (날짜, 행 번호) 순서로 빼 가며 음수가 되는 줄을 찾는다.
     # 예) 현재고 10, 11/01 판매 6, 11/02 판매 7 → 11/01 은 10-6=4 통과, 11/02 는 4-7=-3 이라 문제.
     # 문제 줄은 재고를 쓰지 않은 것으로 치고 다음 줄을 계속 본다 (제외하고 반영할 때의 결과와 같아야 하므로).
-    stocks = {r["product_id"]: r["current_stock"] for r in _stock_of(company_id, db, set(product_ids.values()))}
+    stocks = {r["product_id"]: r["current_stock"] for r in _stock_of(company_id, db, {c.product_id for c in known})}
     running = dict(stocks)
     to_apply: list[Line] = []
     for c in sorted(known, key=lambda c: (c.day, c.row)):

@@ -218,7 +218,7 @@ def test_commit_result_is_fixed(client, world, existing, session):
         {"row": 11, "reason": "INVALID_PRODUCT_INFO",
          "message": "새 품목인데 품목명·단위·단가(0 이상 정수)·안전재고 값이 비었거나 올바르지 않습니다.", "sku": "BAD-1"},
     ]
-    skipped = [{"reason": "ALREADY_IMPORTED", "message": "이미 반영된 입고", "count": 1}]
+    skipped = [{"reason": "ALREADY_IMPORTED", "message": "이미 반영된 입고 줄", "count": 1}]
     assert post(client, "/preview", content, world).json() == {"data": {
         "total_rows": 12, "apply_count": 8, "new_product_count": 3,
         "new_products": [
