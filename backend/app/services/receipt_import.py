@@ -23,6 +23,7 @@ from app.services.products import (
     check_default_supplier,  # 기본 공급업체 검사 (다른 회사 404, 비활성 409)
 )
 from app.services.sales_import import (  # 판매 가져오기의 파일 읽기·값 해석을 그대로 쓴다
+    _QUANTITY_RE,  # 올바른 천 단위 쉼표 규칙(수량과 같음)
     MAX_PROBLEMS_SHOWN,
     _get,
     check_preview_unchanged,
@@ -82,9 +83,8 @@ def inspect_file(filename: str, content: bytes) -> dict:
 
 
 def _int_or_text(text: str) -> int | str:
-    """단가·안전재고 글자 → 정수(천 단위 쉼표 허용). 정수가 아니면 글자 그대로 둬서 검사에서 걸리게 한다."""
-    t = text.replace(",", "")
-    return int(t) if t.isascii() and t.isdigit() else text
+    """단가·안전재고 글자 → 정수(올바른 천 단위 쉼표만 허용). 아니면("1,5" 포함) 글자 그대로 둬서 검사에서 걸리게 한다."""
+    return int(text.replace(",", "")) if _QUANTITY_RE.match(text) else text
 
 
 def _new_product(line: Line, opts: ReceiptImportOptions) -> NewProduct | None:
