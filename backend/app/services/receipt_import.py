@@ -51,11 +51,11 @@ PROBLEM_MESSAGES = {
     "FUTURE_DATE": "오늘 이후 날짜입니다.",
     "TOO_OLD_DATE": "5년보다 이전 날짜입니다. 연도를 확인해 주세요.",
     "MISSING_REF": "고유 번호가 비어 있거나 너무 깁니다.",
-    "DUPLICATE_REF_IN_FILE": "파일 안에서 고유 번호가 앞의 행과 겹칩니다.",
+    "DUPLICATE_REF_IN_FILE": "파일 안에서 고유 번호와 상품 코드가 앞의 행과 겹칩니다.",
     "INVALID_PRODUCT_INFO": "새 품목인데 품목명·단위·단가(0 이상 정수)·안전재고 값이 비었거나 올바르지 않습니다.",
 }
 SKIP_MESSAGES = {
-    "ALREADY_IMPORTED": "이미 반영된 입고",
+    "ALREADY_IMPORTED": "이미 반영된 입고 줄",
     "PRODUCT_EXISTS": "이미 등록된 품목",
     "SAME_SKU_ABOVE": "위 행과 같은 SKU",
 }
@@ -101,14 +101,14 @@ def _new_product(line: Line, opts: ReceiptImportOptions) -> NewProduct | None:
 def analyze(company_id: int, db: Session, rows: list[list[str]], opts: ReceiptImportOptions, today: date) -> dict:
     """행들을 검사해 새 품목·입고 줄·건너뜀·문제를 가른다. DB 는 읽기만 한다.
 
-    판단 순서(행 하나당 첫 사유 하나): 칸 값 검사(문제) → 파일 안 번호 중복(문제) → 이미 반영(건너뜀)
+    판단 순서(행 하나당 첫 사유 하나): 칸 값 검사(문제) → 파일 안 (번호, SKU) 중복(문제) → 이미 반영(건너뜀)
       → 기존 품목이면 입고 / 없는 품목이면 그 SKU 첫 행의 새 품목 값 검사(어긋나면 그 SKU 의 모든 행이 문제)
     """
     receipts = opts.quantity_col is not None  # 수량 열이 있으면 입고 모드
     skipped: Counter = Counter()
     problems: list[dict] = []
     candidates: list[Line] = []
-    seen_refs: set[str] = set()
+    seen_refs: set[tuple[str, str]] = set()  # 파일에서 앞서 나온 (번호, SKU). 같은 번호에 품목 여러 줄은 정상이다 (#254)
     same_content: Counter = Counter()  # 번호 열이 없을 때 (날짜, SKU, 수량) 조합이 몇 번째인지
 
     def problem(line_row: int, reason: str, sku: str | None = None) -> None:
@@ -136,10 +136,10 @@ def analyze(company_id: int, db: Session, rows: list[list[str]], opts: ReceiptIm
                 if not line.ref or len(line.ref) > 100:
                     problem(line.row, "MISSING_REF", line.sku)
                     continue
-                if line.ref in seen_refs:
+                if (line.ref, line.sku) in seen_refs:
                     problem(line.row, "DUPLICATE_REF_IN_FILE", line.sku)
                     continue
-                seen_refs.add(line.ref)
+                seen_refs.add((line.ref, line.sku))
             else:
                 # 번호 열이 없으면 내용으로 번호를 만든다. 같은 (날짜, SKU, 수량)이 두 번 나오면 1, 2 로 구분한다.
                 # 예) 2026-11-01 TS-01 30개 두 행 → "2026-11-01|TS-01|30|1", "…|2". 행을 더하거나 순서를 바꿔 다시 올려도 같은 번호.
@@ -148,17 +148,20 @@ def analyze(company_id: int, db: Session, rows: list[list[str]], opts: ReceiptIm
                 line.ref = f"{line.day.isoformat()}|{line.sku}|{line.quantity}|{same_content[key]}"
         candidates.append(line)
 
-    # 이미 반영된 입고 번호는 건너뜀 (같은 파일을 다시 올려도 재고가 두 번 늘지 않는다)
-    existing_refs = set(db.scalars(
-        select(InventoryMovement.external_ref).where(
+    # 이미 반영된 (입고 번호, 품목)은 줄 단위로 건너뜀 (같은 파일을 다시 올려도 재고가 두 번 늘지 않는다).
+    # 품목이 아직 없는 새 SKU 는 반영된 적이 있을 수 없으므로 조인에서 자연히 빠진다 (#254)
+    existing_refs = set(db.execute(
+        select(InventoryMovement.external_ref, Product.sku).join(Product, Product.id == InventoryMovement.product_id).where(
             InventoryMovement.company_id == company_id,  # 우리 회사 이력만 (R1)
             InventoryMovement.movement_type == "RECEIPT",  # 판매 주문번호와는 따로 센다
-            InventoryMovement.external_ref.in_([c.ref for c in candidates]),
+            InventoryMovement.external_ref.in_({c.ref for c in candidates}),
+            Product.company_id == company_id,
+            Product.sku.in_({c.sku for c in candidates}),
         )
-    )) if receipts and candidates else set()
+    ).all()) if receipts and candidates else set()
     fresh = []
     for c in candidates:
-        if c.ref in existing_refs:
+        if (c.ref, c.sku) in existing_refs:
             skipped["ALREADY_IMPORTED"] += 1
         else:
             fresh.append(c)

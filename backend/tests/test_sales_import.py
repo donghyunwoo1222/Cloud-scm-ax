@@ -83,7 +83,7 @@ def test_same_file_twice_does_not_reduce_stock_twice(client, world, goods, sessi
     assert post(client, "", content).status_code == 201
     second = post(client, "/preview", content).json()["data"]
     assert second["apply_count"] == 0 and second["skipped"] == [
-        {"reason": "ALREADY_IMPORTED", "message": "이미 반영된 주문번호", "count": 1}]
+        {"reason": "ALREADY_IMPORTED", "message": "이미 반영된 주문 줄", "count": 1}]
     assert post(client, "", content).status_code == 409  # 반영할 행이 없다
     assert stock(session, world["a_company"], goods["a"]) == 6
 
@@ -235,7 +235,7 @@ def test_commit_result_is_fixed(client, world, goods, session):
         row("O1", days_ago(5), "배송완료", "A-1", 6),               # 2행: 10-6=4 반영
         row("O2", days_ago(4), "배송완료", "A-1", 7),               # 3행: 4-7<0 재고 부족
         row("O3", days_ago(3), "배송완료", "NOPE", 1),              # 4행: 미등록
-        row("O1", days_ago(3), "배송완료", "A-2", 1),               # 5행: 파일 안 번호 중복
+        row("O1", days_ago(3), "배송완료", "A-1", 1),               # 5행: 파일 안 (번호, SKU) 중복
         row("O5", days_ago(1), "배송완료", "a-2", 2, "빨강"),       # 6행: 4-2=2 반영 (날짜가 가장 늦다)
         row("O6", days_ago(2), "배송완료", "A-1", 4),               # 7행: 4-4=0 반영
         row("O7", days_ago(2), "취소", "A-1", 1),                   # 8행: 고르지 않은 상태
@@ -246,11 +246,11 @@ def test_commit_result_is_fixed(client, world, goods, session):
     problems = [
         {"row": 3, "reason": "INSUFFICIENT_STOCK", "message": "날짜순으로 적용하면 재고가 부족해집니다.", "sku": "A-1"},
         {"row": 4, "reason": "UNKNOWN_SKU", "message": "등록되지 않은 상품 코드(SKU)입니다.", "sku": "NOPE"},
-        {"row": 5, "reason": "DUPLICATE_REF_IN_FILE", "message": "파일 안에서 주문번호가 앞의 행과 겹칩니다.", "sku": "A-2"},
+        {"row": 5, "reason": "DUPLICATE_REF_IN_FILE", "message": "파일 안에서 주문번호와 상품 코드가 앞의 행과 겹칩니다.", "sku": "A-1"},
         {"row": 10, "reason": "INVALID_QUANTITY", "message": "수량이 1 이상의 정수가 아닙니다.", "sku": "A-2"},
     ]
     skipped = [{"reason": "STATUS_NOT_SELECTED", "message": "반영하기로 고르지 않은 상태", "count": 1},
-               {"reason": "ALREADY_IMPORTED", "message": "이미 반영된 주문번호", "count": 1}]
+               {"reason": "ALREADY_IMPORTED", "message": "이미 반영된 주문 줄", "count": 1}]
     assert post(client, "/preview", content, **opts).json() == {"data": {
         "total_rows": 9, "apply_count": 3, "skipped": skipped, "skipped_count": 2,
         "date_from": days_ago(5), "date_to": days_ago(1), "total_quantity": 12, "problem_count": 4, "problems": problems,
