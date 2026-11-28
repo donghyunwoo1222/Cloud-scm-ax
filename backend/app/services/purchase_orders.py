@@ -20,6 +20,7 @@ from app.models import (  # 표들
     Product,
     PurchaseOrder,
     PurchaseOrderItem,
+    PurchaseTaxInvoice,
     Supplier,
 )
 from app.pagination import PageParams, paginate  # 목록 쪽 나누기
@@ -33,6 +34,7 @@ from app.schemas.purchase_orders import (  # 요청·응답 모양
     PurchaseOrderUpdate,
     ReceiptCreate,
     ReceiptDue,
+    TaxInvoiceFilter,
 )
 from app.schemas.recommendations import DraftItemIn  # 추천 초안의 요청 줄
 from app.services import po_money  # 금액 규칙 순수 함수 (#267 PR 0)
@@ -519,8 +521,23 @@ def orders_with_receipts(company_id: int, db: Session, order_ids: list[int]) -> 
     )))
 
 
+def missing_tax_invoice_condition(company_id: int):
+    """세금계산서 미수취 (#268): 입고 기록(RECEIPT)이 있고, 취소하지 않은 세금계산서가 0장인 발주서."""
+    has_receipt = select(PurchaseOrderItem.id).join(
+        InventoryMovement, InventoryMovement.purchase_order_item_id == PurchaseOrderItem.id).where(
+        PurchaseOrderItem.company_id == company_id, InventoryMovement.company_id == company_id,
+        PurchaseOrderItem.purchase_order_id == PurchaseOrder.id, InventoryMovement.movement_type == "RECEIPT",
+    ).exists()  # orders_with_receipts 와 같은 기준 (전량 정정한 입고도 기록이 있으면 포함)
+    has_invoice = select(PurchaseTaxInvoice.id).where(
+        PurchaseTaxInvoice.company_id == company_id, PurchaseTaxInvoice.purchase_order_id == PurchaseOrder.id,
+        PurchaseTaxInvoice.cancelled_at.is_(None),
+    ).exists()
+    return has_receipt & ~has_invoice
+
+
 def filtered_orders(
     company_id: int, supplier_id: int | None, status: str | None, q: str | None, receipt_due: ReceiptDue | None,
+    tax_invoice: TaxInvoiceFilter | None = None,
 ):
     """목록과 상태별 건수가 함께 쓰는 조건 함수 (#359). 같은 함수라서 칩 숫자와 목록 총 개수가 어긋나지 않는다."""
     stmt = scoped(company_id, PurchaseOrder)  # 회사 조건이 붙은 시작점
@@ -532,26 +549,30 @@ def filtered_orders(
         stmt = stmt.where(PurchaseOrder.status == "ORDERED", receipt_due_condition(receipt_due, seoul_today()))
     if q and (term := q.strip()):
         stmt = stmt.where(PurchaseOrder.po_number.icontains(term, autoescape=True))  # 쪽을 나누기 전에 검색한다.
+    if tax_invoice == "missing":
+        stmt = stmt.where(missing_tax_invoice_condition(company_id))  # 세금계산서 미수취 (#268)
     return stmt
 
 
 def list_orders(
     company_id: int, db: Session, page: PageParams, supplier_id: int | None,
     status: str | None = None, q: str | None = None, receipt_due: ReceiptDue | None = None,
+    tax_invoice: TaxInvoiceFilter | None = None,
 ) -> tuple[list[PurchaseOrder], dict]:
     """GET /purchase-orders: 모든 조건을 적용한 뒤 최신순으로 쪽을 나눈다."""
-    stmt = filtered_orders(company_id, supplier_id, status, q, receipt_due)
+    stmt = filtered_orders(company_id, supplier_id, status, q, receipt_due, tax_invoice)
     return paginate(db, stmt.order_by(PurchaseOrder.created_at.desc(), PurchaseOrder.id.desc()), page)
 
 
 def status_counts(
     company_id: int, db: Session, supplier_id: int | None, q: str | None, receipt_due: ReceiptDue | None,
+    tax_invoice: TaxInvoiceFilter | None = None,
 ) -> dict[str, int]:
     """GET /purchase-orders/status-counts: 상태 조건만 뺀 같은 필터로 상태별 건수. 건수가 0인 상태도 0으로 채운다.
 
     예) 작성 중 2건·발주함 1건 → {"DRAFT": 2, "APPROVED": 0, "ORDERED": 1, "RECEIVED": 0, "CANCELLED": 0}
     """
-    sub = filtered_orders(company_id, supplier_id, None, q, receipt_due).subquery()  # 상태 조건 없음
+    sub = filtered_orders(company_id, supplier_id, None, q, receipt_due, tax_invoice).subquery()  # 상태 조건 없음
     found = dict(db.execute(select(sub.c.status, func.count()).group_by(sub.c.status)).all())
     return {code: int(found.get(code, 0)) for code in STATUS_NAMES}  # 상태 5개를 항상 모두 내려 준다
 
