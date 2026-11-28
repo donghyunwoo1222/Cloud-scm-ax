@@ -1,6 +1,6 @@
 """매입 세금계산서 수취 기록과 입고 금액 대조 (#268). 내부 전용: 발주서 응답(build_out)·공급업체 문서에는 넣지 않는다.
 
-대조 = 받은 공급가액 합(취소 제외) − 입고 금액. 입고 금액은 원가 카드와 같은 cost_of(received_goods_krw) 한 곳에서 계산한다.
+대조 = 받은 공급가액 합(취소 제외) − 입고 금액(입고·계산서 모두 없으면 PENDING). 입고 금액은 원가 카드와 같은 cost_of(received_goods_krw) 한 곳에서 계산한다.
 예) 1,000개 × 1,000원 중 600개 입고 → 입고 금액 600,000. 계산서 300,000 + 250,000 → 차이 −50,000(덜 받음) → DIFFERENT
 """
 
@@ -42,7 +42,7 @@ def invoice_out(row: PurchaseTaxInvoice, names: dict[int, str]) -> dict:
 
 
 def view(company_id: int, db: Session, order: PurchaseOrder) -> dict:
-    """GET 응답 {items, summary}. items 는 최신순(취소한 것 포함), summary 는 취소한 것을 뺀 합계로 대조한다."""
+    """GET 응답 {can_record, items, summary}. items 는 최신순(취소한 것 포함), summary 는 취소한 것을 뺀 합계로 대조한다."""
     rows = list(db.scalars(scoped(company_id, PurchaseTaxInvoice).where(
         PurchaseTaxInvoice.purchase_order_id == order.id).order_by(PurchaseTaxInvoice.id.desc())))
     lines = list(db.scalars(scoped(company_id, PurchaseOrderItem).where(PurchaseOrderItem.purchase_order_id == order.id)))
@@ -51,7 +51,9 @@ def view(company_id: int, db: Session, order: PurchaseOrder) -> dict:
     active = [r for r in rows if r.cancelled_at is None]
     supply_total = sum(r.supply_amount for r in active)
     difference = supply_total - received_krw  # + 더 받음, − 덜 받음
-    if received_krw > 0 and not active:
+    if received_krw == 0 and not active:
+        verdict = "PENDING"  # 입고도 계산서도 없다: 입고 후 대조됩니다
+    elif received_krw > 0 and not active:
         verdict = "MISSING"  # 입고는 됐는데 계산서가 한 장도 없다
     elif difference == 0:
         verdict = "MATCHED"
@@ -59,6 +61,7 @@ def view(company_id: int, db: Session, order: PurchaseOrder) -> dict:
         verdict = "DIFFERENT"  # 차이는 표시만 하고 막지 않는다
     names = user_names(company_id, db, {r.created_by for r in rows} | {r.cancelled_by for r in rows})
     return {
+        "can_record": order.status in RECORD_STATES and order.currency == "KRW",  # 새 기록 가능 여부 (화면은 이것만 따른다)
         "items": [invoice_out(r, names) for r in rows],
         "summary": {
             "received_goods_krw": received_krw, "supply_total": supply_total,

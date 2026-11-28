@@ -300,7 +300,7 @@ erDiagram
 
 합계(공급가액 + 세액)는 저장하지 않고 응답에서 계산한다. 인덱스: (company\_id, purchase\_order\_id, id), 부분 유일 인덱스 `uq_purchase_tax_invoices_number` = (company\_id, supplier\_id, invoice\_number) WHERE cancelled\_at IS NULL(취소한 번호는 다시 넣을 수 있고, 동시 요청도 DB가 막는다). RLS 켬(Supabase 공개 롤 권한 회수).
 
-대조: 차이 = 취소하지 않은 공급가액 합 − 입고 금액. 입고 금액은 원가 카드와 같은 `cost_of().received_goods_krw`(누적 입고량 = 입고 − 정정, 박스 줄은 분수로 더해 총액에서 한 번 버림, 잔량 마감 수량 제외)이고, 발주함·입고 완료가 아니면 0이다. 상태는 MISSING(입고 금액 > 0 이고 계산서 0장) → MATCHED(차이 0) → DIFFERENT 순. 예) 600개 × 1,000원 입고, 계산서 300,000 + 250,000 → 차이 −50,000, DIFFERENT. 차이는 표시만 하고 막지 않는다.
+대조: 차이 = 취소하지 않은 공급가액 합 − 입고 금액. 입고 금액은 원가 카드와 같은 `cost_of().received_goods_krw`(누적 입고량 = 입고 − 정정, 박스 줄은 분수로 더해 총액에서 한 번 버림, 잔량 마감 수량 제외)이고, 발주함·입고 완료가 아니면 0이다. 상태는 PENDING(입고 금액 0 이고 계산서 0장) → MISSING(입고 금액 > 0 이고 계산서 0장) → MATCHED(차이 0) → DIFFERENT 순. 예) 600개 × 1,000원 입고, 계산서 300,000 + 250,000 → 차이 −50,000, DIFFERENT. 차이는 표시만 하고 막지 않는다.
 
 ### chat\_daily\_stats (챗봇 일별 통계, #199)
 

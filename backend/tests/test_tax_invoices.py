@@ -1,7 +1,7 @@
 """매입 세금계산서 수취 기록과 입고 금액 대조 (#268): /purchase-orders/{id}/tax-invoices.
 
 준비 발주서는 test_po_transitions.make_po (P1 100개 × 800원). 입고 금액 = 누적 입고량 × 800원.
-대조 = 받은 공급가액 합(취소 제외) − 입고 금액. MISSING(입고 있음·계산서 0장) / MATCHED(차이 0) / DIFFERENT.
+대조 = 받은 공급가액 합(취소 제외) − 입고 금액. PENDING(입고 0·계산서 0장) / MISSING(입고 있음·계산서 0장) / MATCHED(차이 0) / DIFFERENT.
 """
 
 from datetime import timedelta  # 미래 발행일
@@ -107,10 +107,10 @@ def test_box_line_partial_receipt_matches_floor(client, world, session):
 
 
 def test_no_receipt_with_invoice_is_different(client, world, product):  # noqa: F811
-    """입고 0건: 계산서도 없으면 0 = 0 이라 MATCHED(입고된 줄 0), 계산서를 먼저 받으면 DIFFERENT(+10,000)."""
+    """입고 0건: 계산서도 없으면 PENDING(입고 후 대조, 입고된 줄 0), 계산서를 먼저 받으면 DIFFERENT(+10,000)."""
     po = make_po(client, world, product, "ORDERED")
     s = view(client, po)["summary"]
-    assert (s["received_goods_krw"], s["status"], s["line_count"]) == (0, "MATCHED", 0)
+    assert (s["received_goods_krw"], s["status"], s["line_count"]) == (0, "PENDING", 0)
     s = post(client, po).json()["data"]["summary"]
     assert (s["difference"], s["status"]) == (10_000, "DIFFERENT")
 
@@ -276,3 +276,34 @@ def test_tax_invoice_never_reaches_supplier_outputs(client, world, product, sess
     for name, text in outputs.items():
         for secret in secrets:
             assert secret not in text, f"세금계산서 값 {secret!r} 이 {name} 출력에 들어갔습니다"
+
+
+# ----- PENDING 과 can_record (#366 검토 반영) -----
+def test_pending_only_without_receipt_and_invoice(client, world, product):  # noqa: F811
+    """입고 0·계산서 0장 → PENDING. 계산서를 넣으면 DIFFERENT, 그 계산서를 취소하면 다시 PENDING."""
+    po = make_po(client, world, product, "ORDERED")
+    s = view(client, po)["summary"]
+    assert (s["received_goods_krw"], s["supply_total"], s["difference"], s["status"]) == (0, 0, 0, "PENDING")
+    out = post(client, po, supply=5_000, tax=500).json()["data"]
+    assert (out["summary"]["difference"], out["summary"]["status"]) == (5_000, "DIFFERENT")  # 입고 0인데 계산서 있음
+    assert cancel(client, po, out["items"][0]["id"]).json()["data"]["summary"]["status"] == "PENDING"
+
+
+@pytest.mark.parametrize(("state", "expected"), [
+    ("DRAFT", False), ("APPROVED", False), ("ORDERED", True), ("RECEIVED", True), ("CANCELLED", False),
+])
+def test_can_record_by_status(client, world, product, state, expected):  # noqa: F811
+    po = make_po(client, world, product, state)
+    assert view(client, po)["can_record"] is expected
+    assert (post(client, po).status_code == 201) is expected  # 서버 판단과 실제 기록 가능 여부가 같다
+
+
+def test_can_record_false_for_foreign_currency(client, world, product, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(settings, "fx_enabled", True)  # 외화 발주서를 만들 때만 켠다
+    login_as(client)
+    po = client.post(URL, json={"supplier_id": world["a_supplier"].id, "currency": "USD", "exchange_rate": "1350",
+                                "items": [{"product_id": product.id, "quantity": 1, "fx_price": "1"}]}).json()["data"]
+    login_as(client, "admin@a.test")
+    client.post(f"{URL}/{po['id']}/approve")
+    client.post(f"{URL}/{po['id']}/order")
+    assert view(client, po)["can_record"] is False  # 발주함이어도 외화면 기록 불가
