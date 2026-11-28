@@ -244,10 +244,12 @@ export function chipFilter(status: string, receiptDue: string): { status: string
 }
 
 // 발주 목록 주소의 쿼리 문자열. 예) ("ORDERED", "TODAY") → "?status=ORDERED&receipt_due=TODAY", 둘 다 비면 ""
-export function poListQuery(status: string, receiptDue: string): string {
+// 세 번째 인자 taxMissing: 세금계산서 미수취 토글 (#268). 상태·납기와 독립이라 칩을 바꿔도 호출한 쪽이 그대로 넘긴다
+export function poListQuery(status: string, receiptDue: string, taxMissing = false): string {
   const next = new URLSearchParams();
   if (status) next.set("status", status);
   if (receiptDue) next.set("receipt_due", receiptDue);
+  if (taxMissing) next.set("tax_invoice", "missing");
   const text = next.toString();
   return text ? `?${text}` : "";
 }
