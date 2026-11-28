@@ -23,6 +23,11 @@ EXCLUDED_MESSAGES = {  # 제외 코드 → 화면에 보여 줄 문장 (api-desi
 }
 
 
+def available_stock(stock: int, in_transit: int) -> int:
+    """가용재고 = 현재고 + 발주 진행 중(ORDERED 미입고). 추천·판매 분석(#357)이 이 한 곳을 쓴다. 예) 50 + 160 = 210."""
+    return stock + in_transit
+
+
 @dataclass(frozen=True)  # frozen: 만든 뒤 값을 못 바꾼다
 class Excluded:
     """계산하지 않은 품목: 제외 코드와 안내 문장."""
@@ -93,7 +98,7 @@ def calculate_recommendation(
         return _excluded("NO_SALES_30D")  # S5
 
     avg = Fraction(sales_30d, SALES_WINDOW_DAYS)  # 일평균, 분수 그대로 (예: 300 ÷ 30 = 10, 7 ÷ 30 = 0.233…)
-    available = stock + in_transit  # 가용재고 (예: 현재고 50 + 오는 중 0 = 50, 오는 중 160 이면 210)
+    available = available_stock(stock, in_transit)  # 가용재고 (예: 현재고 50 + 오는 중 0 = 50, 오는 중 160 이면 210)
     lead_demand = avg * lead_time  # 리드타임 동안 팔릴 양 (예: 10 × 5 = 50)
     reorder_point = lead_demand + safety_stock  # 재주문점 (예: 50 + 20 = 70)
     if available > reorder_point:  # 가용재고가 재주문점보다 크면 (같으면 추천한다)
