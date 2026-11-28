@@ -83,7 +83,7 @@ def test_same_file_twice_does_not_reduce_stock_twice(client, world, goods, sessi
     assert post(client, "", content).status_code == 201
     second = post(client, "/preview", content).json()["data"]
     assert second["apply_count"] == 0 and second["skipped"] == [
-        {"reason": "ALREADY_IMPORTED", "message": "이미 반영된 주문번호", "count": 1}]
+        {"reason": "ALREADY_IMPORTED", "message": "이미 반영된 주문 줄", "count": 1}]
     assert post(client, "", content).status_code == 409  # 반영할 행이 없다
     assert stock(session, world["a_company"], goods["a"]) == 6
 
@@ -235,7 +235,7 @@ def test_commit_result_is_fixed(client, world, goods, session):
         row("O1", days_ago(5), "배송완료", "A-1", 6),               # 2행: 10-6=4 반영
         row("O2", days_ago(4), "배송완료", "A-1", 7),               # 3행: 4-7<0 재고 부족
         row("O3", days_ago(3), "배송완료", "NOPE", 1),              # 4행: 미등록
-        row("O1", days_ago(3), "배송완료", "A-2", 1),               # 5행: 파일 안 번호 중복
+        row("O1", days_ago(3), "배송완료", "A-1", 1),               # 5행: 파일 안 (번호, SKU) 중복
         row("O5", days_ago(1), "배송완료", "a-2", 2, "빨강"),       # 6행: 4-2=2 반영 (날짜가 가장 늦다)
         row("O6", days_ago(2), "배송완료", "A-1", 4),               # 7행: 4-4=0 반영
         row("O7", days_ago(2), "취소", "A-1", 1),                   # 8행: 고르지 않은 상태
@@ -246,11 +246,11 @@ def test_commit_result_is_fixed(client, world, goods, session):
     problems = [
         {"row": 3, "reason": "INSUFFICIENT_STOCK", "message": "날짜순으로 적용하면 재고가 부족해집니다.", "sku": "A-1"},
         {"row": 4, "reason": "UNKNOWN_SKU", "message": "등록되지 않은 상품 코드(SKU)입니다.", "sku": "NOPE"},
-        {"row": 5, "reason": "DUPLICATE_REF_IN_FILE", "message": "파일 안에서 주문번호가 앞의 행과 겹칩니다.", "sku": "A-2"},
+        {"row": 5, "reason": "DUPLICATE_REF_IN_FILE", "message": "파일 안에서 주문번호와 상품 코드가 앞의 행과 겹칩니다.", "sku": "A-1"},
         {"row": 10, "reason": "INVALID_QUANTITY", "message": "수량이 1 이상의 정수가 아닙니다.", "sku": "A-2"},
     ]
     skipped = [{"reason": "STATUS_NOT_SELECTED", "message": "반영하기로 고르지 않은 상태", "count": 1},
-               {"reason": "ALREADY_IMPORTED", "message": "이미 반영된 주문번호", "count": 1}]
+               {"reason": "ALREADY_IMPORTED", "message": "이미 반영된 주문 줄", "count": 1}]
     assert post(client, "/preview", content, **opts).json() == {"data": {
         "total_rows": 9, "apply_count": 3, "skipped": skipped, "skipped_count": 2,
         "date_from": days_ago(5), "date_to": days_ago(1), "total_quantity": 12, "problem_count": 4, "problems": problems,
@@ -460,3 +460,67 @@ def test_expected_apply_count_sales(client, world, goods, session):
     assert post(client, "", content, exclude_problems=True).json()["error"]["code"] == "NOTHING_TO_IMPORT"
     equal = csv_file(row("E3", days_ago(1), "x", "A-1", 1))
     assert post(client, "", equal, expected_apply_count=1).status_code == 201
+
+
+# ---------- #254 줄 단위 중복 판정 × #253·#258 안전장치가 함께 있을 때 ----------
+
+@pytest.fixture
+def three(world, goods, session):
+    """회사 A 품목 A-1(goods)·A-2·A-3, 각 재고 10."""
+    out = [goods["a"]]
+    for sku in ("A-2", "A-3"):
+        p = Product(company_id=world["a_company"].id, sku=sku, name="품목", unit="개", unit_cost=1000,
+                    default_supplier_id=world["a_supplier"].id)
+        session.add(p)
+        session.flush()
+        stock_service.register_movement(
+            world["a_company"].id, session, world["a_admin"].id, product_id=p.id, movement_type="RECEIPT",
+            direction="IN", quantity=10, movement_date=seoul_today() - timedelta(days=30))
+        out.append(p)
+    session.commit()
+    return out
+
+
+def gap_file(*lines: str) -> bytes:
+    """줄 사이사이에 빈 줄을 넣은 파일 (머리글 1줄, 첫 데이터 2번째 줄, 빈 줄도 한 줄로 센다)."""
+    return (HEADER + "\n\n".join(lines) + "\n").encode("utf-8-sig")
+
+
+def test_one_order_two_lines_with_blank_rows_applies_both(client, world, three, session):
+    """상호작용 1: 주문 1건·품목 2줄 사이에 빈 줄이 있어도 두 줄 모두 반영. 문제 행 번호는 원본 엑셀 번호."""
+    login_as(client)
+    content = gap_file(row("O1", days_ago(1), "x", "A-1", 2), row("O1", days_ago(1), "x", "A-2", 3),
+                       row("O2", days_ago(1), "x", "A-3", "abc"))  # 행 2, 4, 6
+    data = post(client, "/preview", content).json()["data"]
+    assert data["apply_count"] == 2 and [p["row"] for p in data["problems"]] == [6]
+    assert post(client, "", content, exclude_problems=True).status_code == 201
+    assert [stock(session, world["a_company"], p) for p in three] == [8, 7, 10]
+
+
+def test_reupload_skips_imported_lines_and_preview_count_excludes_them(client, world, three, session):
+    """상호작용 2·3: 재업로드하면 반영된 줄은 건너뛰고, 반영 건수에도 안 센다. expected_apply_count 는 그 건수와 맞을 때만 통과."""
+    login_as(client)
+    first = gap_file(row("O1", days_ago(1), "x", "A-1", 2), row("O1", days_ago(1), "x", "A-2", 3))
+    assert post(client, "", first).status_code == 201
+    again = gap_file(row("O1", days_ago(1), "x", "A-1", 2), row("O1", days_ago(1), "x", "A-2", 3),
+                     row("O1", days_ago(1), "x", "A-3", 4))  # 새 줄은 행 6
+    data = post(client, "/preview", again).json()["data"]
+    assert data["apply_count"] == 1  # 건너뛴 2줄은 포함하지 않는다
+    assert {s["reason"]: s["count"] for s in data["skipped"]} == {"ALREADY_IMPORTED": 2}
+    for wrong in (3, 2):  # 건너뛴 줄까지 센 값 / 틀린 값
+        res = post(client, "", again, expected_apply_count=wrong)
+        assert res.status_code == 409 and res.json()["error"]["code"] == "PREVIEW_CHANGED"
+    assert [stock(session, world["a_company"], p) for p in three] == [8, 7, 10]  # 409 에서는 아무것도 안 썼다
+    assert post(client, "", again, expected_apply_count=1).status_code == 201
+    assert [stock(session, world["a_company"], p) for p in three] == [8, 7, 6]
+
+
+def test_bad_comma_quantity_is_problem_but_same_order_other_lines_work(client, world, three, session):
+    """상호작용 4: 수량 "1,5" 줄은 문제 행, 같은 주문의 다른 줄은 정상 처리."""
+    login_as(client)
+    content = gap_file(row("O1", days_ago(1), "x", "A-1", 2), row("O1", days_ago(1), "x", "A-2", '"1,5"'),
+                       row("O1", days_ago(1), "x", "A-3", 4))  # 문제는 행 4
+    data = post(client, "/preview", content).json()["data"]
+    assert data["apply_count"] == 2 and [(p["row"], p["reason"]) for p in data["problems"]] == [(4, "INVALID_QUANTITY")]
+    assert post(client, "", content, exclude_problems=True).status_code == 201
+    assert [stock(session, world["a_company"], p) for p in three] == [8, 10, 6]

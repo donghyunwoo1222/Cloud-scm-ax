@@ -221,7 +221,7 @@ export default function Page() {
           {notice && <p role="status" style={S.hint}>{notice}</p>}
           <p style={S.hint}>
             머리글이 비슷한 열은 미리 골라 두었습니다. 맞는지 확인하세요{" "}
-            <InfoTip detail="날짜 열의 값이 그대로 출고일이 됩니다(시각은 버립니다). 고유 주문번호로 같은 주문이 두 번 반영되지 않게 막습니다." />
+            <InfoTip detail="날짜 열의 값이 그대로 출고일이 됩니다(시각은 버립니다). 고유 주문번호와 상품 코드가 같은 줄은 두 번 반영되지 않게 막습니다. 주문 1건에 상품이 여러 줄이어도 줄마다 반영됩니다." />
           </p>
           <h3 style={SUB}>필수</h3>
           <div className="form-compact field-form" style={S.formGrid}>

@@ -17,6 +17,7 @@ import { PurchaseOrderStatusBadge } from "../../../lib/status-badge"; // 공통 
 import { S } from "../../../lib/styles"; // 화면 공통 스타일
 import { dateRange } from "../../../lib/supplier-reply"; // 회신 납기 선택 범위 (서버와 같은 오늘 ~ 1년 뒤)
 import { CostCard, KrwConversion, TermsSection } from "./cost-card"; // 원가 카드 (#267, 내부 전용)
+import { TaxInvoiceCard } from "./tax-invoice-card"; // 세금계산서 수취 카드 (#268, 내부 전용, 원가 카드와 별도)
 import { ConditionsCard, SummaryCard } from "./summary-cards"; // 요약 카드와 조건 카드
 import { ChangeLogSection } from "./change-log"; // 변경 이력 섹션 (#181)
 import { EmailLogSection } from "./email-log"; // 메일 발송 이력 섹션 (#182)
@@ -522,6 +523,7 @@ function Detail() {
       </div>
       <ConditionsCard order={order} />
       <CostCard order={order} /><TermsSection order={order} />{/* 원가는 내부 전용: 발주 상세에만 보인다 */}
+      <TaxInvoiceCard orderId={id} status={order.status} receivedKey={order.items.map((i) => i.received_quantity).join(",")} />{/* 세금계산서도 내부 전용: 서버가 can_record 로 기록 버튼을 정한다 */}
       </>
       )}
 

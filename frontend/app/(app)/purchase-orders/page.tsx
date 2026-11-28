@@ -35,24 +35,26 @@ function PurchaseOrders() {
   const due = params.get("receipt_due") ?? "";
   const receiptDue = Object.keys(RECEIPT_DUE_LABEL).includes(due) ? due : ""; // 대시보드에서 선택한 납기 구간
   const status = receiptDue ? (asked && Object.keys(STATUS_LABEL).includes(asked) ? asked : "ORDERED") : Object.keys(STATUS_LABEL).includes(asked) ? asked : ""; // 납기 구간은 발주함만 보므로 상태가 없으면 발주함
-  function setUrl(nextStatus: string, nextDue: string) {
-    router.replace(pathname + poListQuery(nextStatus, nextDue), { scroll: false }); // 맨 위로 튀지 않게
+  const taxMissing = params.get("tax_invoice") === "missing"; // 세금계산서 미수취 토글 (#268). 상태·납기와 독립이라 칩을 바꿔도 유지된다
+  function setUrl(nextStatus: string, nextDue: string, nextTax: boolean = taxMissing) {
+    router.replace(pathname + poListQuery(nextStatus, nextDue, nextTax), { scroll: false }); // 맨 위로 튀지 않게
   }
-  return <PurchaseOrdersBody status={status} receiptDue={receiptDue} setUrl={setUrl} />;
+  return <PurchaseOrdersBody status={status} receiptDue={receiptDue} taxMissing={taxMissing} setUrl={setUrl} />;
 }
 
-function PurchaseOrdersBody({ status, receiptDue, setUrl }: { status: string; receiptDue: string; setUrl: (status: string, due: string) => void }) {
+function PurchaseOrdersBody({ status, receiptDue, taxMissing, setUrl }: { status: string; receiptDue: string; taxMissing: boolean; setUrl: (status: string, due: string, tax?: boolean) => void }) {
   const [counts, setCounts] = useState<Record<string, number> | null>(null); // 상태별 건수 (상태 조건만 뺀 같은 필터)
   const [supplierId, setSupplierId] = useState(""); // 고른 공급업체 ("" 이면 전체)
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]); // 공급업체 선택지
   const [today, setToday] = useState(""); // 화면이 열리면 서울 기준 오늘을 기록한다
   const [error, setError] = useState<unknown>(null); // 선택지 불러오기 오류
-  const list = useList<PurchaseOrder>("/purchase-orders", { status, supplier_id: supplierId, receipt_due: receiptDue }); // 서버에서 거른 뒤 20개씩 읽는다
+  const list = useList<PurchaseOrder>("/purchase-orders", { status, supplier_id: supplierId, receipt_due: receiptDue, tax_invoice: taxMissing ? "missing" : "" }); // 서버에서 거른 뒤 20개씩 읽는다
 
   const countQuery = new URLSearchParams(); // 목록과 같은 검색·공급업체·납기 구간, 상태만 뺀다
   if (list.q) countQuery.set("q", list.q);
   if (supplierId) countQuery.set("supplier_id", supplierId);
   if (receiptDue) countQuery.set("receipt_due", receiptDue);
+  if (taxMissing) countQuery.set("tax_invoice", "missing"); // 칩 건수도 목록과 같은 미수취 필터로 센다
   const countPath = `/purchase-orders/status-counts?${countQuery}`;
   useEffect(() => {
     let cancelled = false; // 조건을 빨리 바꿨을 때 늦게 온 이전 건수는 버린다
@@ -107,6 +109,10 @@ function PurchaseOrdersBody({ status, receiptDue, setUrl }: { status: string; re
           );
         })}
       </div>
+      <p style={{ margin: "0 0 var(--space-sm)" }}>{/* 미수취 토글: 켜면 입고 기록은 있는데 받은 세금계산서가 없는 발주서만 본다 */}
+        <button type="button" aria-pressed={taxMissing} onClick={() => { list.setPage(1); setUrl(status, receiptDue, !taxMissing); }}
+          style={{ ...S.statusChip, ...(taxMissing ? S.statusChipSelected : {}) }}>세금계산서 미수취</button>
+      </p>
       {receiptDue && ( // 납기 구간이 걸려 있으면 다른 칩 건수가 0인 까닭을 알리고 바로 풀 수 있게 한다
         <p style={S.sub}>{`입고 납기 "${RECEIPT_DUE_LABEL[receiptDue as keyof typeof RECEIPT_DUE_LABEL]}" 적용 중(발주함만 보입니다). `}<button type="button" onClick={() => chooseDue("")} style={{ ...S.detailFilterButton, color: "var(--color-link)", textDecoration: "underline" }}>납기 해제</button></p>
       )}
