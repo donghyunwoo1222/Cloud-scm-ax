@@ -28,8 +28,8 @@ function InvoiceMeta({ inv, stacked = false }: { inv: TaxInvoice; stacked?: bool
   return (
     <>
       <span style={line}>{inv.created_by_name ? `${inv.created_by_name} · ` : ""}{fmtTime(inv.created_at)} 기록</span>
-      {inv.memo && <span style={{ ...line, overflowWrap: "anywhere" }}>메모: {inv.memo}</span>}
-      {note && <span style={stacked ? { ...line, ...S.hint, fontSize: "var(--text-sm)", marginTop: "var(--space-xs)" } : undefined}>{note}</span>}
+      {inv.memo && <span style={{ ...line, overflowWrap: "anywhere", color: "var(--color-foreground)" }}>메모: {inv.memo}</span>}
+      {note && <span style={stacked ? { ...line, ...S.hint, fontSize: "var(--text-sm)", marginTop: "var(--space-xs)" } : undefined}>안내: {note}</span>}
     </>
   );
 }
