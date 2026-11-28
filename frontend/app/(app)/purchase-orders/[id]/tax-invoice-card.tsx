@@ -21,13 +21,15 @@ const won = (n: number) => `${n.toLocaleString("ko-KR")}원`; // 쉼표 원 단�
 const EMPTY_FORM = { number: "", supply: "", tax: "", memo: "" }; // 기록 폼 처음 값 (발행일은 오늘로 따로 채운다)
 
 // 계산서 한 장의 보조 줄 (작성자·시각·메모·세액 안내). 값이 없는 칸은 그리지 않는다
-function InvoiceMeta({ inv }: { inv: TaxInvoice }) {
+// stacked: 표 칸에서는 줄을 나눠 쌓고, 안내 문구는 작은 보조 글씨로 둔다 (압축 행은 기존 한 줄 흐름)
+function InvoiceMeta({ inv, stacked = false }: { inv: TaxInvoice; stacked?: boolean }) {
   const note = taxMismatchNote(inv);
+  const line = stacked ? { display: "block" as const } : {}; // 줄바꿈
   return (
     <>
-      <span>{inv.created_by_name ? `${inv.created_by_name} · ` : ""}{fmtTime(inv.created_at)} 기록</span>
-      {inv.memo && <span style={{ overflowWrap: "anywhere" }}>메모: {inv.memo}</span>}
-      {note && <span>{note}</span>}
+      <span style={line}>{inv.created_by_name ? `${inv.created_by_name} · ` : ""}{fmtTime(inv.created_at)} 기록</span>
+      {inv.memo && <span style={{ ...line, overflowWrap: "anywhere", color: "var(--color-foreground)" }}>메모: {inv.memo}</span>}
+      {note && <span style={stacked ? { ...line, ...S.hint, fontSize: "var(--text-sm)", marginTop: "var(--space-xs)" } : undefined}>안내: {note}</span>}
     </>
   );
 }
@@ -124,9 +126,9 @@ export function TaxInvoiceCard({ orderId, status, receivedKey }: { orderId: stri
         <div><dt>받은 공급가액</dt><dd>{won(summary.supply_total)}</dd></div>
         <div><dt>대조 결과</dt><dd><StatusBadge kind={badge.kind}>{badge.text}</StatusBadge></dd></div>
       </dl>
-      {diff && <p role="status" style={{ margin: "var(--space-xs) 0 0" }}><strong>{diff}</strong></p>}
-      {showRoundingNote(summary) && <p style={{ ...S.hint, margin: "var(--space-xs) 0 0", fontSize: "var(--text-sm)" }}>{ROUNDING_NOTE}</p>}
-      <p style={{ ...S.hint, margin: "var(--space-xs) 0 0", fontSize: "var(--text-sm)" }}>{FREIGHT_NOTE}</p>
+      {diff && <p role="status" style={{ margin: "var(--space-sm) 0 0" }}><strong>{diff}</strong></p>}
+      {showRoundingNote(summary) && <p style={{ ...S.hint, margin: "var(--space-sm) 0 0", fontSize: "var(--text-sm)" }}>{ROUNDING_NOTE}</p>}
+      <p style={{ ...S.hint, margin: "var(--space-sm) 0 var(--space-sm)", fontSize: "var(--text-sm)" }}>{FREIGHT_NOTE}</p>
 
       {/* 유효한 계산서 목록: 데스크톱은 표, 좁은 화면은 압축 행 */}
       {active.length > 0 && (
@@ -142,7 +144,7 @@ export function TaxInvoiceCard({ orderId, status, receivedKey }: { orderId: stri
                     <td style={S.num}>{won(inv.supply_amount)}</td>
                     <td style={S.num}>{won(inv.tax_amount)}</td>
                     <td style={S.num}>{won(inv.total)}</td>
-                    <td><InvoiceMeta inv={inv} /></td>
+                    <td><InvoiceMeta inv={inv} stacked /></td>
                     <td><button type="button" className="danger-action" disabled={cancelLock.busy || cancelFor !== null} onClick={() => { setCancelFor(inv.id); setCancelReason(""); setCancelError(""); }}>취소</button></td>
                   </tr>
                 ))}
@@ -163,7 +165,7 @@ export function TaxInvoiceCard({ orderId, status, receivedKey }: { orderId: stri
           </div>
         </>
       )}
-      {active.length === 0 && cancelled.length === 0 && <p style={S.hint}>아직 받은 세금계산서가 없습니다.</p>}
+      {active.length === 0 && cancelled.length === 0 && <p style={{ ...S.hint, margin: "var(--space-sm) 0 0" }}>아직 받은 세금계산서가 없습니다.</p>}
 
       {/* 취소 입력: 사유 필수, 확인창 뒤에 처리 */}
       {cancelFor !== null && (
