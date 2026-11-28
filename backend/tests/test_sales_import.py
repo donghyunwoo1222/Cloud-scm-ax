@@ -376,3 +376,151 @@ def test_concurrent_imports_never_make_stock_negative(engine, committed_company)
     assert sum(not isinstance(r, Exception) for r in results) == 1
     assert [r.code for r in results if isinstance(r, Exception)] == ["IMPORT_HAS_PROBLEMS"]  # 잠근 뒤 다시 계산해 재고 부족 행이 된다
     assert run_in_new_session(engine, lambda s: stock_service.current_stock(cid, s, pid)) == 4
+
+
+# ---------- 안전장치 묶음 (#253 · #258 · 수량 쉼표 · 원래 행 번호) ----------
+
+def _xlsx_with_gaps(data_before: int, blanks: int, data_after: int) -> bytes:
+    """머리글 + 데이터 + 빈 줄 + 데이터 엑셀. 빈 줄은 행 번호를 건너뛰어 만든다."""
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["주문번호", "주문일시", "상태", "상품코드", "옵션", "수량", "수취인"])
+    n = 1
+    for i in range(data_before + data_after):
+        if i == data_before:
+            n += blanks  # 빈 줄 건너뛰기
+        n += 1
+        ws.cell(row=n, column=1, value=f"R{i}")
+        ws.cell(row=n, column=4, value="A-1")
+        ws.cell(row=n, column=6, value=1)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_blank_rows_do_not_hide_later_data_xlsx():
+    """#253: 데이터 2,000 + 빈 줄 3,100 + 데이터 500 이 모두 읽힌다 (예전엔 5,002줄에서 멈춰 뒤쪽이 빠졌다)."""
+    _, rows = service.read_table("o.xlsx", _xlsx_with_gaps(2000, 3100, 500))
+    assert len(rows) == 2500 and rows[-1][0] == "R2499"
+
+
+def test_too_many_data_rows_rejected_not_truncated_both_formats():
+    """데이터 5,001행이면 자르지 않고 TOO_MANY_ROWS (CSV·xlsx 같은 규칙), 5,000행은 통과."""
+    for n, ok in ((5000, True), (5001, False)):
+        csv_bytes = csv_file(*[row(f"R{i}", days_ago(1), "x", "A-1", 1) for i in range(n)])
+        xlsx_bytes = _xlsx_with_gaps(n, 10, 0)
+        for name, content in (("o.csv", csv_bytes), ("o.xlsx", xlsx_bytes)):
+            if ok:
+                assert len(service.read_table(name, content)[1]) == 5000
+            else:
+                with pytest.raises(AppError) as e:
+                    service.read_table(name, content)
+                assert e.value.code == "TOO_MANY_ROWS"
+
+
+def test_blank_lines_only_file_is_bounded():
+    """빈 줄만 끝없는 파일은 원시 줄 수 상한에서 명확한 오류로 멈춘다."""
+    content = HEADER.encode() + b"\n" * (service.MAX_RAW_ROWS + 10)
+    with pytest.raises(AppError) as e:
+        service.read_table("o.csv", content)
+    assert e.value.code == "INVALID_FILE"
+
+
+def test_problem_row_numbers_match_excel_rows_with_blank_lines(client, world, goods):
+    """빈 줄이 섞여도 문제 행 번호는 엑셀에서 보이는 번호 (머리글 1, 빈 줄도 한 줄로 센다)."""
+    login_as(client)
+    content = (HEADER + "\n" + row("R1", days_ago(1), "x", "A-1", 1) + "\n\n" + row("R2", days_ago(1), "x", "A-1", "abc") + "\n").encode()
+    data = post(client, "/preview", content).json()["data"]
+    assert [p["row"] for p in data["problems"]] == [5]  # 1 머리글, 2 빈 줄, 3 R1, 4 빈 줄, 5 R2
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("1,234", 1234), ("12,345", 12345), ("1200", 1200), ("999,999", 999999),
+    ("1,5", None), ("1,23", None), ("12,34,567", None), (",123", None), ("1,2345", None), ("1,234,", None),
+])
+def test_parse_quantity_commas(text, expected):
+    """천 단위 그룹만 허용. 그 밖의 쉼표는 자동으로 고치지 않고 수량 오류. (12,345,678 은 상한 초과라 별도 확인)"""
+    assert service.parse_quantity(text) == expected
+    assert service._QUANTITY_RE.match("12,345,678")  # 모양은 올바르다 (값은 100만 초과로 거절)
+
+
+def test_expected_apply_count_sales(client, world, goods, session):
+    """#258: 미리보기 후 재고가 줄어 반영 건수가 달라지면 409(아무것도 안 씀), 같으면 201, 필드가 없으면 기존 동작."""
+    login_as(client)
+    content = csv_file(row("E1", days_ago(2), "x", "A-1", 5), row("E2", days_ago(1), "x", "A-1", 5))
+    assert post(client, "/preview", content).json()["data"]["apply_count"] == 2
+    stock_service.register_movement(world["a_company"].id, session, world["a_admin"].id, product_id=goods["a"].id,
+                                    movement_type="OTHER_OUT", direction="OUT", quantity=3, movement_date=seoul_today())
+    session.commit()  # 재고 10 → 7: 두 번째 줄은 부족해져 제외 대상
+    res = post(client, "", content, expected_apply_count=2, exclude_problems=True)
+    assert res.status_code == 409 and res.json()["error"]["code"] == "PREVIEW_CHANGED"
+    assert stock(session, world["a_company"], goods["a"]) == 7  # 아무것도 쓰지 않았다
+    assert post(client, "", content, expected_apply_count=1, exclude_problems=True).status_code == 201
+    # 필드 없는 요청은 그대로 동작: 같은 파일 재반영은 이미 반영된 번호라 반영할 행 없음
+    assert post(client, "", content, exclude_problems=True).json()["error"]["code"] == "NOTHING_TO_IMPORT"
+    equal = csv_file(row("E3", days_ago(1), "x", "A-1", 1))
+    assert post(client, "", equal, expected_apply_count=1).status_code == 201
+
+
+# ---------- #254 줄 단위 중복 판정 × #253·#258 안전장치가 함께 있을 때 ----------
+
+@pytest.fixture
+def three(world, goods, session):
+    """회사 A 품목 A-1(goods)·A-2·A-3, 각 재고 10."""
+    out = [goods["a"]]
+    for sku in ("A-2", "A-3"):
+        p = Product(company_id=world["a_company"].id, sku=sku, name="품목", unit="개", unit_cost=1000,
+                    default_supplier_id=world["a_supplier"].id)
+        session.add(p)
+        session.flush()
+        stock_service.register_movement(
+            world["a_company"].id, session, world["a_admin"].id, product_id=p.id, movement_type="RECEIPT",
+            direction="IN", quantity=10, movement_date=seoul_today() - timedelta(days=30))
+        out.append(p)
+    session.commit()
+    return out
+
+
+def gap_file(*lines: str) -> bytes:
+    """줄 사이사이에 빈 줄을 넣은 파일 (머리글 1줄, 첫 데이터 2번째 줄, 빈 줄도 한 줄로 센다)."""
+    return (HEADER + "\n\n".join(lines) + "\n").encode("utf-8-sig")
+
+
+def test_one_order_two_lines_with_blank_rows_applies_both(client, world, three, session):
+    """상호작용 1: 주문 1건·품목 2줄 사이에 빈 줄이 있어도 두 줄 모두 반영. 문제 행 번호는 원본 엑셀 번호."""
+    login_as(client)
+    content = gap_file(row("O1", days_ago(1), "x", "A-1", 2), row("O1", days_ago(1), "x", "A-2", 3),
+                       row("O2", days_ago(1), "x", "A-3", "abc"))  # 행 2, 4, 6
+    data = post(client, "/preview", content).json()["data"]
+    assert data["apply_count"] == 2 and [p["row"] for p in data["problems"]] == [6]
+    assert post(client, "", content, exclude_problems=True).status_code == 201
+    assert [stock(session, world["a_company"], p) for p in three] == [8, 7, 10]
+
+
+def test_reupload_skips_imported_lines_and_preview_count_excludes_them(client, world, three, session):
+    """상호작용 2·3: 재업로드하면 반영된 줄은 건너뛰고, 반영 건수에도 안 센다. expected_apply_count 는 그 건수와 맞을 때만 통과."""
+    login_as(client)
+    first = gap_file(row("O1", days_ago(1), "x", "A-1", 2), row("O1", days_ago(1), "x", "A-2", 3))
+    assert post(client, "", first).status_code == 201
+    again = gap_file(row("O1", days_ago(1), "x", "A-1", 2), row("O1", days_ago(1), "x", "A-2", 3),
+                     row("O1", days_ago(1), "x", "A-3", 4))  # 새 줄은 행 6
+    data = post(client, "/preview", again).json()["data"]
+    assert data["apply_count"] == 1  # 건너뛴 2줄은 포함하지 않는다
+    assert {s["reason"]: s["count"] for s in data["skipped"]} == {"ALREADY_IMPORTED": 2}
+    for wrong in (3, 2):  # 건너뛴 줄까지 센 값 / 틀린 값
+        res = post(client, "", again, expected_apply_count=wrong)
+        assert res.status_code == 409 and res.json()["error"]["code"] == "PREVIEW_CHANGED"
+    assert [stock(session, world["a_company"], p) for p in three] == [8, 7, 10]  # 409 에서는 아무것도 안 썼다
+    assert post(client, "", again, expected_apply_count=1).status_code == 201
+    assert [stock(session, world["a_company"], p) for p in three] == [8, 7, 6]
+
+
+def test_bad_comma_quantity_is_problem_but_same_order_other_lines_work(client, world, three, session):
+    """상호작용 4: 수량 "1,5" 줄은 문제 행, 같은 주문의 다른 줄은 정상 처리."""
+    login_as(client)
+    content = gap_file(row("O1", days_ago(1), "x", "A-1", 2), row("O1", days_ago(1), "x", "A-2", '"1,5"'),
+                       row("O1", days_ago(1), "x", "A-3", 4))  # 문제는 행 4
+    data = post(client, "/preview", content).json()["data"]
+    assert data["apply_count"] == 2 and [(p["row"], p["reason"]) for p in data["problems"]] == [(4, "INVALID_QUANTITY")]
+    assert post(client, "", content, exclude_problems=True).status_code == 201
+    assert [stock(session, world["a_company"], p) for p in three] == [8, 10, 6]

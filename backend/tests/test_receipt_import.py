@@ -302,3 +302,70 @@ def test_commit_query_count_does_not_grow_with_rows(engine, world, existing, ses
     assert counts["새 품목 1개"] == counts["새 품목 50개"], counts
     assert max(counts.values()) <= 15, counts
     assert stock(session, world["a_company"], "OLD-1") == sum(range(1, 11)) + sum(range(1, 301)) + 2
+
+
+def test_expected_apply_count_receipts(client, world, existing, session):
+    """#258: 미리보기 후 다른 반영으로 건수가 달라지면 409(아무것도 안 씀), 같으면 201, 필드가 없으면 기존 동작."""
+    login_as(client)
+    one = csv_file(f"{day(1)},OLD-1,,,,10,")
+    both = csv_file(f"{day(1)},OLD-1,,,,10,", f"{day(2)},OLD-1,,,,5,")
+    assert post(client, "/preview", both, world).json()["data"]["apply_count"] == 2
+    assert post(client, "", one, world).status_code == 201  # 그 사이 첫 줄이 먼저 반영됨 → 이제 반영할 줄은 1건
+    res = post(client, "", both, world, expected_apply_count=2)
+    assert res.status_code == 409 and res.json()["error"]["code"] == "PREVIEW_CHANGED"
+    assert stock(session, world["a_company"], "OLD-1") == 10  # 아무것도 쓰지 않았다
+    assert post(client, "", both, world, expected_apply_count=1).status_code == 201
+    assert stock(session, world["a_company"], "OLD-1") == 15
+    # 필드 없는 요청은 기존 동작 (모두 반영된 뒤라 반영할 행 없음)
+    assert post(client, "", both, world).json()["error"]["code"] == "NOTHING_TO_IMPORT"
+
+
+# ---------- #254 줄 단위 중복 판정 × #253·#258 안전장치가 함께 있을 때 ----------
+
+RCOLS = {"date_col": 0, "product_col": 1, "quantity_col": 2, "ref_col": 3}  # 입고일,상품코드,수량,입고번호
+
+
+@pytest.fixture
+def three(world, existing, session):
+    """회사 A 기존 품목 OLD-1(existing)·OLD-2·OLD-3 (재고 0)."""
+    for sku in ("OLD-2", "OLD-3"):
+        session.add(Product(company_id=world["a_company"].id, sku=sku, name="기존", unit="개", unit_cost=500,
+                            default_supplier_id=world["a_supplier"].id))
+    session.commit()
+
+
+def rpost(client, path, content, world, **opts):
+    options = {**RCOLS, "default_supplier_id": world["a_supplier"].id, **opts}
+    return client.post(f"{URL}{path}", files={"file": ("in.csv", content)}, data={"options": json.dumps(options)})
+
+
+def rgap(*lines: str) -> bytes:
+    """줄 사이사이에 빈 줄을 넣은 파일 (머리글 1줄, 첫 데이터 2번째 줄)."""
+    return ("입고일,상품코드,수량,입고번호\n" + "\n\n".join(lines) + "\n").encode("utf-8-sig")
+
+
+def test_one_receipt_two_lines_with_blank_rows_and_comma_quantity(client, world, three, session):
+    """상호작용 1·4: 입고 1건·품목 줄 사이 빈 줄이 있어도 정상 줄은 반영, "1,5" 줄은 원본 행 번호의 문제 행."""
+    login_as(client)
+    content = rgap(f"{day(1)},OLD-1,2,R1", f"{day(1)},OLD-2,3,R1", f'{day(1)},OLD-3,"1,5",R1')  # 행 2, 4, 6
+    data = rpost(client, "/preview", content, world).json()["data"]
+    assert data["apply_count"] == 2 and [(p["row"], p["reason"]) for p in data["problems"]] == [(6, "INVALID_QUANTITY")]
+    assert rpost(client, "", content, world, exclude_problems=True).status_code == 201
+    assert [stock(session, world["a_company"], s) for s in ("OLD-1", "OLD-2", "OLD-3")] == [2, 3, 0]
+
+
+def test_receipt_reupload_skips_lines_and_expected_count_excludes_them(client, world, three, session):
+    """상호작용 2·3: 재업로드는 반영된 줄을 건너뛰고 반영 건수에 안 센다. expected_apply_count 가 틀리면 409 에 아무것도 안 쓴다."""
+    login_as(client)
+    first = rgap(f"{day(1)},OLD-1,2,R1", f"{day(1)},OLD-2,3,R1")
+    assert rpost(client, "", first, world).status_code == 201
+    again = rgap(f"{day(1)},OLD-1,2,R1", f"{day(1)},OLD-2,3,R1", f"{day(1)},OLD-3,4,R1")
+    data = rpost(client, "/preview", again, world).json()["data"]
+    assert data["apply_count"] == 1
+    assert {s["reason"]: s["count"] for s in data["skipped"]} == {"ALREADY_IMPORTED": 2}
+    for wrong in (3, 2):
+        res = rpost(client, "", again, world, expected_apply_count=wrong)
+        assert res.status_code == 409 and res.json()["error"]["code"] == "PREVIEW_CHANGED"
+    assert stock(session, world["a_company"], "OLD-3") == 0
+    assert rpost(client, "", again, world, expected_apply_count=1).status_code == 201
+    assert stock(session, world["a_company"], "OLD-3") == 4

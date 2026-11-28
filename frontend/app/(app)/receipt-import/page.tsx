@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, apiListAll } from "../../lib/api"; // 서버 호출
 import { fetchSuggest, NO_AI_NOTICE, NO_AI_REASONS, ReadingConfirm, type Suggest } from "../../lib/import-suggest"; // "이렇게 읽었어요" (#193)
+import { isPreviewChanged, PREVIEW_CHANGED_NOTICE } from "../../lib/import-commit"; // 반영 409(미리보기와 달라짐) 처리 (#258)
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
 import { FileDrop } from "../../lib/file-drop"; // 파일 올리기 칸 (끌어 놓기 포함)
 import { S } from "../../lib/styles"; // 공통 스타일
@@ -77,9 +78,10 @@ export default function Page() {
     return f;
   };
   const num = (v: string) => (v === NONE ? null : Number(v));
-  const options = (excludeProblems: boolean, c = cols) => JSON.stringify({
+  const options = (excludeProblems: boolean, c = cols, expectedApplyCount?: number) => JSON.stringify({
     ...Object.fromEntries(KEYS.map((k) => [`${k}_col`, num(c[k])])),
     default_supplier_id: supplier ? Number(supplier) : null, exclude_problems: excludeProblems,
+    ...(expectedApplyCount === undefined ? {} : { expected_apply_count: expectedApplyCount }), // 반영 때만: 미리보기에서 본 건수
   });
   const receipts = cols.quantity !== NONE; // 수량 열을 골랐으면 입고 모드
   const [missing, setMissing] = useState<string[]>([]); // 미리보기를 눌렀을 때 비어 있던 필수 칸
@@ -136,13 +138,18 @@ export default function Page() {
 
   // c: "맞아요" 직후에는 아직 반영 안 된 새 열 값을 직접 넘긴다
   const runPreview = (c = cols) => run(async () => {
-    setExclude(false);
+    setExclude(false); setNotice(null);
     setPreview(await api<Preview>("/receipt-imports/preview", { method: "POST", body: form({ options: options(false, c) }) }));
   });
 
   const commit = () => run(async () => {
-    setDone(await api<Done>("/receipt-imports", { method: "POST", body: form({ options: options(exclude) }) }));
-    setPreview(null);
+    try {
+      setDone(await api<Done>("/receipt-imports", { method: "POST", body: form({ options: options(exclude, cols, preview?.apply_count) }) }));
+      setPreview(null);
+    } catch (e) {
+      if (!isPreviewChanged(e)) throw e;
+      setPreview(null); setNotice(PREVIEW_CHANGED_NOTICE); // 미리보기 상태로 돌려보낸다
+    }
   });
 
   const needsSupplier = (preview?.new_product_count ?? 0) > 0 && !supplier;

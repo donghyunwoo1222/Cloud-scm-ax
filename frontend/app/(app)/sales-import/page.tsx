@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../../lib/api"; // 서버 호출
 import { fetchSuggest, NO_AI_NOTICE, NO_AI_REASONS, ReadingConfirm, type Suggest as SuggestOf } from "../../lib/import-suggest"; // "이렇게 읽었어요" 공통 부품 (#193)
+import { isPreviewChanged, PREVIEW_CHANGED_NOTICE } from "../../lib/import-commit"; // 반영 409(미리보기와 달라짐) 처리 (#258)
 import { ErrorText } from "../../lib/list"; // 서버 오류 문장
 import { FileDrop } from "../../lib/file-drop"; // 파일 올리기 칸 (끌어 놓기 포함)
 import { S } from "../../lib/styles"; // 공통 스타일
@@ -71,10 +72,11 @@ export default function Page() {
     return f;
   };
   const num = (v: string) => (v === NONE ? null : Number(v));
-  const options = (excludeProblems: boolean, c = cols) => JSON.stringify({
+  const options = (excludeProblems: boolean, c = cols, expectedApplyCount?: number) => JSON.stringify({
     product_col: num(c.product), quantity_col: num(c.quantity), date_col: num(c.date), ref_col: num(c.ref),
     status_col: num(c.status), statuses: c.status === NONE ? null : statuses, option_col: num(c.option),
     sales_channel: channel || null, exclude_problems: excludeProblems,
+    ...(expectedApplyCount === undefined ? {} : { expected_apply_count: expectedApplyCount }), // 반영 때만: 미리보기에서 본 건수
   });
   const [missing, setMissing] = useState<string[]>([]); // 미리보기를 눌렀을 때 비어 있던 필수 칸
   const requiredCols = REQUIRED_COLS;
@@ -151,13 +153,18 @@ export default function Page() {
   });
 
   const runPreview = (c = cols) => run(async () => { // c: "맞아요" 직후에는 아직 반영 안 된 새 열 값을 직접 넘긴다
-    setExclude(false);
+    setExclude(false); setNotice(null);
     setPreview(await api<Preview>("/sales-imports/preview", { method: "POST", body: form({ options: options(false, c) }) }));
   });
 
   const commit = () => run(async () => {
-    setDone(await api<Done>("/sales-imports", { method: "POST", body: form({ options: options(exclude) }) }));
-    setPreview(null);
+    try {
+      setDone(await api<Done>("/sales-imports", { method: "POST", body: form({ options: options(exclude, cols, preview?.apply_count) }) }));
+      setPreview(null);
+    } catch (e) {
+      if (!isPreviewChanged(e)) throw e;
+      setPreview(null); setNotice(PREVIEW_CHANGED_NOTICE); // 미리보기 상태로 돌려보낸다
+    }
   });
 
   const canCommit = preview && preview.apply_count > 0 && channel && (preview.problem_count === 0 || exclude);

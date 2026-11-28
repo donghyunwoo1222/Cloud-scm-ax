@@ -25,7 +25,8 @@ from app.services import stock as stock_service  # 이력은 register_movement �
 from app.services.export import FORMULA_START  # 내보내기(#191)가 ' 를 붙이는 시작 글자
 
 MAX_BYTES = 5 * 1024 * 1024  # 파일 크기 상한 5MB
-MAX_ROWS = 5000  # 데이터 행 상한 (머리글 제외)
+MAX_ROWS = 5000  # 데이터 행 상한 (머리글·빈 줄 제외)
+MAX_RAW_ROWS = 200_000  # 빈 줄을 포함한 원래 줄 수 상한 (5MB 이하 파일이라도 빈 줄만 수십만 줄인 경우 방어)
 MAX_QUANTITY = 1_000_000  # 한 줄 수량 상한 (입출고 등록과 같은 규칙)
 MAX_PROBLEMS_SHOWN = 200  # 응답에 담는 문제 행 목록 길이 (전체 개수는 따로 준다)
 MAX_STATUS_VALUES = 50  # 상태 값 목록 상한 (고유 값이 이보다 많으면 상태 열로 부적합)
@@ -84,8 +85,34 @@ def _unquote(cell: str) -> str:
     return cell[1:] if cell.startswith("'") and cell[1:].startswith(FORMULA_START) else cell
 
 
+class Row(list):
+    """데이터 한 줄. 엑셀에서 보이는 원래 행 번호(no)를 함께 들고 다닌다 (빈 줄을 걸러도 번호는 그대로)."""
+
+    no: int
+
+
+def row_no(row: list[str], offset: int) -> int:
+    """문제 행 번호. read_table 이 준 줄이면 원래 번호, 직접 만든 일반 리스트면 (머리글 1 + 순서) 로 계산."""
+    return getattr(row, "no", offset + 2)
+
+
+def _keep_data_rows(raw) -> list[Row]:
+    """줄을 하나씩 읽으며 빈 줄을 바로 거르고 데이터 줄만 센다 (머리글 포함 MAX_ROWS + 1 줄까지만 허용)."""
+    table: list[Row] = []
+    for n, cells in enumerate(raw, start=1):  # n 은 원래 줄 번호 (엑셀 행 번호)
+        if n > MAX_RAW_ROWS:  # 빈 줄만 수십만 줄인 비정상 파일이 시간·메모리를 쓰지 못하게 막는다
+            raise invalid("INVALID_FILE", f"파일이 {MAX_RAW_ROWS:,}줄을 넘습니다. 빈 줄을 지우고 다시 올려 주세요.")
+        if any(c.strip() for c in cells):
+            row = Row(cells)
+            row.no = n
+            table.append(row)
+            if len(table) > MAX_ROWS + 1:  # 자르지 않고 거절한다 (뒤쪽 데이터가 조용히 빠지면 안 된다)
+                raise invalid("TOO_MANY_ROWS", f"행은 {MAX_ROWS:,}개 이하여야 합니다.")
+    return table
+
+
 def read_table(filename: str, content: bytes) -> tuple[list[str], list[list[str]]]:
-    """파일 → (머리글, 데이터 행들). 크기·행 수·형식 검사를 여기서 한다."""
+    """파일 → (머리글, 데이터 행들). 크기·행 수·형식 검사를 여기서 한다. 데이터 행은 Row(원래 행 번호 포함)."""
     if len(content) > MAX_BYTES:
         raise invalid("FILE_TOO_LARGE", "파일은 5MB 이하여야 합니다.")
     name = (filename or "").lower()
@@ -97,29 +124,22 @@ def read_table(filename: str, content: bytes) -> tuple[list[str], list[list[str]
                 text = content.decode("cp949")  # 한국 엑셀이 저장한 CSV
             except UnicodeDecodeError:
                 raise invalid("INVALID_FILE", "CSV 인코딩을 읽을 수 없습니다. UTF-8로 저장해 올려 주세요.") from None
-        table = [[_unquote(c) for c in row] for row in csv.reader(io.StringIO(text))]
+        table = _keep_data_rows([_unquote(c) for c in cells] for cells in csv.reader(io.StringIO(text)))
     elif name.endswith(".xlsx"):
         try:
             workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)  # 읽기 전용: 메모리를 아낀다
             sheet = workbook.worksheets[0]  # 첫 시트만 읽는다
-            table = []
-            for row in sheet.iter_rows(values_only=True):
-                table.append([_cell_text(v) for v in row])
-                if len(table) > MAX_ROWS + 1:  # 한도를 넘으면 더 읽지 않는다
-                    break
+            table = _keep_data_rows([_cell_text(v) for v in cells] for cells in sheet.iter_rows(values_only=True))
+        except AppError:  # 행 수 상한 오류는 그대로 낸다
+            raise
         except Exception:  # noqa: BLE001 - openpyxl 이 파일 모양에 따라 여러 종류 예외를 내므로 모두 "읽을 수 없음"으로 처리
             raise invalid("INVALID_FILE", "엑셀(.xlsx) 파일을 읽을 수 없습니다.") from None
     else:
         raise invalid("INVALID_FILE", "CSV 또는 .xlsx 파일만 올릴 수 있습니다.")
 
-    table = [row for row in table if any(c.strip() for c in row)]  # 완전히 빈 줄은 버린다
     if not table:
         raise invalid("INVALID_FILE", "파일이 비어 있습니다.")
-    headers = [c.strip() for c in table[0]]
-    rows = table[1:]
-    if len(rows) > MAX_ROWS:
-        raise invalid("TOO_MANY_ROWS", f"행은 {MAX_ROWS:,}개 이하여야 합니다.")
-    return headers, rows
+    return [c.strip() for c in table[0]], table[1:]
 
 
 def suggest_columns(headers: list[str], hints: dict[str, list[str]] = HINTS) -> dict[str, int | None]:
@@ -170,12 +190,14 @@ def parse_date(text: str) -> date | None:
         return None
 
 
+_QUANTITY_RE = re.compile(r"^(\d+|\d{1,3}(,\d{3})+)$", re.ASCII)  # 1200 또는 1,200 / 12,345,678
+
+
 def parse_quantity(text: str) -> int | None:
-    """수량 글자를 1~100만 정수로. 천 단위 쉼표는 허용(예: "1,200"). 아니면 None."""
-    t = text.replace(",", "")
-    if not t.isascii() or not t.isdigit():
+    """수량 글자를 1~100만 정수로. 올바른 천 단위 쉼표만 허용(예: "1,200"). 아니면 None."""
+    if not _QUANTITY_RE.match(text):  # "1,5" · "12,34,567" 처럼 천 단위가 아닌 쉼표는 자동으로 고치지 않고 문제로 둔다
         return None
-    n = int(t)
+    n = int(text.replace(",", ""))
     return n if 1 <= n <= MAX_QUANTITY else None
 
 
@@ -205,11 +227,11 @@ def analyze(company_id: int, db: Session, rows: list[list[str]], opts: SalesImpo
     seen_refs: set[tuple[str, str]] = set()  # 파일에서 앞서 나온 (주문번호, SKU). 주문 1건에 품목 여러 줄은 정상이다 (#254)
     option_values: dict[str, set[str]] = defaultdict(set)  # SKU 별 옵션 값 종류
 
-    def problem(row_no: int, reason: str, sku: str | None = None) -> None:
-        problems.append({"row": row_no, "reason": reason, "message": PROBLEM_MESSAGES[reason], "sku": sku})
+    def problem(n: int, reason: str, sku: str | None = None) -> None:
+        problems.append({"row": n, "reason": reason, "message": PROBLEM_MESSAGES[reason], "sku": sku})
 
     for offset, row in enumerate(rows):
-        row_no = offset + 2  # 머리글이 1줄이라 첫 데이터 행은 2
+        line_no = row_no(row, offset)  # 엑셀에서 보이는 원래 행 번호 (빈 줄이 있어도 그대로)
         if opts.status_col is not None and _get(row, opts.status_col) not in selected:
             skipped["STATUS_NOT_SELECTED"] += 1  # 반영하기로 고르지 않은 상태 (상태 열이 없으면 모두 반영)
             continue
@@ -218,20 +240,20 @@ def analyze(company_id: int, db: Session, rows: list[list[str]], opts: SalesImpo
         day = parse_date(_get(row, opts.date_col))
         ref = _get(row, opts.ref_col)
         if not sku:
-            problem(row_no, "MISSING_SKU")
+            problem(line_no, "MISSING_SKU")
         elif quantity is None:
-            problem(row_no, "INVALID_QUANTITY", sku)
+            problem(line_no, "INVALID_QUANTITY", sku)
         elif day is None:
-            problem(row_no, "INVALID_DATE", sku)
+            problem(line_no, "INVALID_DATE", sku)
         elif bad_date := date_problem(day, today):
-            problem(row_no, bad_date, sku)  # 수동 등록과 같은 규칙: 미래·5년보다 이른 날짜는 안 받는다
+            problem(line_no, bad_date, sku)  # 수동 등록과 같은 규칙: 미래·5년보다 이른 날짜는 안 받는다
         elif not ref or len(ref) > 100:
-            problem(row_no, "MISSING_REF", sku)
+            problem(line_no, "MISSING_REF", sku)
         elif (ref, sku) in seen_refs:
-            problem(row_no, "DUPLICATE_REF_IN_FILE", sku)  # 앞의 행은 유지하고 뒤의 겹친 행만 막는다 (합산하지 않는다)
+            problem(line_no, "DUPLICATE_REF_IN_FILE", sku)  # 앞의 행은 유지하고 뒤의 겹친 행만 막는다 (합산하지 않는다)
         else:
             seen_refs.add((ref, sku))
-            candidates.append(Line(row_no, sku, quantity, day, ref))
+            candidates.append(Line(line_no, sku, quantity, day, ref))
             if opts.option_col is not None and _get(row, opts.option_col):
                 option_values[sku].add(_get(row, opts.option_col))
 
@@ -334,6 +356,16 @@ def _check_columns(headers: list[str], opts: SalesImportOptions) -> None:
         raise invalid("VALIDATION_ERROR", "상품 코드·수량·날짜·주문번호는 서로 다른 열이어야 합니다.")
 
 
+def check_preview_unchanged(expected: int | None, actual: int) -> None:
+    """화면이 미리보기에서 본 반영 건수(expected)와 지금 계산한 건수가 다르면 아무것도 쓰기 전에 409. 안 보냈으면 검사 안 함.
+
+    예) 미리보기 반영 3건 → 그 사이 다른 출고로 재고가 줄어 지금은 2건 → 409 PREVIEW_CHANGED.
+    """
+    if expected is not None and expected != actual:
+        raise AppError(409, "PREVIEW_CHANGED", f"미리보기 이후 데이터가 바뀌었습니다. 반영 {expected}건 → {actual}건. 미리보기부터 다시 하세요.",
+                       {"expected_apply_count": expected, "apply_count": actual})
+
+
 def preview(company_id: int, db: Session, filename: str, content: bytes, opts: SalesImportOptions) -> dict:
     """2단계: 미리보기. 아무것도 쓰지 않는다."""
     headers, rows = read_table(filename, content)
@@ -363,6 +395,7 @@ def commit(company_id: int, db: Session, user_id: int, filename: str, content: b
         ).all()  # FOR UPDATE: 결과가 번호순이라 잠금도 번호순
     # ② 잠근 뒤에 계산한다 (먼저 끝난 다른 요청의 재고·주문번호가 반영된 값을 본다)
     result = analyze(company_id, db, rows, opts, today)
+    check_preview_unchanged(opts.expected_apply_count, len(result["to_apply"]))
     if result["problems"] and not opts.exclude_problems:
         raise AppError(409, "IMPORT_HAS_PROBLEMS", f"문제 행이 {len(result['problems'])}건 있어 반영할 수 없습니다.",
                        {"problem_count": len(result["problems"])})
